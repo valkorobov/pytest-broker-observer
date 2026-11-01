@@ -18,7 +18,7 @@ from .config import (
     TransportBufferLimits,
 )
 from .decoders import Decoder, PayloadAccess
-from .diagnostics import DiagnosticPolicy, DiagnosticReporter, ReportingMode
+from .diagnostics import DiagnosticPolicy, DiagnosticReporter
 from .errors import (
     ConfigurationError,
     ObserverFailedError,
@@ -315,14 +315,13 @@ class SyncEventWatcher(SyncEventScope[T]):
             raise
         finally:
             if report and self._portal.running and self._async.reporters:
-                mode = self._async.factory.diagnostic_policy.mode
-                if force_report or error is not None or mode != ReportingMode.ERRORS_ONLY:
 
-                    async def export():
-                        return self._async._diagnostics.export()
+                async def prepare_report():
+                    return self._async._diagnostics.prepare_report(force=force_report or error is not None)
 
-                    try:
-                        exported = self._portal.call(export)
+                try:
+                    exported = self._portal.call(prepare_report)
+                    if exported is not None:
                         for reporter in self._async.reporters:
                             try:
                                 reporter.emit(exported)
@@ -335,8 +334,8 @@ class SyncEventWatcher(SyncEventScope[T]):
                                     return self._async._diagnostics.snapshot()
 
                                 self._cached_diagnostics = self._portal.call(record_reporter_error)
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
 
     def _call(self, operation, *, report=True):
         async def call():
@@ -390,7 +389,6 @@ class SyncEventWatcher(SyncEventScope[T]):
                 try:
                     self._cached_snapshot = self._async.snapshot()
                     self._cached_diagnostics = self._async._diagnostics.snapshot()
-                    self._cached_export = self._async._diagnostics.export()
                 except Exception:
                     self._async._diagnostics.record("diagnostic_cache_failure")
 
@@ -402,10 +400,27 @@ class SyncEventWatcher(SyncEventScope[T]):
             )
         finally:
             try:
-                self._portal.stop()
-            except BaseException:
-                if exc_value is None:
-                    raise
+                # Automatic reports have priority over the optional full
+                # post-close export cache in the remaining byte budget.
+                if self._portal.running:
+
+                    async def cache_export():
+                        try:
+                            return self._async._diagnostics.export()
+                        except Exception:
+                            self._async._diagnostics.record("diagnostic_cache_failure")
+                            return None
+
+                    try:
+                        self._cached_export = self._portal.call(cache_export)
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    self._portal.stop()
+                except BaseException:
+                    if exc_value is None:
+                        raise
 
     def close(self) -> None:
         self._finish(False)

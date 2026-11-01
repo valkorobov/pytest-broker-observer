@@ -4,13 +4,14 @@ import asyncio
 from contextlib import contextmanager
 import json
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
 
 from event_observer import EventObserver, SyncEventObserver
-from event_observer.diagnostics import DiagnosticExport, DiagnosticPolicy, ReportingMode
-from event_observer.errors import TransportError
+from event_observer.diagnostics import DiagnosticExport, DiagnosticLimits, DiagnosticPolicy, ReportingMode
+from event_observer.errors import ObserverCleanupError, ObserverFailedError, TransportError
 from event_observer.integrations.allure import AllureReporter
 from event_observer.testing import FakeTransport
 
@@ -221,3 +222,260 @@ def test_display_labels_are_bounded_and_single_line(allure_capture):
     assert step.title.startswith("Event observation summary [KafkaAdapter: events ")
     assert "\n" not in step.title and "\t" not in step.title
     assert len(step.title) < 1100
+
+
+def _reported_expectations(step):
+    body = dict(step.attachments).get("expectation-result.json")
+    return json.loads(body)["expectations"] if body is not None else []
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_one_successful_wait_creates_one_allure_step_even_after_close(allure_capture, sync):
+    adapter = FakeTransport()
+    factory_type = SyncEventObserver if sync else EventObserver
+    events = factory_type(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+    predicate_calls = []
+
+    def matches(payload):
+        predicate_calls.append(payload)
+        return payload == b"completed"
+
+    async def async_case():
+        async with events.watch(source="operations") as watcher:
+            assert allure_capture == []
+            adapter.publish(b"completed", source="operations")
+            assert await watcher.wait_for(matches, timeout=1) == b"completed"
+            assert len(allure_capture) == 1
+        await watcher.close()
+
+    def sync_case():
+        with events.watch(source="operations") as watcher:
+            assert allure_capture == []
+            adapter.publish(b"completed", source="operations")
+            assert watcher.wait_for(matches, timeout=1) == b"completed"
+            assert len(allure_capture) == 1
+        watcher.close()
+
+    sync_case() if sync else asyncio.run(async_case())
+    assert predicate_calls == [b"completed"]
+    [step] = allure_capture
+    assert step.title == "Event observation summary [FakeTransport: operations]"
+    assert [summary["outcome"] for summary in _reported_expectations(step)] == ["matched"]
+    assert dict(step.attachments)["expectation-result.txt"].count("Outcome: MATCHED") == 1
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_repeated_waits_have_distinct_reports_and_manual_exports_keep_full_history(allure_capture, sync):
+    adapter = FakeTransport()
+    factory_type = SyncEventObserver if sync else EventObserver
+    events = factory_type(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+    predicate_calls = []
+
+    def matches(payload):
+        predicate_calls.append(payload)
+        return payload == b"completed"
+
+    async def async_case():
+        async with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            for _ in range(2):
+                assert await watcher.wait_for(matches, timeout=1) == b"completed"
+            before = watcher.diagnostics.export().to_dict()
+            snapshot = watcher.diagnostics.snapshot()
+        await watcher.close()
+        return before, watcher.diagnostics.export().to_dict(), snapshot
+
+    def sync_case():
+        with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            for _ in range(2):
+                assert watcher.wait_for(matches, timeout=1) == b"completed"
+            before = watcher.diagnostics.export().to_dict()
+            snapshot = watcher.diagnostics.snapshot()
+        watcher.close()
+        return before, watcher.diagnostics.export().to_dict(), snapshot
+
+    before, after, snapshot = sync_case() if sync else asyncio.run(async_case())
+    assert predicate_calls == [b"completed", b"completed"]
+    assert len(allure_capture) == 2
+    summaries = [_reported_expectations(step) for step in allure_capture]
+    assert [len(items) for items in summaries] == [1, 1]
+    reported_ids = [items[0]["expectation_id"] for items in summaries]
+    assert len(set(reported_ids)) == 2
+    assert [item["expectation_id"] for item in before["expectations"]] == reported_ids
+    assert [item["expectation_id"] for item in after["expectations"]] == reported_ids
+    assert [item.expectation_id for item in snapshot.expectations] == reported_ids
+    for index, step in enumerate(allure_capture):
+        text = dict(step.attachments)["expectation-result.txt"]
+        assert text.count("Outcome: MATCHED") == 1
+        assert reported_ids[index] in text
+        assert reported_ids[1 - index] not in text
+
+
+@pytest.mark.asyncio
+async def test_concurrent_waiters_each_create_one_distinct_allure_result(allure_capture):
+    adapter = FakeTransport()
+    events = EventObserver(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+    async with events.watch(source="operations") as watcher:
+        assert allure_capture == []
+        first = asyncio.create_task(watcher.wait_for(lambda _: True, timeout=1))
+        second = asyncio.create_task(watcher.wait_for_event(lambda _: True, timeout=1))
+        adapter.publish(b"completed", source="operations")
+        payload, event = await asyncio.gather(first, second)
+        assert payload == event.payload == b"completed"
+    assert len(allure_capture) == 2
+    summaries = [_reported_expectations(step) for step in allure_capture]
+    assert [len(items) for items in summaries] == [1, 1]
+    assert len({items[0]["expectation_id"] for items in summaries}) == 2
+
+
+def _assert_failure_does_not_repeat_matching_result(steps, kind):
+    assert len(steps) == 2
+    assert [summary["outcome"] for summary in _reported_expectations(steps[0])] == ["matched"]
+    assert _reported_expectations(steps[1]) == []
+    attachments = dict(steps[1].attachments)
+    assert "expectation-result.txt" not in attachments
+    failures = json.loads(attachments["observer-summary.json"])["failures"]
+    assert kind in {record["kind"] for record in failures}
+    assert not any("SECRET" in body for step in steps for _, body in step.attachments)
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_context_failure_after_success_has_its_own_report_without_matching_duplicates(allure_capture, sync):
+    adapter = FakeTransport()
+    factory_type = SyncEventObserver if sync else EventObserver
+    events = factory_type(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+
+    async def async_case():
+        async with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert await watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+            raise ValueError("SECRET_BODY_ERROR")
+
+    def sync_case():
+        with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+            raise ValueError("SECRET_BODY_ERROR")
+
+    with pytest.raises(ValueError, match="SECRET_BODY_ERROR"):
+        sync_case() if sync else asyncio.run(async_case())
+    _assert_failure_does_not_repeat_matching_result(allure_capture, "context_failure")
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_cleanup_failure_after_success_is_still_reported_once(allure_capture, sync):
+    class FailingCleanupTransport(FakeTransport):
+        async def open(self, source, start, *, context):
+            session = await super().open(source, start, context=context)
+            original_close = session.close
+
+            async def close(*, deadline):
+                await original_close(deadline=deadline)
+                raise TransportError("SECRET_CLEANUP_ERROR")
+
+            session.close = close
+            return session
+
+    adapter = FailingCleanupTransport()
+    factory_type = SyncEventObserver if sync else EventObserver
+    events = factory_type(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+
+    async def async_case():
+        async with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert await watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+
+    def sync_case():
+        with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+
+    with pytest.raises(ObserverCleanupError):
+        sync_case() if sync else asyncio.run(async_case())
+    _assert_failure_does_not_repeat_matching_result(allure_capture, "cleanup_failure")
+    assert adapter.close_count == 1
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_background_failure_after_success_is_reported_on_exit(allure_capture, sync):
+    failed = threading.Event()
+
+    class SignallingTransport(FakeTransport):
+        async def open(self, source, start, *, context):
+            session = await super().open(source, start, context=context)
+            original_record = context.diagnostics.record
+
+            def record(kind, **attributes):
+                original_record(kind, **attributes)
+                if kind == "terminal_failure":
+                    failed.set()
+
+            context.diagnostics.record = record
+            return session
+
+    adapter = SignallingTransport()
+    factory_type = SyncEventObserver if sync else EventObserver
+    events = factory_type(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+
+    async def async_case():
+        async with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert await watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+            adapter.fail(TransportError("SECRET_BACKGROUND_ERROR"))
+            assert await asyncio.to_thread(failed.wait, 1)
+            assert len(allure_capture) == 1
+
+    def sync_case():
+        with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+            adapter.fail(TransportError("SECRET_BACKGROUND_ERROR"))
+            assert failed.wait(1)
+            assert len(allure_capture) == 1
+
+    with pytest.raises(ObserverFailedError):
+        sync_case() if sync else asyncio.run(async_case())
+    _assert_failure_does_not_repeat_matching_result(allure_capture, "terminal_failure")
+
+
+def test_sync_context_error_report_has_budget_priority_over_full_export_cache(allure_capture):
+    adapter = FakeTransport()
+    events = SyncEventObserver(
+        transport=adapter,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            limits=DiagnosticLimits(max_export_bytes=6144),
+        ),
+    )
+    with pytest.raises(ValueError, match="SECRET_BODY_ERROR"):
+        with events.watch(source="operations") as watcher:
+            adapter.publish(b"completed", source="operations")
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"completed"
+            raise ValueError("SECRET_BODY_ERROR")
+    _assert_failure_does_not_repeat_matching_result(allure_capture, "context_failure")

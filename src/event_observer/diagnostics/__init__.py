@@ -275,6 +275,9 @@ _SAFE_FIELDS = frozenset(
 )
 _CODE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}\Z")
 _NO_PAYLOAD = object()
+_FAILURE_KINDS = frozenset(
+    {"startup_failure", "terminal_failure", "cleanup_failure", "startup_cleanup_failure", "context_failure"}
+)
 _DENIED_FIELDS = frozenset(
     {
         "password",
@@ -311,6 +314,9 @@ class DiagnosticCollector:
         self._reporter_errors = 0
         self._failure_generation = 0
         self._reported_failure_generation = 0
+        self._expectation_generation = 0
+        self._reported_expectation_generation = 0
+        self._reported_record_sequence = 0
         self._counters = {"received": 0, "retained": 0, "dropped": 0, "filtered": 0}
         self._content_capture_bytes = 0
         self._truncated_attributes = False
@@ -383,7 +389,7 @@ class DiagnosticCollector:
             self._counters["received"] += 1
             self._counters["filtered"] += 1
             return
-        if kind in {"terminal_failure", "cleanup_failure", "startup_cleanup_failure", "context_failure"}:
+        if kind in _FAILURE_KINDS:
             self._failure_generation += 1
         self._sequence += 1
         kind = kind if isinstance(kind, str) and _CODE.fullmatch(kind) else "diagnostic"
@@ -479,6 +485,7 @@ class DiagnosticCollector:
             # General-purpose attribute allowlists never permit raw payloads.
             safe["samples"] = [*samples[0], *samples[1]]
         self._expectations.append(ExpectationDiagnostics(safe))
+        self._expectation_generation += 1
 
     def snapshot(self) -> DiagnosticSnapshot:
         return DiagnosticSnapshot(
@@ -538,8 +545,7 @@ class DiagnosticCollector:
         documents: dict[str, Any] = {}
         records = data.get("records", [])
         expectations = data.get("expectations", [])
-        failure_kinds = {"terminal_failure", "cleanup_failure", "startup_cleanup_failure", "context_failure"}
-        failures = [record for record in records if record["kind"] in failure_kinds]
+        failures = [record for record in records if record["kind"] in _FAILURE_KINDS]
         if failures:
             documents["observer-summary.json"] = {
                 "schema_version": 1,
@@ -598,7 +604,43 @@ class DiagnosticCollector:
         return documents
 
     def export(self) -> DiagnosticExport:
+        """Export the full retained snapshot without acknowledging automatic reports."""
+        return self._export(self.snapshot().to_dict())
+
+    def prepare_report(self, *, force: bool = False) -> DiagnosticExport | None:
+        """Export new completed results/errors once, before reporter callbacks run."""
+        pending = self._expectation_generation - self._reported_expectation_generation
+        failed = self._failure_generation > self._reported_failure_generation
+        if not force:
+            if self.policy.mode is ReportingMode.ERRORS_ONLY and not failed:
+                return None
+            if not pending and not failed:
+                return None
+
         data = self.snapshot().to_dict()
+        data["expectations"] = data["expectations"][-pending:] if pending else []
+        data["records"] = [
+            record for record in data["records"] if record["sequence"] > self._reported_record_sequence
+        ]
+        data["omitted_expectations"] = max(0, pending - len(data["expectations"]))
+        data["omitted_records"] = max(
+            0, self._sequence - self._reported_record_sequence - len(data["records"])
+        )
+        data["truncated"] = bool(
+            data["omitted_expectations"]
+            or data["omitted_records"]
+            or self._counters.get("content_omitted")
+            or self._truncated_attributes
+        )
+        report = self._export(data)
+        # Internal generations remain useful when retention or export limits
+        # omit IDs. A failed export leaves every pending item unacknowledged.
+        self._reported_expectation_generation = self._expectation_generation
+        self._reported_failure_generation = self._failure_generation
+        self._reported_record_sequence = self._sequence
+        return report
+
+    def _export(self, data: dict[str, Any]) -> DiagnosticExport:
         budget = min(
             self.policy.limits.max_attachment_bytes,
             self.policy.limits.max_export_bytes - self._exported_bytes,
@@ -656,18 +698,13 @@ class DiagnosticCollector:
         """Best effort automatic reporting; reporter faults never change results."""
         if not reporters:
             return
-        if (
-            not force
-            and self.policy.mode is ReportingMode.ERRORS_ONLY
-            and self._failure_generation <= self._reported_failure_generation
-        ):
-            return
         try:
-            report = self.export()
+            report = self.prepare_report(force=force)
         except Exception:
             self._reporter_errors += 1
             return
-        self._reported_failure_generation = self._failure_generation
+        if report is None:
+            return
         for reporter in reporters:
             try:
                 reporter.emit(report)

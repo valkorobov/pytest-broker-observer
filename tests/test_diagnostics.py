@@ -177,6 +177,182 @@ def test_summary_mode_includes_success():
     assert len(reports) == 1
 
 
+@pytest.mark.parametrize("mode", [ReportingMode.SUMMARY, ReportingMode.VERBOSE])
+def test_automatic_reporting_waits_for_a_result_and_skips_normal_close(mode):
+    diagnostics = DiagnosticCollector("watcher-1", DiagnosticPolicy(mode=mode))
+    diagnostics.record("ready")
+    assert diagnostics.prepare_report() is None
+    assert diagnostics._exported_bytes == 0
+
+    diagnostics.record_expectation(expectation_id="first", outcome="matched", matched=1)
+    report = diagnostics.prepare_report()
+    assert report is not None
+    assert [item["expectation_id"] for item in report.to_dict()["expectations"]] == ["first"]
+    assert [record["kind"] for record in report.to_dict()["records"]] == ["ready"]
+    spent = diagnostics._exported_bytes
+
+    diagnostics.record("admission", retained=True)
+    diagnostics.record("closed", cleanup_state="complete")
+    assert diagnostics.prepare_report() is None
+    assert diagnostics.prepare_report() is None
+    assert diagnostics._exported_bytes == spent
+
+
+def test_automatic_reports_contain_only_new_results_but_manual_exports_keep_history():
+    diagnostics = DiagnosticCollector("watcher-1", DiagnosticPolicy(mode=ReportingMode.SUMMARY))
+    diagnostics.record_expectation(expectation_id="first", outcome="matched", matched=1)
+    assert diagnostics.prepare_report() is not None
+    diagnostics.record_expectation(expectation_id="second", outcome="matched", matched=1)
+
+    manual = diagnostics.export().to_dict()
+    assert [item["expectation_id"] for item in manual["expectations"]] == ["first", "second"]
+    automatic = diagnostics.prepare_report()
+    assert automatic is not None
+    assert [item["expectation_id"] for item in automatic.to_dict()["expectations"]] == ["second"]
+    assert "Expectation ID: first" not in automatic.attachments["expectation-result.txt"]
+    assert diagnostics.prepare_report() is None
+    assert [item["expectation_id"] for item in diagnostics.export().to_dict()["expectations"]] == [
+        "first",
+        "second",
+    ]
+
+
+def test_identical_recorded_results_are_distinct_completed_waits():
+    diagnostics = DiagnosticCollector(
+        "watcher-1",
+        DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            limits=DiagnosticLimits(max_expectation_summaries=1),
+        ),
+    )
+    for _ in range(3):
+        # Internal generations must work even when IDs are absent or repeated.
+        diagnostics.record_expectation(outcome="matched", matched=1)
+        report = diagnostics.prepare_report()
+        assert report is not None
+        assert report.to_dict()["expectations"] == [{"outcome": "matched", "matched": 1}]
+        assert report.to_dict()["omitted_expectations"] == 0
+        assert not report.truncated
+        assert diagnostics.prepare_report() is None
+    assert diagnostics.snapshot().omitted_expectations == 2
+    assert diagnostics.export().truncated
+
+
+def test_automatic_report_retention_omissions_apply_to_the_pending_window():
+    diagnostics = DiagnosticCollector(
+        "watcher-1",
+        DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            limits=DiagnosticLimits(max_records=1, max_expectation_summaries=1),
+        ),
+    )
+    for number in range(3):
+        diagnostics.record("ready", count=number)
+        diagnostics.record_expectation(expectation_id=f"wait_{number}", outcome="matched")
+    report = diagnostics.prepare_report()
+    assert report is not None
+    assert report.to_dict()["omitted_expectations"] == 2
+    assert report.to_dict()["omitted_records"] == 2
+    assert report.truncated
+
+    diagnostics.record("closed", cleanup_state="complete")
+    diagnostics.record_expectation(expectation_id="next", outcome="matched")
+    later = diagnostics.prepare_report()
+    assert later is not None
+    assert later.to_dict()["omitted_expectations"] == 0
+    assert later.to_dict()["omitted_records"] == 0
+    assert not later.truncated
+    assert diagnostics.snapshot().omitted_expectations == 3
+    assert diagnostics.snapshot().omitted_records == 3
+
+
+def test_errors_only_preparation_preserves_unreported_success_until_a_failure():
+    diagnostics = DiagnosticCollector("watcher-1")
+    diagnostics.record_expectation(expectation_id="first", outcome="matched")
+    assert diagnostics.prepare_report() is None
+    assert diagnostics._exported_bytes == 0
+    diagnostics.record_expectation(expectation_id="failure", outcome="timeout")
+    report = diagnostics.prepare_report()
+    assert report is not None
+    assert [item["expectation_id"] for item in report.to_dict()["expectations"]] == ["first", "failure"]
+    assert diagnostics.prepare_report() is None
+
+    diagnostics.record_expectation(expectation_id="later", outcome="matched")
+    assert diagnostics.prepare_report() is None
+    diagnostics.record("context_failure", error_type="ValueError")
+    later = diagnostics.prepare_report()
+    assert later is not None
+    assert [item["expectation_id"] for item in later.to_dict()["expectations"]] == ["later"]
+    assert diagnostics.prepare_report() is None
+
+
+@pytest.mark.parametrize(
+    "kind", ["startup_failure", "context_failure", "cleanup_failure", "terminal_failure"]
+)
+def test_new_lifecycle_failure_does_not_repeat_an_already_reported_result(kind):
+    diagnostics = DiagnosticCollector("watcher-1", DiagnosticPolicy(mode=ReportingMode.SUMMARY))
+    diagnostics.record_expectation(expectation_id="success", outcome="matched")
+    assert diagnostics.prepare_report() is not None
+    diagnostics.record(kind, error_code="transport_connection", error_type="TransportError")
+    report = diagnostics.prepare_report()
+    assert report is not None
+    assert report.to_dict()["expectations"] == []
+    assert [record["kind"] for record in report.to_dict()["records"]] == [kind]
+    assert "observer-summary.json" in report.attachments
+    assert "transport-state.json" in report.attachments
+    assert "expectation-result.json" not in report.attachments
+    assert "expectation-result.txt" not in report.attachments
+    assert diagnostics.prepare_report() is None
+
+
+def test_forced_report_can_export_pending_lifecycle_without_repeating_results():
+    diagnostics = DiagnosticCollector("watcher-1", DiagnosticPolicy(mode=ReportingMode.SUMMARY))
+    diagnostics.record_expectation(expectation_id="success", outcome="matched")
+    assert diagnostics.prepare_report() is not None
+    diagnostics.record("closed", cleanup_state="complete")
+    report = diagnostics.prepare_report(force=True)
+    assert report is not None
+    assert report.to_dict()["expectations"] == []
+    assert [record["kind"] for record in report.to_dict()["records"]] == ["closed"]
+    assert diagnostics.prepare_report() is None
+
+
+def test_failed_automatic_export_leaves_pending_results_available(monkeypatch):
+    diagnostics = DiagnosticCollector("watcher-1", DiagnosticPolicy(mode=ReportingMode.SUMMARY))
+    diagnostics.record_expectation(expectation_id="pending", outcome="matched")
+    export = diagnostics._export
+
+    def fail(_):
+        raise DiagnosticExportError("Temporary export failure")
+
+    monkeypatch.setattr(diagnostics, "_export", fail)
+    with pytest.raises(DiagnosticExportError):
+        diagnostics.prepare_report()
+    monkeypatch.setattr(diagnostics, "_export", export)
+    report = diagnostics.prepare_report()
+    assert report is not None
+    assert [item["expectation_id"] for item in report.to_dict()["expectations"]] == ["pending"]
+    assert diagnostics.prepare_report() is None
+
+
+def test_automatic_result_cursors_do_not_depend_on_exported_identifiers():
+    diagnostics = DiagnosticCollector(
+        "watcher-1",
+        DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            limits=DiagnosticLimits(max_attachment_bytes=128, max_export_bytes=4096),
+        ),
+    )
+    diagnostics.record_expectation(expectation_id="omitted_by_budget", outcome="matched")
+    report = diagnostics.prepare_report()
+    assert report is not None and report.truncated
+    assert "omitted_by_budget" not in report.to_json()
+    spent = diagnostics._exported_bytes
+    diagnostics.record("closed", cleanup_state="complete")
+    assert diagnostics.prepare_report() is None
+    assert diagnostics._exported_bytes == spent
+
+
 def test_core_import_and_missing_optional_dependencies_in_clean_process():
     import os
     from pathlib import Path

@@ -412,10 +412,9 @@ class EventWatcher(_EventView[T]):
         context = OpenContext(
             self.observer_id, deadline, self.factory.buffers, self.identity, self._diagnostics, self._clock
         )
-        if self.start_position.mode.value not in self.factory.transport.capabilities.start_modes:
-            self.state = LifecycleState.FAILED
-            raise UnsupportedCapabilityError("Transport does not support the requested start mode")
         try:
+            if self.start_position.mode.value not in self.factory.transport.capabilities.start_modes:
+                raise UnsupportedCapabilityError("Transport does not support the requested start mode")
             async with asyncio.timeout(max(0.0, deadline - self._clock.monotonic())):
                 self._session = await self.factory.transport.open(
                     self.source, self.start_position, context=context
@@ -452,6 +451,11 @@ class EventWatcher(_EventView[T]):
         except BaseException as error:
             self.state = LifecycleState.FAILED
             self.terminal_error = error
+            self._diagnostics.record(
+                "startup_failure",
+                error_type=type(error).__name__,
+                error_code=getattr(error, "code", None),
+            )
             try:
                 await self.close()
             except BaseException:
