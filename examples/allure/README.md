@@ -1,8 +1,9 @@
 # Pytest-примеры с AllureReporter
 
-Примеры используют `FakeTransport` и работают без Kafka. Здесь есть sync/async
-ожидания, диагностика timeout, очистка JSON payload и отдельный намеренно
-падающий тест. Все команды выполняются из корня репозитория.
+В `test_allure_reporter.py` сценарии с `FakeTransport` показывают sync/async
+ожидания, диагностику timeout, очистку JSON payload и намеренное падение.
+В `test_kafka.py` два интеграционных теста используют настоящую Kafka из
+Docker Compose. Все команды выполняются из корня репозитория.
 
 ## Подготовка
 
@@ -28,7 +29,7 @@ Python extra `allure` устанавливает pytest-плагин, CLI уст
 ## Обычный прогон и просмотр отчёта
 
 ```shell
-uv run pytest -c pyproject.toml examples/allure -v --alluredir=artifacts/allure-results --clean-alluredir
+uv run pytest -c pyproject.toml examples/allure -m 'not integration' -v --alluredir=artifacts/allure-results --clean-alluredir
 npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language ru
 npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 5050
 ```
@@ -56,12 +57,60 @@ npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 505
 В redaction-сценарии `message-content.json` содержит `operation_id` и `status`,
 но не токен; оригинальный payload теста сохраняется без изменений.
 
+## Kafka и AllureReporter
+
+Для интеграционного примера нужны запущенный Docker с Compose v2.18+,
+Python extras `kafka,allure,pytest` и CLI Allure из раздела подготовки.
+Development-окружение ниже уже включает все зависимости:
+
+```shell
+uv sync --all-groups --all-extras
+docker compose up --detach --wait --wait-timeout 120
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml examples/allure/test_kafka.py -m integration -v --alluredir=artifacts/allure-kafka-results --clean-alluredir
+npx --yes allure@3.22.1 awesome artifacts/allure-kafka-results --single-file --output artifacts/allure-kafka-report --report-language ru
+npx --yes allure@3.22.1 open artifacts/allure-kafka-report --host 127.0.0.1 --port 5051
+```
+
+Ожидается **2 passed**. Брокер доступен по `127.0.0.1:9092`; `up --wait`
+дожидается health check. Для отчёта выбран порт 5051, чтобы его можно было
+смотреть одновременно с обычным Allure-примером на 5050. Самостоятельный HTML:
+`artifacts/allure-kafka-report/index.html`.
+
+| Тест в [test_kafka.py](test_kafka.py) | Что проверяет |
+| --- | --- |
+| `test_kafka_correlated_success` | Watcher готов до действия; независимый producer публикует `completed` с `operation-id`. Scope находит событие, partition и offset совпадают с подтверждением брокера. |
+| `test_kafka_expected_timeout` | Сначала принята настоящая запись `started`, затем ожидание `completed` завершается timeout. В отчёте остаётся диагностика несовпадения. |
+
+Второй тест остаётся `PASSED`, поскольку timeout ожидается и перехватывается
+через `pytest.raises(EventTimeoutError)`. Откройте **Event observation summary**:
+`expectation-result.json` содержит исход `timeout`, `mismatches.json` показывает
+несовпавшее событие, `event-timeline.json` — lifecycle наблюдения.
+В обоих тестах используется `SUMMARY` с политикой `METADATA_ONLY`: содержимое
+сообщений, key и headers не раскрываются в JSON-экспорте.
+
+Function-scoped fixture создаёт уникальный topic для каждого теста и удаляет
+его в `finally`, включая случай ошибки. `KafkaAdapterHarness` — тестовый producer;
+в black-box тесте вместо `harness.publish(...)` вызовите ваше приложение.
+
+Без `KAFKA_BOOTSTRAP_SERVERS` оба теста пропускаются. Если адрес задан, ошибка
+подключения считается failure. При другом host port задайте одинаковый порт
+в `KAFKA_PORT` при запуске Compose и в `KAFKA_BOOTSTRAP_SERVERS` при запуске pytest;
+подробнее — [локальная Kafka](../../docs/local-kafka.md#другой-порт).
+
+После прогона Kafka можно остановить, сохранив данные брокера:
+
+```shell
+docker compose down
+```
+
+Просмотр уже собранного HTML не требует работающего брокера.
+
 ## Отчёт с намеренной ошибкой
 
 Для демонстрации настоящего `FAILED` используйте отдельные папки:
 
 ```shell
-uv run pytest -c pyproject.toml examples/allure -v --allure-demo-failure --alluredir=artifacts/allure-demo-results --clean-alluredir
+uv run pytest -c pyproject.toml examples/allure -m 'not integration' -v --allure-demo-failure --alluredir=artifacts/allure-demo-results --clean-alluredir
 ```
 
 Ожидается **4 passed, 1 failed**, код выхода pytest — **1**. Тест публикует
@@ -98,7 +147,11 @@ pytest: перехваченный timeout остаётся `PASSED`.
 
 ## CI
 
-Примеры включены в основную матрицу Python. Отдельный job `allure-example`
+Сценарии с `FakeTransport` включены в основную матрицу Python. Job `allure-example`
 запускает их с настоящим Allure-плагином, строит HTML и сохраняет артефакт
 `allure-example-report` на 7 дней. Скачайте и распакуйте артефакт из запуска
 GitHub Actions, затем откройте `index.html` в браузере.
+
+Job `kafka` запускает `test_kafka.py` на брокере из того же Compose-файла,
+строит отдельный отчёт и сохраняет `allure-kafka-example-report` на 7 дней.
+Генерация и сохранение отчёта выполняются и при падении Kafka Allure-теста.

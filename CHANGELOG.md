@@ -27,6 +27,9 @@
   настраиваемым портом и постоянным volume; общий профиль для локальных тестов и CI.
 - Pytest-примеры с AllureReporter: sync/async успех, timeout, redaction и opt-in
   намеренное падение; просмотр самостоятельного HTML-отчёта и артефакт в CI.
+- Интеграционные Kafka-примеры с AllureReporter: корреляция успешного события,
+  диагностика ожидаемого timeout, локальный запуск через Compose и отдельный
+  HTML-отчёт с артефактом в Kafka CI job.
 
 Temporal assertions, дополнительные брокеры, Schema Registry и checkpoint
 reconnect отложены. Подтверждённые результаты и незакрытые release gates —

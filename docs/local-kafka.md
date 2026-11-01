@@ -26,7 +26,7 @@ Health check проверяет готовность брокера. Вход в
 
 ## Интеграционные тесты и pytest-пример
 
-Полный набор интеграционных проверок вместе с Kafka-примером:
+Интеграционные проверки библиотеки вместе с Kafka-примером без Allure:
 
 ```shell
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
@@ -49,6 +49,24 @@ Harness создаёт уникальные topics и удаляет тольк�
 Без `KAFKA_BOOTSTRAP_SERVERS` Kafka-сценарии явно пропускаются. Указанный,
 но недоступный брокер вызывает ошибку. Настройки подключения передаются
 библиотеке явно; чтение этой переменной — ответственность тестовых fixtures.
+
+## Kafka с отчётом Allure
+
+Два интеграционных примера в [examples/allure/test_kafka.py](../examples/allure/test_kafka.py)
+используют `AllureReporter`: успешную корреляцию события и ожидаемый timeout
+с несовпавшим сообщением. На уже запущенном брокере:
+
+```shell
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml examples/allure/test_kafka.py -m integration -v --alluredir=artifacts/allure-kafka-results --clean-alluredir
+npx --yes allure@3.22.1 awesome artifacts/allure-kafka-results --single-file --output artifacts/allure-kafka-report --report-language ru
+npx --yes allure@3.22.1 open artifacts/allure-kafka-report --host 127.0.0.1 --port 5051
+```
+
+Ожидается **2 passed**. Нужен Node.js с npm для CLI Allure; development-окружение
+из команды `uv sync` выше включает Python-зависимости. Полная подготовка,
+описание вложений и просмотр HTML без работающей Kafka — в
+[руководстве Kafka и AllureReporter](../examples/allure/README.md#kafka-и-allurereporter).
+В CI job `kafka` сохраняет этот отчёт как `allure-kafka-example-report` на 7 дней.
 
 ## Другой порт
 
@@ -111,5 +129,7 @@ docker compose logs --no-color --tail 200 kafka
 интеграционные тесты библиотеки и Kafka pytest-пример. Проверены запуск на
 нестандартном host port, health check, чтение сохранённой записи после
 `down`/`up` и удаление только временного Compose-проекта и его volumes.
+Отдельно прошли два Kafka-сценария с AllureReporter: успешная корреляция и
+ожидаемый timeout; JSON-вложения проверены, самостоятельный HTML-отчёт собран.
 Это локальная проверка профиля; успешный запуск GitHub Actions подтверждается
 отдельно результатами CI.

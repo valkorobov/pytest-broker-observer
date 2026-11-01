@@ -139,7 +139,7 @@ header/source/callable resolvers и `on_type(T, matcher)`.
 После `uv sync --all-groups --all-extras`:
 
 ```shell
-uv run pytest -c pyproject.toml examples/allure -v --alluredir=artifacts/allure-results --clean-alluredir
+uv run pytest -c pyproject.toml examples/allure -m 'not integration' -v --alluredir=artifacts/allure-results --clean-alluredir
 npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language ru
 npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 5050
 ```
@@ -149,6 +149,10 @@ npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 505
 включает настоящую демонстрационную ошибку; команды и ожидаемый код выхода
 описаны в [руководстве](examples/allure/README.md). Отчёт можно открыть и как
 самостоятельный `artifacts/allure-report/index.html`.
+
+Для настоящего брокера есть [Kafka-примеры с AllureReporter](examples/allure/README.md#kafka-и-allurereporter):
+запуск Kafka через Compose, успешное ожидание с корреляцией и диагностика timeout.
+Руководство содержит полный прогон и просмотр отдельного HTML-отчёта.
 
 ## Что входит в MVP
 

@@ -99,6 +99,9 @@ events = SyncEventObserver(
 генерация HTML и просмотр отчёта, включая намеренный `FAILED`, описаны в
 [examples/allure](../examples/allure/README.md).
 
+Для настоящего брокера есть [Kafka-примеры с AllureReporter](../examples/allure/README.md#kafka-и-allurereporter):
+Compose, корреляция, ожидаемый timeout и отдельный отчёт с JSON-вложениями.
+
 Reporter создаёт завершённые summary steps, не держит step открытым между
 `await` и не создаёт step на каждое сообщение. Он проверяет активный test
 context и не прикрепляет отчёт наблюдения к следующему тесту. Фактическая

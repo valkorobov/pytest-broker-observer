@@ -85,6 +85,9 @@ matcher. Тип не угадывается по бинарному содерж
 
 ## Отдельный пример с настоящей Kafka
 
+Вариант с `AllureReporter`, диагностическими вложениями и просмотром HTML:
+[Kafka и AllureReporter](../allure/README.md#kafka-и-allurereporter).
+
 Запустите локальную Kafka из `compose.yaml` и укажите её адрес. Пример создаёт
 уникальный topic и удаляет его в `finally`.
 

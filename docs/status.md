@@ -30,7 +30,8 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 | Локальная Kafka через Compose | 23 passed вместе с pytest-примером; нестандартный host port и сохранение данных после `down`/`up` проверены |
 | Pytest-примеры с настоящим AllureReporter | 4 passed, 1 skipped; opt-in демонстрация — 4 passed, 1 намеренный FAILED; JSON-вложения и redaction проверены |
 | HTML Allure 3.22.1 / Node.js 24.19.0 | Обычный и демонстрационный отчёты собраны как standalone HTML |
-| Core вместе с pytest- и Allure-примерами без брокера | 295 passed, 1 skipped, 23 deselected |
+| Kafka-примеры с AllureReporter / Compose | 2 passed на настоящем брокере; без адреса Kafka — 2 skipped |
+| Core вместе с pytest- и Allure-примерами без брокера | 295 passed, 1 skipped, 25 deselected |
 
 Первый real-broker прогон выявил отличие `get_watermark_offsets` при
 `read_committed`: клиент вернул LSO вместо физического high watermark.
