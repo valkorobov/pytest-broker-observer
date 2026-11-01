@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+import re
 from types import MappingProxyType
 from typing import Any, Generic, Mapping, TypeVar
 
@@ -66,6 +67,7 @@ class StartMode(str, Enum):
     EARLIEST = "earliest"
     OFFSET = "offset"
     TIMESTAMP = "timestamp"
+    STREAM_ID = "stream_id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,7 @@ class StartPosition:
     offsets: Mapping[int, int] = field(default_factory=dict)
     timestamp_ms: int | None = None
     require_existing: bool = False
+    stream_id: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -110,6 +113,15 @@ class StartPosition:
             EpochMilliseconds(self.timestamp_ms)
         elif self.timestamp_ms is not None:
             raise ConfigurationError("Timestamp requires timestamp start mode")
+        if self.mode == StartMode.STREAM_ID:
+            if (
+                not isinstance(self.stream_id, str)
+                or re.fullmatch(r"(?:0|[1-9][0-9]{0,19})-(?:0|[1-9][0-9]{0,19})", self.stream_id) is None
+                or any(int(part) > 2**64 - 1 for part in self.stream_id.split("-"))
+            ):
+                raise ConfigurationError("Stream ID must contain two unsigned 64-bit integers")
+        elif self.stream_id is not None:
+            raise ConfigurationError("Stream ID requires stream_id start mode")
 
     @classmethod
     def latest(cls) -> "StartPosition":
@@ -118,6 +130,11 @@ class StartPosition:
     @classmethod
     def earliest(cls) -> "StartPosition":
         return cls(StartMode.EARLIEST)
+
+    @classmethod
+    def after_stream_id(cls, stream_id: str) -> "StartPosition":
+        """Read strictly after a native Redis Streams ID, including its sequence."""
+        return cls(StartMode.STREAM_ID, stream_id=stream_id)
 
     @classmethod
     def at_offset(cls, offsets: Mapping[int, int]) -> "StartPosition":
@@ -206,6 +223,7 @@ class TransportCapabilities:
     supports_settlement: bool = False
     supports_null_payload: bool = True
     supports_duplicate_headers: bool = True
+    supports_null_header_values: bool = True
 
     def __post_init__(self) -> None:
         for name in ("start_modes", "isolation_modes", "flow_control_modes"):

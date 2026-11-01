@@ -29,9 +29,9 @@ The hooks check Ruff lint, Ruff formatting, and types through Pyrefly. All three
 use tool versions from `uv.lock` and check the entire project. They do not modify
 files automatically; fix formatting separately.
 
-Core uses only the standard library. Do not add mandatory Kafka, RabbitMQ,
+Core uses only the standard library. Do not add mandatory Kafka, RabbitMQ, Redis,
 Protobuf, pytest, Allure, or OpenTelemetry imports to a plain
-`import event_observer`; `aio_pika` and its AMQP dependencies stay lazy. The runtime
+`import event_observer`; `aio_pika`, its AMQP dependencies, and `redis` stay lazy. The runtime
 must not read credentials or open connections before entering a watcher context.
 
 ## Checks
@@ -79,6 +79,25 @@ Missing `RABBITMQ_URL` explicitly skips real tests; configured connection failur
 must fail. The [RabbitMQ guide](docs/rabbitmq.md) and
 [local Compose guide](docs/local-rabbitmq.md) describe permissions and semantics.
 
+For Redis Streams, use the authenticated optional profile:
+
+```shell
+docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest -c pyproject.toml tests/integration/test_redis_streams*.py examples/pytest/test_redis_streams.py -v
+docker compose stop redis
+```
+
+The harness creates existing empty typed streams using its own `XADD`/`XDEL`
+seed and deletes only owned keys. The runtime must remain read-only: no
+`XREADGROUP`, group creation, pending-entry acknowledgement, or application
+stream writes. It uses independent cursors and atomic `XINFO STREAM`/`XREAD`
+transactions with `CLIENT ID`/`INFO server` identity checks, `MULTI`/`EXEC`
+permission, and no Lua or `EVAL` requirement.
+Keep native `stream_id` starts exclusive and distinct from Kafka offsets.
+Missing `REDIS_URL` skips real tests; configured failures must remain failures.
+See [the adapter guide](docs/redis-streams.md) and
+[local Redis guide](docs/local-redis.md).
+
 To check AllureReporter with the real pytest plugin and view HTML, use
 [examples/allure](examples/allure/README.md). The regular run passes; an intentional
 demonstration failure is enabled with a separate flag.
@@ -115,7 +134,8 @@ The publisher harness must confirm broker acceptance. Fault, topology, and
 position controls belong in separate extension protocols. Do not hide unverified
 capability claims behind skips.
 
-`supports_null_payload` and `supports_duplicate_headers` are explicit transport
+`supports_null_payload`, `supports_duplicate_headers`, and
+`supports_null_header_values` are explicit transport
 capabilities, alongside replay and key support. Contracts record these optional
 preconditions and `NOT_APPLICABLE` when an adapter does not claim them. Core
 data preservation still applies to accepted values, and a claimed capability
@@ -123,6 +143,17 @@ must be verified. RabbitMQ supports unique byte/null headers and empty byte
 bodies, with neither null bodies nor duplicate header names. Verify dedicated
 queue isolation and admission-time settlement without weakening Kafka contracts
 or introducing reconnect semantics.
+
+Redis Streams additionally rejects null header values while supporting unique
+byte-valued headers and empty bodies. The combined duplicate/null header
+contract checks all three header preconditions; Kafka and RabbitMQ keep their
+existing supported domains. Continuity tests must distinguish initial retained
+history from new deletion/trim or metadata rewind. Detected new loss fails
+conservatively even for entries already read, without claiming detection of
+an exact metadata-equivalent delete/recreate entirely between checks. Use
+controlled state changes rather than silently retrying a known failed read.
+Connection ID or server `run_id` changes must fail before candidate handoff,
+including when the native client internally creates a replacement socket.
 
 ## Documentation and releases
 

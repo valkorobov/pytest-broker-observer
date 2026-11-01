@@ -40,7 +40,8 @@ Kafka integration tests verify explicit offsets, timestamp fallback,
 partition expansion, and an open transaction across a latest boundary.
 
 `ContractPrecondition` records applicability for optional semantics. In
-particular, `supports_null_payload` and `supports_duplicate_headers` distinguish
+particular, `supports_null_payload`, `supports_duplicate_headers`, and
+`supports_null_header_values` distinguish
 transport limitations from data loss in accepted events. Replay and message
 keys are also checked only when claimed. A missing capability records
 `NOT_APPLICABLE`; a claimed capability must pass its contract. Readiness,
@@ -79,6 +80,44 @@ and cleanup without claiming to replace real broker checks. Missing
 `RABBITMQ_URL` skips real nodes; a provided but unreachable broker fails.
 See [rabbitmq.md](rabbitmq.md), [local-rabbitmq.md](local-rabbitmq.md), and the
 [Allure scenarios](../examples/allure/README.md#rabbitmq-and-allurereporter).
+
+For Redis Streams, use `RedisStreamsAdapterHarness` with explicit `REDIS_URL`:
+
+```shell
+docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest tests/integration/test_redis_streams_contracts.py tests/integration/test_redis_streams_observer.py -v
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest -c pyproject.toml examples/pytest/test_redis_streams.py -m integration -v
+docker compose stop redis
+```
+
+The harness creates unique typed empty streams through an owned `XADD`/`XDEL`
+seed, publishes through an independent native client, and deletes only owned
+keys. A receipt includes the server-generated `redis.stream_id`. Each call
+closes its client, supporting separate `asyncio.run(...)` calls in sync fixtures
+and direct awaits in async tests. The observer never performs those writes.
+
+Earliest replay remains applicable. Null payload, duplicate/null headers, and
+key contract nodes record their unsupported capability preconditions. The
+combined duplicate/null header node checks `supports_headers`,
+`supports_duplicate_headers`, and `supports_null_header_values` separately;
+existing Kafka and RabbitMQ behavior is unchanged. Dedicated observer tests
+cover sync/async Protobuf, header correlation, existing group/pending-entry
+independence, latest after deletion of the last entry, exclusive stream-ID
+starts, and conservative active deletion/trim failure.
+
+Future native start IDs are allowed; availability tests distinguish them from
+starts below known baseline deletion evidence, which must raise
+`StartPositionUnavailableError`. New source deletion/trim or metadata rewind
+is terminal even when affected entries were read already. Tests must not claim
+that exact metadata-equivalent recreation between checks is detectable.
+Native identity regressions must cover replacement connections and server
+restart with a reused client ID: `CLIENT ID` plus `INFO server` must fail before
+candidate handoff when the connection ID or server `run_id` changes.
+Native doubles in `tests/test_redis_streams.py` and
+`tests/test_redis_streams_harness.py` remain separate from real-broker evidence.
+Missing `REDIS_URL` skips real nodes; a provided but unreachable Redis fails.
+See [the adapter guide](redis-streams.md), [local profile](local-redis.md), and
+[Allure scenarios](../examples/allure/README.md#redis-streams-and-allurereporter).
 
 Native-client doubles verify rare interleavings and errors without a broker.
 They do not replace Fetch/ACL/transaction tests on real Kafka. Separate fault

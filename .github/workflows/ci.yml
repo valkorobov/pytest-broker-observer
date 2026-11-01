@@ -109,7 +109,7 @@ jobs:
           import sys
           import event_observer
           assert importlib.resources.files(event_observer).joinpath("py.typed").is_file()
-          for name in ("confluent_kafka", "aio_pika", "aiormq", "google", "pytest", "allure", "opentelemetry"):
+          for name in ("confluent_kafka", "aio_pika", "aiormq", "redis", "google", "pytest", "allure", "opentelemetry"):
               assert name not in sys.modules
               assert importlib.util.find_spec(name) is None
           PY
@@ -222,3 +222,48 @@ jobs:
       - name: Stop RabbitMQ
         if: always()
         run: docker compose --profile rabbitmq down --volumes
+
+  redis-streams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REDIS_URL: redis://:observer@127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --all-groups --all-extras
+      - name: Start Redis Streams
+        run: docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+      - name: Run Redis Streams contracts and pytest examples
+        run: uv run pytest -c pyproject.toml tests/integration/test_redis_streams*.py examples/pytest/test_redis_streams.py -v --junitxml=redis-results.xml -o junit_family=xunit1
+      - name: Run Redis Streams Allure examples
+        id: redis_allure_tests
+        run: uv run pytest -c pyproject.toml examples/allure/test_redis_streams.py -m integration --alluredir=artifacts/allure-redis-results --clean-alluredir -v
+      - name: Generate standalone Redis Streams Allure report
+        id: generate_redis_report
+        if: ${{ !cancelled() && (steps.redis_allure_tests.outcome == 'success' || steps.redis_allure_tests.outcome == 'failure') }}
+        run: npx --yes allure@3.22.1 awesome artifacts/allure-redis-results --single-file --output artifacts/allure-redis-report --report-language en
+      - name: Upload Redis Streams Allure report
+        if: ${{ !cancelled() && (steps.generate_redis_report.outcome == 'success' || steps.generate_redis_report.outcome == 'failure') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: allure-redis-example-report
+          path: artifacts/allure-redis-report/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Redis Streams logs on failure
+        if: failure()
+        run: docker compose --profile redis logs --no-color --tail 200 redis
+      - name: Stop Redis Streams
+        if: always()
+        run: docker compose --profile redis down --volumes

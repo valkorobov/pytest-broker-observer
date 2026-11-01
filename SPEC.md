@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.2\
+**Revision:** 1.3\
 **Date:** November 2, 2026\
-**Basis:** ADR-001–012 decisions, synchronous test support, and the authorized RabbitMQ extension.\
+**Basis:** ADR-001–012 decisions, synchronous test support, and the authorized RabbitMQ and Redis Streams extensions.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -41,6 +41,7 @@ This document describes a standalone library. It contains no source code, messag
 26. [Clarifications made while consolidating ADRs](#s26)
 27. [External technical references](#s27)
 28. [RabbitMQ extension: dedicated exchange subscriptions](#s28)
+29. [Redis Streams extension: independent native cursors](#s29)
 
 ---
 
@@ -89,8 +90,8 @@ It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Cor
 | Area | Included in 0.1.0 |
 |---|---|
 | Runtime | `EventObserver` for async and `SyncEventObserver` for sync; a shared core |
-| Transport | Kafka through `confluent-kafka`; independent sessions and manual partition assignment; RabbitMQ through `aio-pika` as defined in section 28 |
-| Start | `latest`, `earliest`, explicit Kafka offsets, and timestamp resolution; RabbitMQ latest-only exchange subscription |
+| Transport | Kafka through `confluent-kafka`; independent sessions and manual partition assignment; RabbitMQ through `aio-pika` in section 28; Redis Streams through redis-py in section 29 |
+| Start | `latest`, `earliest`, explicit Kafka offsets, and timestamp resolution; RabbitMQ latest-only exchange subscription; Redis Streams exclusive native ID starts |
 | Formats | Raw bytes / null payload; ordinary Protobuf through `*_pb2.py` |
 | Mixed types | Explicit header/source/callable resolvers; `FAIL_FAST`, `SKIP_UNKNOWN_TYPE` |
 | Journal | Bounded in-memory journal, FAIL / DROP_OLDEST / DROP_NEWEST, and loss tracking |
@@ -99,12 +100,12 @@ It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Cor
 | Correlation | Scopes, nested scopes, history / from-now / sequence, payload, and metadata |
 | Diagnostics | Bounded snapshots, mismatch reasons, and errors; opt-in Allure |
 | Tracing | W3C trace context extraction without creating spans |
-| Testing | Fake adapter, reusable contract tests, real Kafka and RabbitMQ according to declared capabilities, basic faults, xdist, and sync/async parity |
+| Testing | Fake adapter, reusable contract tests, real Kafka, RabbitMQ, and Redis Streams according to declared capabilities, basic faults, xdist, and sync/async parity |
 | Delivery | Wheel + sdist, typing, extras, documentation, and a protected release pipeline |
 
 ### 2.3. After the MVP
 
-Revision 1.2 adds RabbitMQ as an authorized extension to the original Kafka-first MVP; its contract is in section 28. Temporal assertions, Redis Streams, followed by Redis Pub/Sub and NATS, remain separate stages. Their architectural contracts are defined now, but the presence of these sections does not authorize advertising a nonexistent adapter or publishing empty extras.
+Revisions 1.2 and 1.3 add RabbitMQ and Redis Streams as authorized extensions to the original Kafka-first MVP; their contracts are in sections 28 and 29. Temporal assertions, Redis Pub/Sub, and NATS remain separate stages. Their architectural contracts are defined now, but the presence of these sections does not authorize advertising a nonexistent adapter or publishing empty extras.
 
 Outside the immediate MVP: Schema Registry, automatic schema guessing, message publication, HTTP/gRPC clients, an on-disk Journal, reconnect with checkpoint recovery, dynamic partition assignment expansion, a distributed journal, a scenario DSL, and OpenTelemetry span generation.
 
@@ -279,7 +280,7 @@ flowchart TB
 
 ### 4.1. Dependency rules
 
-Core MUST NOT import `confluent_kafka`, `aio_pika`, `aiormq`, `pamqp`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
+Core MUST NOT import `confluent_kafka`, `aio_pika`, `aiormq`, `pamqp`, `redis`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
 
 Transport has no knowledge of business predicates, Protobuf classes, or Allure. Decoder has no knowledge of consumer lifecycle. Journal does not perform commits/acks. Expectation Engine reads the Journal, not the broker. Reporter does not participate in delivery acknowledgment.
 
@@ -296,6 +297,7 @@ Transport has no knowledge of business predicates, Protobuf classes, or Allure. 
 | Sync runtime loop | One active sync watcher; runs continuously until cleanup |
 | Kafka polling worker | One Kafka session; serializes blocking client operations |
 | RabbitMQ connection/channel/subscription | One RabbitMQ session; created and used in its runtime loop |
+| Redis Streams client/poller | One Redis Streams session; an independent native cursor in its runtime loop |
 | Reporter binding | One watcher/test reporting context; not a global singleton |
 
 An adapter supporting both facades MUST create loop-bound resources inside `open`, not in its constructor. The implementation MUST NOT share a transport session, task, lock, or Journal between pytest-xdist processes.
@@ -443,6 +445,7 @@ StartPosition.latest()
 StartPosition.earliest()
 StartPosition.at_offset({0: 125, 1: 242})
 StartPosition.at_timestamp(timestamp, require_existing=False)
+StartPosition.after_stream_id("1234-5")
 ```
 
 | Policy | Requirement |
@@ -451,10 +454,13 @@ StartPosition.at_timestamp(timestamp, require_existing=False)
 | `earliest()` | Start at the earliest available position without promising that the entire history exists |
 | `at_offset(mapping)` | Explicit inclusive Kafka lower bounds for all selected partitions; no silent fallback |
 | `at_timestamp(t)` | Resolve a start position by timestamp; does not establish a permanent timestamp filter |
+| `after_stream_id(id)` | Redis Streams only: start strictly after a full native stream ID; section 29 defines availability |
 | `committed()` | Not supported in the MVP |
 | Arbitrary native position | Extension once a corresponding adapter exists |
 
 `timestamp` MUST be a timezone-aware datetime or explicitly typed epoch milliseconds, not an ambiguous `float`. The offsets mapping MUST cover the entire selected partition set. Positions for nonexistent partitions are rejected.
+
+The Redis Streams extension adds `StartPosition.stream_id: str | None = None` and mode `STREAM_ID` (`"stream_id"`). `after_stream_id()` requires a canonical full `milliseconds-sequence` string with two unsigned 64-bit components; it does not coerce integers, floats, partial IDs, `$`, or timestamps. The field is valid only in that mode and does not change Kafka offset inclusivity or timestamp resolution. Unsupported transport/mode combinations fail explicitly.
 
 ### 7.2. Readiness barrier
 
@@ -635,6 +641,7 @@ Static capabilities describe the adapter's potential capabilities; resolved capa
 | `supports_headers` | Availability of normalized headers |
 | `supports_null_payload` | Availability of a distinct null body, rather than empty bytes |
 | `supports_duplicate_headers` | Ability to preserve repeated header names |
+| `supports_null_header_values` | Availability of null header values distinct from empty bytes |
 | `supports_key` | Availability of the message key |
 | `supports_source_timestamps` | Timestamp and its origin |
 | `supports_position_tracking` | Native position for diagnostics |
@@ -645,7 +652,7 @@ Flow control does not guarantee fixed native RSS. A capability MUST NOT imply 'u
 
 Competing consumption from an ordinary application queue is not a safe official adapter mode. RabbitMQ uses a separate queue with its own bindings as specified in section 28; Redis Streams uses independent XREAD, not another consumer group. RabbitMQ Streams has separate transport semantics, not AMQP queue replay.
 
-Null body and duplicate-header capabilities are explicit boolean preconditions for transport contract tests. They default to supported for existing Core/Kafka adapters. A transport that cannot represent those inputs MUST declare the corresponding capability false rather than coerce, lose, or fabricate values. DATA-01 and DATA-02 continue to govern accepted normalized events; Kafka and Core preservation requirements are unchanged. A claimed capability MUST NOT be hidden behind a not-applicable result.
+Null body, duplicate-header, and null-header-value capabilities are explicit boolean preconditions for transport contract tests. They default to supported for existing transports; Redis Streams declares all three false, while RabbitMQ retains null-header support. A transport that cannot represent those inputs MUST declare the corresponding capability false rather than coerce, lose, or fabricate values. DATA-01 and DATA-02 continue to govern accepted normalized events; Kafka, RabbitMQ, and Core preservation requirements are unchanged. A claimed capability MUST NOT be hidden behind a not-applicable result. The combined duplicate/null header contract requires `supports_headers`, `supports_duplicate_headers`, and `supports_null_header_values` separately.
 
 ### 9.4. Settlement extension
 
@@ -1554,7 +1561,7 @@ Minimum security/independent observation/cleanup requirements cannot be bypassed
 
 Kafka uses Testcontainers Python with a pinned container image and a documented supported KRaft profile. An official KafkaContainer API and KRaft example exist, but the specific image/class/version combination must be verified: an arbitrary Apache image cannot be substituted into an entrypoint designed for another image. [S13]
 
-A real Kafka broker is required for the original MVP. The RabbitMQ extension runs the same applicable suites on a real broker, with explicit optional capability preconditions; Redis/NATS receive them when added. Docker is not required to import the library, run unit tests, or serve an end user connecting to an existing broker.
+A real Kafka broker is required for the original MVP. RabbitMQ and Redis Streams run the same applicable suites on real brokers, with explicit optional capability preconditions; Redis Pub/Sub and NATS receive them when added. Docker is not required to import the library, run unit tests, or serve an end user connecting to an existing broker.
 
 Rules: dynamic mapped ports; unique source names; readiness through an API/health condition; pinned image digest; cleanup after a partially failed fixture; container logs on failure; no reuse between independent CI runs; and bounded startup budgets.
 
@@ -1729,7 +1736,8 @@ event-observer/
 │   ├── transports/
 │   │   ├── base.py
 │   │   ├── kafka.py
-│   │   └── rabbitmq.py
+│   │   ├── rabbitmq.py
+│   │   └── redis_streams.py
 │   ├── codecs/
 │   │   ├── base.py
 │   │   ├── raw.py
@@ -1778,6 +1786,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 | No extra | stdlib Core + sync facade + raw | No |
 | `kafka` | `confluent-kafka` | No connection |
 | `rabbitmq` | `aio-pika` | No connection; dedicated subscription only when a watcher opens |
+| `redis` | `redis` (redis-py) for the implemented Streams adapter | No connection or consumer-group changes |
 | `protobuf` | `protobuf` | No automatic schema loading |
 | `pytest` | `pytest` | Only a passive plugin entry point during pytest startup |
 | `pytest-asyncio` | `pytest`, `pytest-asyncio` | Does not change the project's loop mode |
@@ -1785,7 +1794,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 | `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Containers only when the harness runs |
 | `all` | Implemented end-user runtime/testing integrations, excluding contract benchmark infrastructure | No |
 
-The `rabbitmq` extra is included with the implemented section 28 extension. Future `redis` and `nats` extras are declared only with their adapters. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
+The `rabbitmq` and `redis` extras accompany the implemented sections 28 and 29 extensions. The `redis` extra does not advertise a Redis Pub/Sub adapter. A future `nats` extra is declared only with its adapter. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
 
 Optional dependencies differ from development dependency groups: the latter are not included in published runtime metadata. [S16, S17]
 
@@ -1821,6 +1830,7 @@ classifiers = [
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
 rabbitmq = ["aio-pika"]
+redis = ["redis"]
 protobuf = ["protobuf"]
 pytest = ["pytest"]
 pytest-asyncio = ["pytest", "pytest-asyncio"]
@@ -1829,6 +1839,7 @@ contract-tests = ["pytest", "pytest-asyncio", "testcontainers[kafka]"]
 all = [
     "confluent-kafka",
     "aio-pika",
+    "redis",
     "protobuf",
     "pytest",
     "pytest-asyncio",
@@ -1964,7 +1975,7 @@ Documentation is published from Markdown through MkDocs and must include:
 |---|---|
 | Quickstart | Complete sync and async examples with the same contract |
 | Concepts | Factory, session, watcher, Journal, scope, matcher, expectation |
-| Readiness/replay | Boundary vector, timestamp selector, empty source, transaction caveats, and RabbitMQ dedicated latest-only subscriptions |
+| Readiness/replay | Boundary vector, timestamp selector, empty source, transaction caveats, RabbitMQ dedicated subscriptions, and Redis Streams exclusive native IDs/continuity limits |
 | Sync runtime | Thread model, callbacks, owner affinity, blocked action, cleanup limits |
 | Protobuf | Generated types, null/empty, presence, mixed resolver, runtime compatibility |
 | Reliability | Loss ranges, overflow, fail-closed, backpressure, limitations |
@@ -1995,7 +2006,7 @@ Examples MUST be checked in CI: syntax/type smoke, generated synthetic proto, an
 | M8 | Temporal Assertions | Separate temporal acceptance tests for both facades |
 | M9 | RabbitMQ / Redis Streams, then ephemeral transports | Each broker's contract verified independently |
 
-Individual Protobuf utilities may be implemented in parallel with M2; the sequence expresses dependencies between guarantees, rather than prohibiting local prototyping. A stage is not complete merely because an API stub exists. Revision 1.2 implements the RabbitMQ portion as the section 28 extension; the Redis Streams and ephemeral-transport portions of M9 remain deferred.
+Individual Protobuf utilities may be implemented in parallel with M2; the sequence expresses dependencies between guarantees, rather than prohibiting local prototyping. A stage is not complete merely because an API stub exists. Revisions 1.2 and 1.3 implement the RabbitMQ and Redis Streams portions as the sections 28 and 29 extensions; the ephemeral-transport portion of M9 remains deferred.
 
 ### 25.2. MVP acceptance matrix
 
@@ -2148,7 +2159,7 @@ If implementation reveals that a specific client's/broker's mandatory contract c
 
 ### 26.2. Final status
 
-The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013, and revision 1.2 adds the authorized RabbitMQ extension in section 28. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
 The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 
@@ -2189,7 +2200,7 @@ Sources were checked while preparing revision 1.0. They substantiate properties 
 
 ### 28.1. Scope and optional dependency
 
-Revision 1.2 adds an official RabbitMQ AMQP adapter to the current candidate. This extends the original Kafka-first MVP without changing the existing Core/Kafka guarantees or renumbering AC-01–AC-88, RG-01–RG-15, or existing section anchors. Redis Streams, Redis Pub/Sub, NATS, temporal assertions, and reconnect with checkpoint recovery remain deferred.
+Revision 1.2 adds an official RabbitMQ AMQP adapter to the current candidate. This extends the original Kafka-first MVP without changing the existing Core/Kafka guarantees or renumbering AC-01–AC-88, RG-01–RG-15, or existing section anchors. Revision 1.3 adds Redis Streams in section 29; Redis Pub/Sub, NATS, temporal assertions, and reconnect with checkpoint recovery remain deferred.
 
 The public types are `event_observer.transports.rabbitmq.RabbitMQConfig` and `RabbitMQAdapter`. The `rabbitmq` extra installs `aio-pika`; the native import MUST be deferred until a session opens. Constructing the config, adapter, factory, or watch object MUST NOT connect, create loop-bound resources, or import the optional client. `import event_observer` MUST remain stdlib-only, including without RabbitMQ dependencies installed.
 
@@ -2265,3 +2276,88 @@ Runnable examples MUST cover ordinary sync and async pytest use, plus two Allure
 Fixtures read `RABBITMQ_URL` explicitly. Missing configuration produces an explicit integration skip; an explicitly configured but unavailable broker is a failure. Report generation uses English, a separate result/report directory, and a standalone HTML artifact. The `rabbitmq` CI job MUST run the selected contracts and examples against the pinned profile and retain its separate report; a workflow definition does not itself establish a passing run.
 
 The [adapter guide](docs/rabbitmq.md), [local broker guide](docs/local-rabbitmq.md), [pytest examples](examples/pytest/test_rabbitmq.py), and [Allure guide](examples/allure/README.md#rabbitmq-and-allurereporter) document the supported behavior and commands. The existing dependency-floor, platform, security, artifact, and publication release gates continue to apply to this extension.
+
+
+<a id="s29"></a>
+## 29. Redis Streams extension: independent native cursors
+
+### 29.1. Scope, client, and configuration
+
+Revision 1.3 adds Redis Streams as an authorized extension to the current candidate. Existing Core, Kafka, and RabbitMQ contracts and acceptance/release identifiers remain unchanged. Redis Pub/Sub, NATS, temporal assertions, general reconnect/checkpoint recovery, Redis Cluster, and Sentinel support are not included.
+
+The public types are `event_observer.transports.redis_streams.RedisStreamsConfig` and `RedisStreamsAdapter`. The `redis` extra declares `redis>=7.1,<9`. The development environment resolves redis-py 8.1.0, which does not by itself verify the candidate minimum or a complete broker/client/OS matrix. The native Redis client and retry modules MUST be imported lazily only when opening a session; Core and adapter construction remain network-free and independent of optional dependencies.
+
+`RedisStreamsConfig` requires a connection `url`, excluded from `repr`, and has defaults `payload_field="payload"`, `header_prefix="header:"`, `read_count=100`, `poll_interval=0.05`, and `socket_timeout=1.0`. The field name and prefix MUST be nonempty UTF-8 strings. Read count MUST be a positive integer; polling/socket durations MUST be positive finite seconds, not bool. URL options MUST NOT override observer-managed decoding, retry, connection ownership, timeouts, or callback policies. The runtime MUST NOT discover `REDIS_URL` or credentials from the environment automatically.
+
+The adapter requires Redis 7 or later with stream continuity metadata. The source is one already existing key of type stream; a missing or wrong-type key is a visible startup failure. An existing empty typed stream is valid. The runtime MUST NOT create the application stream, seed it, or publish a readiness probe.
+
+### 29.2. Native start positions and readiness
+
+| Start | Redis Streams behavior |
+|---|---|
+| `StartPosition.latest()` | Capture `last-generated-id` once, including for an empty stream or a deleted last entry, and read strictly greater IDs |
+| `StartPosition.earliest()` | Begin from `0-0` and read available retained baseline history |
+| `StartPosition.after_stream_id(id)` | Begin strictly after the requested full native ID; the boundary is exclusive |
+
+Native IDs MUST retain both unsigned 64-bit components, compare as an integer pair, and remain separate from Kafka integer offsets. Future IDs are allowed and wait for entries strictly greater than that ID; this is not a timestamp filter. Timestamp, Kafka offset, and partition-selection starts MUST fail as unsupported rather than be reinterpreted. The reader MUST advance using received IDs and MUST NOT repeat `$` on every read.
+
+An explicit start MUST raise `StartPositionUnavailableError` if its ID is below the baseline `max-deleted-entry-id`. If baseline deletion evidence exists, an explicit ID below the first retained entry MUST also fail conservatively; for an empty stream, the corresponding lower availability bound is `last-generated-id`. The adapter MUST NOT silently shift an unavailable request. Earliest explicitly selects available baseline history, without proving that no earlier history was lost; latest selects the captured last-generated boundary and does not import earlier baseline losses into that new range.
+
+READY MUST verify readable source metadata and a valid initial read path before returning. Publications after boundary capture and before context entry returns remain eligible. `ObservationBoundary.positions` stays free of fabricated integer partitions; the resolved native cursor is exposed as `TransportReadiness.source_metadata["redis.start_id"]`. The requested native ID is `StartPosition.stream_id`, and delivered IDs are `RawEvent.metadata["redis.stream_id"]`. READY diagnostics expose optional safe cursor fields `requested_stream_id` and `resolved_stream_id`; these are not message bodies or connection credentials.
+
+### 29.3. Normalized payload and declared capabilities
+
+| Capability | Redis Streams value |
+|---|---|
+| `start_modes` | `{"latest", "earliest", "stream_id"}` |
+| `isolation_modes` | `{"independent_reader"}` |
+| `flow_control_modes` | `{"fetch_limit"}` |
+| `ordering_scope` | `"stream"` |
+| `supports_headers` | `True` |
+| `supports_key` | `False` |
+| `supports_settlement` | `False` |
+| `supports_null_payload` | `False` |
+| `supports_duplicate_headers` | `False` |
+| `supports_null_header_values` | `False` |
+
+The configured payload field MUST be present with bytes, including valid empty bytes. Fields prefixed with the configured header prefix map to detached normalized byte-valued header pairs. Native field names and values MUST be validated without a client conversion that destroys duplicate payload/header fields. Duplicate selected fields, invalid header-name encoding, missing payload, or non-byte selected values MUST fail visibly rather than be stringified, collapsed, or silently discarded. A distinct null body or null header value is not representable and MUST NOT be replaced with empty bytes.
+
+`RawEvent.source` is the concrete stream key. `RawEvent.key` is `None`; the native stream ID is namespaced metadata, not a message key or a Kafka offset. The field mapping does not infer JSON or Protobuf types; structured decoding remains explicit.
+
+`supports_null_header_values` is a new boolean capability defaulting to `True` for existing transports. Redis Streams declares it false. The combined duplicate/null header contract requires all three explicit preconditions: headers, duplicate names, and null values. It records `NOT_APPLICABLE` only for undeclared semantics. Kafka/Core/RabbitMQ accepted-data preservation remains mandatory, and a claimed capability cannot be hidden with a skip.
+
+### 29.4. Independent read-only observations
+
+Each watcher MUST own its native client, polling task, cursor, bounded handoff, and failure signal in its runtime loop. A session permits one receive iterator. The sync and async facades use the same adapter; constructors MUST NOT retain a client tied to another event loop. Read count is bounded by transport event capacity, and complete returned batches remain subject to event/byte limits. Exceeding a bound MUST fail explicitly rather than silently truncate or drop entries. These accounted limits do not claim a total process RSS bound.
+
+A read batch MUST obtain `CLIENT ID`, `INFO server`, `XINFO STREAM`, and nonblocking `XREAD` in one read-only `MULTI`/`EXEC` transaction so connection/server identity, continuity metadata, and selected entries describe one consistent Redis state. Empty reads are polled at the configured interval. The runtime MUST NOT use Lua or require `EVAL`, write stream entries, create or change consumer groups, use `XREADGROUP`, or acknowledge group pending entries. Independent observation MUST leave application group cursors and pending-entry lists unchanged.
+
+The connection account requires `CLIENT ID`, `INFO server`, `XINFO STREAM`, `XREAD`, `MULTI`, and `EXEC` permissions used by this observation. Publisher/admin harness write permissions are separate and MUST NOT become requirements for the production runtime. Reading entries, matching expectations, reporting, or closing the watcher does not delete or acknowledge application entries.
+
+### 29.5. Continuity, failures, and cleanup
+
+The initial source metadata establishes a baseline. Every subsequent atomic batch MUST check continuity counters and native-ID watermarks before handing its entries to Core. Any detected new deletion/trim evidence, decreased counters, or ID/metadata rewind MUST terminate the observation conservatively. A deletion may be fatal even for an entry already read; the implementation MUST NOT conceal it by relying only on the current cursor. Baseline loss and a new source change are distinct from Journal retention policy.
+
+The adapter MUST compare both native connection ID and server `run_id` from its atomic snapshots before candidate handoff. Any identity change MUST terminate observation, including server restart reusing an earlier connection ID. A native client pool may internally open a replacement socket even with zero retries; the adapter MUST NOT resume the observation across that replacement, and its entries MUST NOT reach Core. This identity check requires `CLIENT ID` and `INFO server`, not a Lua script.
+
+Metadata observations do not prove a durable stream incarnation. An arbitrary `DEL` and metadata-equivalent recreation completed entirely between checks on the same connection/server may be indistinguishable; the adapter MUST document this limitation rather than claim perfect recreation detection. Retained history, source lifecycle, persistence, replication, and application durability remain separate from the observation guarantee.
+
+Known native connection, authentication, permission, missing-source, wrong-type, continuity, or malformed-delivery errors MUST remain visible and terminal. Native retry policy MUST NOT replay a known failed read or silently resume from a new cursor. Cleanup MUST cancel owned tasks, close the owned client/pool within the lifecycle budget, wake waiters, and leave the source key and all application groups untouched. Partial startup rollback and concurrent close follow the existing Core lifecycle and error-priority rules.
+
+### 29.6. Harness and verification
+
+`event_observer.testing.RedisStreamsAdapterHarness(url, timeout=15)` creates uniquely named test streams, initializes each with an `XADD` seed followed by `XDEL` of that owned seed, and removes only owned stream keys. Ownership MUST be recorded before creation can succeed. Every operation owns a fresh native client and closes it, allowing separate `asyncio.run(...)` calls in synchronous fixtures without sharing clients across closed loops.
+
+The independent publisher uses `XADD` and returns the server-generated ID in `PublishReceipt.metadata["redis.stream_id"]`. A receipt MUST reflect a successful broker command rather than a local queue. The harness MUST explicitly reject null bodies, null/duplicate headers, and separate keys. The runtime and harness MUST NOT use consumer groups; any group/PEL setup belongs only to an isolated test proving that application state remains unchanged.
+
+Verification requires controlled-native and harness unit checks, all applicable reusable contracts, and real Redis scenarios for sync/async Protobuf, byte headers, exclusive native IDs and availability, empty/deleted-tail latest, application group/PEL independence, active deletion/trim failure and connection/server identity changes before candidate handoff, startup errors, bounded transfer, and owned cleanup. Unit doubles and configured CI are not real-broker evidence. Actual results and dependency versions belong in status/compatibility records, and declared minimum versions remain release gates until verified.
+
+### 29.7. Local profile, examples, and reporting
+
+The optional `redis` Compose profile uses `redis:8.2.11-alpine@sha256:489a769e0a54dc245896132a15c72d2bc7296719954da99398f43a3877e5f8eb`, loopback port 6379, the local example password `observer`, authenticated `PING` health checks, append-only persistence, and a named `/data` volume. The service MUST remain independently selectable from Kafka and RabbitMQ. Fixtures use unique typed stream keys and read `REDIS_URL` explicitly; absent configuration causes an explicit integration skip, while a configured unreachable broker fails.
+
+Runnable examples cover sync latest observation and async exclusive native-ID observation. Two Allure scenarios cover correlated JSON success and an expected timeout after receiving a real nonmatching event. Explicit `REDACTED_PAYLOAD` and an independent redactor remove a synthetic `access_token` from report copies while preserving original test values. Matched and mismatched bodies use the existing capture/export limits and `message-content.json`; summary titles identify `RedisStreamsAdapter` and the stream. Ordinary close MUST NOT repeat completed summaries.
+
+The `redis-streams` CI job runs selected contracts and examples against that profile, generates a separate English Allure report, and retains `allure-redis-example-report`. Report viewing uses a standalone HTML artifact and does not require Redis to remain running. A workflow definition does not itself establish a successful run.
+
+The [adapter guide](docs/redis-streams.md), [local profile guide](docs/local-redis.md), [pytest examples](examples/pytest/test_redis_streams.py), and [Allure guide](examples/allure/README.md#redis-streams-and-allurereporter) document commands, supported field mapping, native boundaries, permissions, and continuity limits. Existing artifact, dependency-floor, security, platform, and publication gates continue to apply.

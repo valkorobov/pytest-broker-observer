@@ -274,6 +274,8 @@ _SAFE_FIELDS = frozenset(
         "positions_omitted",
         "requested_offsets_omitted",
         "resolved_positions_omitted",
+        "requested_stream_id",
+        "resolved_stream_id",
     }
 )
 _CODE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}\Z")

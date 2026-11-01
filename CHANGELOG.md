@@ -56,6 +56,20 @@ Added:
   local guides, and a CI job with a separate Allure report artifact.
 - Specification revision 1.2 documenting the RabbitMQ extension while preserving
   the original Core/Kafka requirements and acceptance identifiers.
+- Redis Streams through optional, lazily imported redis-py: independent `XREAD`
+  cursors with latest, earliest, and exclusive `StartPosition.after_stream_id(...)`
+  starts. Native IDs remain separate from Kafka integer offsets and timestamps.
+- Read-only atomic metadata/read batches and conservative failure on new
+  deletion/trim evidence or metadata rewind, without consumer groups,
+  acknowledgements, application-stream writes, or retries after known errors.
+  Metadata-equivalent delete/recreate between checks is not guaranteed detectable.
+- A Redis Streams publisher/admin harness with owned typed-stream cleanup,
+  explicit null-header capability preconditions, sync/async pytest examples,
+  and redacted JSON Allure success/timeout scenarios.
+- An authenticated Redis 8.2.11 Compose profile pinned by digest, with append-only
+  storage, local guides, and a `redis-streams` CI job with a separate Allure artifact.
+- Specification revision 1.3 documenting the Redis Streams extension while
+  preserving existing Core, Kafka, RabbitMQ, and acceptance contracts.
 
 Temporal assertions, further brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in

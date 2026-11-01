@@ -58,5 +58,36 @@
     "not_applicable_contract_tests": 4,
     "healthcheck_verified": true,
     "owned_test_queues_remaining": 0
+  },
+  "redis_streams_profile": {
+    "verification_date": "2026-11-02",
+    "broker": "Redis",
+    "version": "8.2.11",
+    "mode": "standalone / RESP2 / independent XREAD cursors",
+    "client": {
+      "redis": "8.1.0"
+    },
+    "platform": "Linux arm64",
+    "image": "redis:8.2.11-alpine",
+    "image_manifest_digest": "sha256:489a769e0a54dc245896132a15c72d2bc7296719954da99398f43a3877e5f8eb",
+    "start_modes": [
+      "latest",
+      "earliest",
+      "stream_id"
+    ],
+    "contract_and_observer_tests_passed": 23,
+    "pytest_examples_passed": 2,
+    "allure_examples_passed": 2,
+    "not_applicable_contract_tests": 3,
+    "healthcheck_verified": true,
+    "full_fault_profile_verified": false,
+    "read_only_atomic_pipeline": [
+      "CLIENT ID",
+      "INFO server",
+      "XINFO STREAM",
+      "XREAD COUNT"
+    ],
+    "connection_identity_checked": true,
+    "owned_test_keys_remaining": 0
   }
 }

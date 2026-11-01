@@ -2,8 +2,9 @@
 
 The `FakeTransport` scenarios in `test_allure_reporter.py` demonstrate sync/async
 expectations, timeout diagnostics, JSON payload redaction, and an intentional
-failure. The integration tests in `test_kafka.py` and `test_rabbitmq.py` use real
-Kafka and RabbitMQ through Docker Compose. Run all commands from the repository root.
+failure. The integration tests in `test_kafka.py`, `test_rabbitmq.py`, and
+`test_redis_streams.py` use real Kafka, RabbitMQ, and Redis Streams through Docker
+Compose. Run all commands from the repository root.
 
 ## Setup
 
@@ -210,6 +211,74 @@ Stop only RabbitMQ while preserving its data and any running Kafka service:
 docker compose stop rabbitmq
 ```
 
+## Redis Streams and AllureReporter
+
+Install the `redis,allure,pytest` extras or use the complete development
+environment. Start only the optional Redis Compose service:
+
+```shell
+uv sync --all-groups --all-extras
+docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest -c pyproject.toml examples/allure/test_redis_streams.py -m integration -v --alluredir=artifacts/allure-redis-results --clean-alluredir
+npx --yes allure@3.22.1 awesome artifacts/allure-redis-results --single-file --output artifacts/allure-redis-report --report-language en
+npx --yes allure@3.22.1 open artifacts/allure-redis-report --host 127.0.0.1 --port 5054
+```
+
+Expected result: **2 passed**. Redis is available at `127.0.0.1:6379`; the report
+opens on port 5054. The standalone file is
+`artifacts/allure-redis-report/index.html` and remains viewable after Redis stops.
+
+| Test in [test_redis_streams.py](test_redis_streams.py) | What to inspect |
+| --- | --- |
+| `test_redis_stream_correlated_success` | A JSON `completed` entry published after READY, correlated through `header:operation-id`, with its native stream ID and redacted body. |
+| `test_redis_stream_expected_timeout` | A real JSON `started` entry matches first, then remains a mismatch while waiting for `completed`; the expected timeout leaves the test passing. |
+
+Open **Event observation summary [RedisStreamsAdapter: <stream>]**.
+`expectation-result.json` and `expectation-result.txt` explain the outcome;
+`mismatches.json` describes the unmatched event. `message-content.json` contains
+bounded matched/mismatched bodies with `expectation_id`, `event_sequence`,
+`match_status`, `format`, and `payload`. All JSON uses `indent=2`.
+
+The fixture explicitly enables `SUMMARY` and `REDACTED_PAYLOAD`. A redactor
+removes synthetic `access_token` values from independent report copies, while
+the original returned test payloads remain unchanged. Bodies retain
+`operation_id` and `status` without the token. Capture and export limits apply;
+the default `METADATA_ONLY` policy omits message bodies. Text explanations do
+not disclose bodies under either policy. Summary titles identify the adapter
+and stream; replace labels through `DiagnosticPolicy.aliases` when needed.
+
+The successful scenario creates one summary. The timeout scenario creates two,
+one for `started` and one for its expected timeout. Normal close does not repeat
+them. Each expectation scans retained Journal history independently; Redis
+entries and consumer-group state remain untouched by those checks.
+
+Fixtures create unique existing typed streams and delete only their own keys
+in teardown, including on failure. The production adapter uses independent
+`XREAD` and read-only `CLIENT ID`/`INFO server`/`XINFO STREAM`/`XREAD`
+transactions, without consumer groups, acknowledgements, or stream writes.
+It needs Redis 7 or later and
+permissions for those commands and `MULTI`/`EXEC`, without Lua or `EVAL`.
+Detected new deletion/trim or metadata rewind fails conservatively.
+An arbitrary metadata-equivalent
+delete/recreate completed between checks is not guaranteed detectable; Cluster
+and Sentinel are outside the declared support.
+Connection ID or server `run_id` changes fail before candidate handoff; a native
+replacement socket does not cause observation to resume silently. Explicit
+native ID starts are exclusive and allow future IDs, while requests below
+known baseline deletion evidence raise `StartPositionUnavailableError`.
+
+Missing `REDIS_URL` explicitly skips both scenarios; a specified but unreachable
+Redis fails. In a service test, pass configuration explicitly and replace
+`harness.publish(...)` with the application action after READY. See the
+[adapter guide](../../docs/redis-streams.md) and
+[local Redis guide](../../docs/local-redis.md) for commands and format details.
+
+Stop only Redis, preserving its data and other running broker services:
+
+```shell
+docker compose stop redis
+```
+
 ## A report with an intentional failure
 
 Use separate directories to demonstrate a real `FAILED` result:
@@ -247,12 +316,17 @@ a caught timeout remains `PASSED`.
 
 The reporter completes each summary step before the next `await`. User-created
 `allure.step(...)` blocks in the async example also end before `await`. Payload
-content is disclosed in the redaction example and the Kafka and RabbitMQ scenarios through
-an explicit `REDACTED_PAYLOAD` policy and redactor. See
+content is disclosed in the redaction example and the Kafka, RabbitMQ, and
+Redis Streams scenarios through an explicit `REDACTED_PAYLOAD` policy and redactor. See
 [diagnostics and safe reports](../../docs/diagnostics.md) for export policies
 and limits.
 
 ## CI
+
+The `redis-streams` job starts the optional authenticated Redis profile, runs
+contracts and pytest examples, and generates the English report from
+`test_redis_streams.py`. It retains `allure-redis-example-report` for seven days,
+including reports from failed test runs, and stops the broker afterward.
 
 The `rabbitmq` job starts the optional local RabbitMQ profile, runs contracts
 and pytest examples, then generates the English report from `test_rabbitmq.py`.

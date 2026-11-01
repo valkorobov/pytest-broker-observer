@@ -446,6 +446,14 @@ class EventWatcher(_EventView[T]):
                 requested_offsets=dict(self.start_position.offsets),
                 resolved_positions=dict(self.readiness.boundary.positions),
                 ready_monotonic=self.readiness.ready_monotonic,
+                **(
+                    {
+                        "requested_stream_id": self.start_position.stream_id,
+                        "resolved_stream_id": self.readiness.source_metadata.get("redis.start_id"),
+                    }
+                    if "redis.start_id" in self.readiness.source_metadata
+                    else {}
+                ),
             )
             return self
         except BaseException as error:

@@ -2,12 +2,12 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.2 adds RabbitMQ exchange
-subscriptions alongside policy-controlled matched message diagnostics.
+The specification is maintained in English. Revision 1.3 adds Redis Streams
+observation alongside Kafka, RabbitMQ, and policy-controlled message diagnostics.
 
 Implemented features include a shared async core and sync facade, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
-decoders/resolvers, three-valued matchers, Kafka and RabbitMQ adapters, safe diagnostics
+decoders/resolvers, three-valued matchers, Kafka, RabbitMQ, and Redis Streams adapters, safe diagnostics
 and an explicit Allure reporter, a passive pytest plugin, reusable transport
 contracts, packaging, and CI.
 
@@ -77,6 +77,27 @@ acknowledgement order, decode/overflow failures, consumer/connection loss,
 independent monitors, deadlines, and owned-resource cleanup. Production ACL/TLS,
 network fault, restart, and multi-version broker coverage remain release gates.
 
+Redis Streams support was checked on November 2, 2026 with Redis 8.2.11 and
+redis-py 8.1.0. The digest-pinned authenticated Compose profile passed its
+health check. Shared contracts, observer integration checks, and pytest
+examples returned 25 passed and 3 explicit `NOT_APPLICABLE` skips (null bodies,
+duplicate/null header values, and separate message keys). Both Allure examples
+passed with redacted bodies, distinct expectation summaries, and English HTML.
+Broker inspection after teardown found no remaining test keys.
+
+Real checks covered independent cursors, available-history replay, exclusive
+native IDs, a deleted stream tail, binary headers, Protobuf, preservation of an
+application consumer group and its pending entries, conservative XDEL/XTRIM
+failure, and targeted observer connection loss without a business message.
+Controlled-native tests additionally cover atomic read-only snapshots, server
+and connection identity changes, cursor availability/future-ID policies,
+bounded buffers, validation, cancellation, and cleanup. The final non-broker
+run passed 548 tests with 1 skipped and 78 deselected; core xdist passed 535.
+Pre-commit, Pyright, wheel/sdist builds, and clean imports remain part of the
+candidate checks. Dependency floors, ACL/TLS, cluster/Sentinel, fault/load,
+multi-version testing, and metadata-equivalent stream recreation between polls
+are not covered by these local results.
+
 The first real-broker run revealed a difference in `get_watermark_offsets`
 under `read_committed`: the client returned LSO instead of the physical high
 watermark. The fix uses worker-owned AdminClient ListOffsets with
@@ -98,12 +119,13 @@ uv build --no-sources
 uv run twine check dist/*
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest tests/integration/test_kafka*.py -v
 RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest tests/integration/test_rabbitmq*.py -v
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest tests/integration/test_redis_streams*.py -v
 ```
 
 Running the Allure examples, the separate demonstration failure, and viewing HTML:
 [examples/allure](../examples/allure/README.md).
 
-Without `KAFKA_BOOTSTRAP_SERVERS` or `RABBITMQ_URL`, the corresponding real
+Without `KAFKA_BOOTSTRAP_SERVERS`, `RABBITMQ_URL`, or `REDIS_URL`, the corresponding real
 broker tests explicitly skip. A specified but unreachable broker causes a failure.
 These skips do not prove broker compatibility. Native-client unit tests use a controlled implementation
 of its interface and are identified separately from real-broker tests.

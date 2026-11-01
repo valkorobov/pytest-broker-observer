@@ -29,6 +29,33 @@ from event_observer.errors import ConfigurationError
 from event_observer.models import ObservationBoundary, TransportCapabilities, TransportReadiness
 
 
+@pytest.mark.parametrize("stream_id", ["0-0", "1-2", "18446744073709551615-18446744073709551615"])
+def test_native_stream_positions_preserve_the_full_id_and_remain_exclusive(stream_id):
+    start = StartPosition.after_stream_id(stream_id)
+    assert start.mode.value == "stream_id"
+    assert start.stream_id == stream_id
+    assert start.offsets == {}
+    assert start.timestamp_ms is None
+
+
+@pytest.mark.parametrize(
+    "stream_id",
+    ["", "1", "$", "+", "1-2-3", "-1-0", "1--1", "01-0", "1-00", "1-2\n", "18446744073709551616-0", None, 1],
+)
+def test_native_stream_positions_reject_invalid_or_ambiguous_ids(stream_id):
+    with pytest.raises(ConfigurationError):
+        StartPosition.after_stream_id(stream_id)
+
+
+def test_native_stream_positions_cannot_be_mixed_with_kafka_offsets_or_timestamps():
+    with pytest.raises(ConfigurationError):
+        StartPosition(stream_id="1-0")
+    with pytest.raises(ConfigurationError):
+        StartPosition(mode="stream_id", stream_id="1-0", offsets={0: 1})
+    with pytest.raises(ConfigurationError):
+        StartPosition(mode="stream_id", stream_id="1-0", timestamp_ms=1)
+
+
 @pytest.mark.parametrize(
     "factory",
     [
@@ -216,7 +243,7 @@ import threading
 from types import SimpleNamespace
 
 sys.path.insert(0, sys.argv[1])
-blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "google.protobuf", "allure", "opentelemetry")
+blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "redis", "google.protobuf", "allure", "opentelemetry")
 class NoOptionalDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if any(fullname == name or fullname.startswith(name + ".") for name in blocked):
@@ -232,8 +259,12 @@ import event_observer.integrations.pytest_plugin as plugin
 from event_observer.models import TransportCapabilities
 from event_observer.transports.rabbitmq import RabbitMQAdapter, RabbitMQConfig
 from event_observer.testing import RabbitMQAdapterHarness
+from event_observer.transports.redis_streams import RedisStreamsAdapter, RedisStreamsConfig
+from event_observer.testing import RedisStreamsAdapterHarness
 RabbitMQAdapter(RabbitMQConfig(url="amqp://observer:observer@127.0.0.1:5672/"))
 RabbitMQAdapterHarness("amqp://observer:observer@127.0.0.1:5672/")
+RedisStreamsAdapter(RedisStreamsConfig(url="redis://:observer@127.0.0.1:6379/0"))
+RedisStreamsAdapterHarness("redis://:observer@127.0.0.1:6379/0")
 async def not_opened(*args, **kwargs):
     raise AssertionError("factory unexpectedly opened a transport")
 adapter = SimpleNamespace(open=not_opened, capabilities=TransportCapabilities())

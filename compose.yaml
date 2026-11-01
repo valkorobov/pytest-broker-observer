@@ -54,6 +54,25 @@ services:
       retries: 12
     stop_grace_period: 30s
 
+  redis:
+    profiles: [redis]
+    image: redis:8.2.11-alpine@sha256:489a769e0a54dc245896132a15c72d2bc7296719954da99398f43a3877e5f8eb
+    command: [redis-server, --appendonly, "yes", --requirepass, observer]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    environment:
+      REDISCLI_AUTH: observer
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 12
+    stop_grace_period: 30s
+
 volumes:
   kafka-data:
   rabbitmq-data:
+  redis-data:

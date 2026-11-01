@@ -24,7 +24,7 @@ uv sync --all-groups --all-extras
 ```
 
 Core has no runtime dependencies and works outside pytest. Extras enable the
-implemented features: `kafka`, `rabbitmq`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
+implemented features: `kafka`, `rabbitmq`, `redis`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
 `contract-tests`, and `all`. The pytest plugin is passive: autoloading it creates
 no fixtures, connections, or background threads. Synchronous tests do not need
 `pytest-asyncio`.
@@ -164,6 +164,47 @@ when admitted to the Journal, independently of matcher outcomes.
 See the [adapter guide](docs/rabbitmq.md), [local Compose guide](docs/local-rabbitmq.md),
 and [sync/async examples](examples/pytest/test_rabbitmq.py).
 
+## Redis Streams observation
+
+Install `.[redis,pytest]` to observe an existing Redis stream through the
+optional redis-py client. Each watcher has its own `XREAD` cursor; observing
+does not join a consumer group, acknowledge pending entries, or write to the
+application stream:
+
+```python
+from event_observer import StartPosition, SyncEventObserver
+from event_observer.transports.redis_streams import RedisStreamsAdapter, RedisStreamsConfig
+
+events = SyncEventObserver(
+    transport=RedisStreamsAdapter(RedisStreamsConfig(url="redis://:observer@127.0.0.1:6379/0"))
+)
+
+with events.watch(source="application.events", start=StartPosition.latest()) as watcher:
+    # Call your application here; its XADD entry uses the payload field for the body.
+    completed = watcher.wait_for_event(lambda payload: payload == b"completed", timeout=10)
+    assert completed.payload == b"completed"
+    stream_id = completed.raw.metadata["redis.stream_id"]
+```
+
+The default field mapping uses `payload` for the body and `header:<name>` for
+byte-valued headers. Starts support latest, available earliest history, and
+exclusive `StartPosition.after_stream_id("milliseconds-sequence")` boundaries.
+A native stream ID remains separate from Kafka integer offsets and timestamps.
+Redis 7 or later and read/transaction permissions are required, including
+`XINFO STREAM`, `XREAD`, `CLIENT ID`, `INFO server`, `MULTI`, and `EXEC`. Atomic
+transactions keep each batch consistent with its continuity and connection
+identity metadata, without Lua or `EVAL`.
+
+New deletion/trim evidence or metadata rewind fails conservatively, including
+deletion of entries already read. The observer does not reopen at another
+cursor after a known failure. Metadata-equivalent deletion and recreation
+entirely between checks is not guaranteed detectable; Cluster and Sentinel
+support are outside the declared scope. A replacement connection or server
+identity ends the observation before its entries reach Core, even if the native
+client opened that socket internally. See the
+[adapter guide](docs/redis-streams.md), [local profile](docs/local-redis.md),
+and [sync/async examples](examples/pytest/test_redis_streams.py).
+
 ## Pytest and Allure
 
 [examples/allure](examples/allure/README.md) contains runnable examples with
@@ -189,6 +230,8 @@ full run and viewing a separate HTML report.
 The [RabbitMQ examples with AllureReporter](examples/allure/README.md#rabbitmq-and-allurereporter)
 show the same successful correlation and expected-timeout diagnostics through
 dedicated observer queues, including redacted JSON bodies and a separate report.
+The [Redis Streams Allure examples](examples/allure/README.md#redis-streams-and-allurereporter)
+show those outcomes with independent stream reads and redacted message bodies.
 
 ## MVP features
 
@@ -197,6 +240,8 @@ dedicated observer queues, including redacted JSON bodies and a separate report.
   `latest`, `earliest`, explicit offsets, and timestamp start.
 - RabbitMQ through `aio-pika`: independent dedicated exchange subscriptions,
   exclusive queues, latest-only observation, and admission-time acknowledgement.
+- Redis Streams through redis-py: independent `XREAD`, latest/earliest/exclusive
+  native ID starts, read-only observation, and conservative continuity checks.
 - Raw bytes, null payloads where supported by the transport, ordinary Protobuf,
   and explicit mixed-type resolution.
 - A bounded Journal with `FAIL`, `DROP_OLDEST`, `DROP_NEWEST`, and incomplete-history tracking.
@@ -230,6 +275,8 @@ and reconnect with checkpoint recovery are deferred beyond this MVP.
 - [Kafka: configuration, readiness, and start positions](docs/kafka.md)
 - [Local RabbitMQ: Docker Compose, tests, management UI, and Allure](docs/local-rabbitmq.md)
 - [RabbitMQ: exchange subscriptions, readiness, capabilities, and settlement](docs/rabbitmq.md)
+- [Local Redis Streams: Docker Compose, tests, authentication, and Allure](docs/local-redis.md)
+- [Redis Streams: field mapping, native ID boundaries, and continuity](docs/redis-streams.md)
 - [Matchers and Protobuf rules](docs/matchers.md)
 - [Scopes, correlation, and completeness](docs/scopes.md)
 - [Diagnostics, redaction, Allure, and trace context](docs/diagnostics.md)
@@ -280,6 +327,21 @@ their own isolated queues. Stopping only RabbitMQ preserves its data and any
 running Kafka service. The `rabbitmq` CI job runs the same broker profile and
 retains a separate Allure report. Details are in the
 [local RabbitMQ guide](docs/local-rabbitmq.md).
+
+Start the optional Redis profile and run its selected contracts and examples:
+
+```shell
+docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest -c pyproject.toml tests/integration/test_redis_streams*.py examples/pytest/test_redis_streams.py -v
+docker compose stop redis
+```
+
+The profile pins Redis 8.2.11 with authentication, append-only persistence,
+and a loopback-only port 6379. The harness owns unique temporary stream keys;
+the runtime only reads existing streams. The `redis-streams` CI job uses the
+same profile and retains a separate Allure report. Stopping only Redis preserves
+other broker services and its named data volume. See the
+[local Redis guide](docs/local-redis.md).
 
 Integration tests are skipped when the environment variable is missing. If a
 broker is configured, connection errors fail the tests. A command or CI workflow

@@ -11,7 +11,7 @@ uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 Nine scenarios use `FakeTransport` and run without a broker. It simulates events
 from the service under test; your service or a separate producer performs real
 publication. These examples demonstrate the observation API; separate integration
-examples use real Kafka and RabbitMQ brokers.
+examples use real Kafka, RabbitMQ, and Redis Streams.
 
 See [../allure](../allure/README.md) for examples with `AllureReporter`, diagnostic
 JSON attachments, and commands to generate and view HTML reports.
@@ -24,11 +24,12 @@ JSON attachments, and commands to generate and view HTML reports.
 | [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, an explicit resolver for mixed types, and the `on_type` guard. |
 | [test_kafka.py](test_kafka.py) | A real broker, a unique topic, an independent producer, and cleanup through a yield fixture. |
 | [test_rabbitmq.py](test_rabbitmq.py) | Sync and async observation of an exchange through dedicated observer queues, header correlation, and publisher confirmation. |
+| [test_redis_streams.py](test_redis_streams.py) | Sync latest observation and async reads strictly after a native stream ID, unique byte headers, and independent Redis reads. |
 
 ## Ordinary synchronous tests
 
 Only pytest and the base library are needed to run the synchronous raw examples;
-`pytest-asyncio`, Kafka, RabbitMQ, and Protobuf are optional:
+`pytest-asyncio`, Kafka, RabbitMQ, Redis, and Protobuf are optional:
 
 ```shell
 python -m pip install -e '.[pytest]'
@@ -150,6 +151,59 @@ Use `RabbitMQAdapter(RabbitMQConfig(url=...))` in your own factory and replace
 `harness.publish(...)` with the application's action.
 See the [adapter guide](../../docs/rabbitmq.md) and
 [local broker guide](../../docs/local-rabbitmq.md) for details.
+
+## Examples with real Redis Streams
+
+For JSON message bodies after redaction, timeout diagnostics, and HTML viewing,
+see [Redis Streams and AllureReporter](../allure/README.md#redis-streams-and-allurereporter).
+
+```shell
+uv sync --all-groups --all-extras
+docker compose --profile redis up --detach --wait --wait-timeout 120 redis
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 uv run pytest -c pyproject.toml examples/pytest/test_redis_streams.py -m integration -v
+docker compose stop redis
+```
+
+Expect **2 passed** with the full development environment. A separate project
+can install `.[redis,pytest-asyncio]`; the async example explicitly skips without
+pytest-asyncio. The sync example publishes after latest is READY. The async
+example starts with `StartPosition.after_stream_id(...)`, excludes the entry
+at that boundary, and waits for the next event. Native stream-ID starts are
+exclusive; `StartPosition.earliest()` can instead read available retained history.
+Future native IDs are allowed. An explicit start below known baseline deletion
+evidence fails with `StartPositionUnavailableError` rather than moving silently
+to a retained position; the adapter guide details the conservative bounds.
+
+The fixture creates a unique existing stream with an `XADD`/`XDEL` seed and
+deletes only its own key. Each harness operation has an independent native
+client, so separate `asyncio.run(...)` calls in sync fixtures are safe. A receipt
+contains the server-generated `redis.stream_id`, also exposed in observed
+event metadata. The default entry fields are `payload` and
+`header:operation-id`; `event.raw.key` is `None`.
+
+The production adapter reads one existing stream with independent `XREAD` and
+read-only metadata transactions. It does not create streams, join groups,
+acknowledge group deliveries, or change pending-entry lists. It requires Redis
+7 or later and permissions for `CLIENT ID`, `INFO server`, `XINFO STREAM`,
+`XREAD`, `MULTI`, and `EXEC`, without Lua or `EVAL`. The harness additionally
+needs write/delete permissions
+for its temporary keys. Null bodies, null/duplicate headers, and message keys
+are unsupported.
+
+Detected deletion/trim or metadata rewind fails conservatively; the observer
+does not retry at a new boundary. An arbitrary metadata-equivalent delete and
+recreation completed between checks cannot be guaranteed detectable. There is
+no Cluster or Sentinel support claim. The same atomic snapshots compare
+connection ID and server `run_id`; a changed
+identity fails before candidate handoff even if the native pool opened a
+replacement socket internally. See the
+[adapter guide](../../docs/redis-streams.md) and
+[local Redis guide](../../docs/local-redis.md) for details.
+
+`REDIS_URL` is read explicitly by the fixture, rather than the library. Missing
+configuration skips the examples; a configured but unreachable Redis fails.
+Replace `harness.publish(...)` with your application's action when adapting
+the examples to a service test.
 
 Create the scope before the action. `ScopeStart.from_now()` captures the next
 admission position in the runtime rather than the broker publication time.
