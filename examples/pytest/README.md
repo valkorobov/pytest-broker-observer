@@ -13,6 +13,9 @@ uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 выполняет ваш сервис или отдельный producer. Это примеры API наблюдения,
 а не интеграционная проверка Kafka.
 
+Примеры с `AllureReporter`, диагностическими JSON-вложениями и командами
+генерации и просмотра HTML находятся в [../allure](../allure/README.md).
+
 | Файл | Что показывает |
 | --- | --- |
 | [conftest.py](conftest.py) | Function-scoped factory fixtures, yield fixture активного watcher и имитация действия сервиса. |

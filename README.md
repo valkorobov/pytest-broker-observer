@@ -132,6 +132,24 @@ Protobuf toolchain; открытая схема примера находитс�
 Observer не угадывает тип по wire format. Для mixed-type потока доступны явные
 header/source/callable resolvers и `on_type(T, matcher)`.
 
+## Pytest и Allure
+
+В [examples/allure](examples/allure/README.md) есть запускаемые примеры с
+`AllureReporter`: успешные sync/async ожидания, timeout и redaction JSON payload.
+После `uv sync --all-groups --all-extras`:
+
+```shell
+uv run pytest -c pyproject.toml examples/allure -v --alluredir=artifacts/allure-results --clean-alluredir
+npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language ru
+npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 5050
+```
+
+Для генерации и просмотра нужен Node.js с npm; проверен Node.js 24.
+Обычный прогон даёт **4 passed, 1 skipped**. Отдельный `--allure-demo-failure`
+включает настоящую демонстрационную ошибку; команды и ожидаемый код выхода
+описаны в [руководстве](examples/allure/README.md). Отчёт можно открыть и как
+самостоятельный `artifacts/allure-report/index.html`.
+
 ## Что входит в MVP
 
 - Async и sync API: `wait_for`, `wait_for_event`, `wait_for_count`, вложенные scopes.
@@ -171,6 +189,7 @@ Schema Registry и reconnect с восстановлением checkpoints от�
 - [Matchers и правила Protobuf](docs/matchers.md)
 - [Scopes, корреляция и полнота](docs/scopes.md)
 - [Диагностика, redaction, Allure и trace context](docs/diagnostics.md)
+- [Запуск pytest с AllureReporter и просмотр HTML-отчёта](examples/allure/README.md)
 - [Совместимость](docs/compatibility.md) и [проверенный статус](docs/status.md)
 - [Техническая спецификация](SPEC.md), [изменения](CHANGELOG.md),
   [разработка](CONTRIBUTING.md), [безопасность](SECURITY.md)

@@ -83,10 +83,21 @@ python -m pip install -e '.[allure]'
 
 ```python
 from event_observer import SyncEventObserver
+from event_observer.diagnostics import DiagnosticPolicy, ReportingMode
 from event_observer.integrations.allure import AllureReporter
 
-events = SyncEventObserver(transport=adapter, reporters=[AllureReporter()])
+events = SyncEventObserver(
+    transport=adapter,
+    reporters=[AllureReporter()],
+    diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+)
 ```
+
+Запускайте pytest с `--alluredir`, чтобы плагин записывал результаты и reporter
+получал активный test context. `SUMMARY` в примере включает вложения при успехе;
+без этой настройки действует `ERRORS_ONLY`. Полный набор запускаемых тестов,
+генерация HTML и просмотр отчёта, включая намеренный `FAILED`, описаны в
+[examples/allure](../examples/allure/README.md).
 
 Reporter создаёт завершённые summary steps, не держит step открытым между
 `await` и не создаёт step на каждое сообщение. Он проверяет активный test

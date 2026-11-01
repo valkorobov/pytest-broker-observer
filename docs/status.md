@@ -28,6 +28,9 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 | Запускаемые примеры с pytest | 9 passed без брокера; отдельный Kafka-пример — 1 passed; в pytest-only окружении 4 passed, 3 skipped |
 | Реальная Kafka 3.9.2 / KRaft / arm64 | 22 passed: общие contracts, replay, topology, transactions, sync/async + Protobuf |
 | Локальная Kafka через Compose | 23 passed вместе с pytest-примером; нестандартный host port и сохранение данных после `down`/`up` проверены |
+| Pytest-примеры с настоящим AllureReporter | 4 passed, 1 skipped; opt-in демонстрация — 4 passed, 1 намеренный FAILED; JSON-вложения и redaction проверены |
+| HTML Allure 3.22.1 / Node.js 24.19.0 | Обычный и демонстрационный отчёты собраны как standalone HTML |
+| Core вместе с pytest- и Allure-примерами без брокера | 295 passed, 1 skipped, 23 deselected |
 
 Первый real-broker прогон выявил отличие `get_watermark_offsets` при
 `read_committed`: клиент вернул LSO вместо физического high watermark.
@@ -51,6 +54,9 @@ uv run twine check dist/*
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest tests/integration -v
 ```
 
+Запуск Allure-примеров, отдельной демонстрационной ошибки и просмотр HTML:
+[examples/allure](../examples/allure/README.md).
+
 Без `KAFKA_BOOTSTRAP_SERVERS` реальные Kafka-тесты имеют явный skip.
 Заданный, но недоступный брокер вызывает failure. Такие skip не являются
 доказательством Kafka-совместимости. Unit-тесты native client используют
@@ -65,7 +71,9 @@ KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest tests/integration -v
 - Полный Testcontainers harness с pinned digest и обязательной привязкой
   каждой заявленной capability к отдельному contract node на реальном брокере.
 - Benchmarks RSS/throughput/latency с фиксированным окружением и бюджетами.
-- Реальная интеграция Allure в runner и проверки всех reporting contexts.
+- Остальные reporting contexts Allure: примеры проверены локально с настоящим
+  pytest-плагином и HTML, отдельный CI job подготовлен; полная runner matrix
+  ещё требует подтверждения.
 - Protected release environment, подтверждённый OIDC Trusted Publisher,
   attestations, проверка tag/version/hash и публикация проверенных artifacts.
 

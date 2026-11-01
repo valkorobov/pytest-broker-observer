@@ -56,6 +56,10 @@ docker compose down
 для обычных Core tests или работы с уже существующим брокером.
 Порт и правила хранения данных описаны в [docs/local-kafka.md](docs/local-kafka.md).
 
+Для проверки AllureReporter с настоящим pytest-плагином и просмотра HTML
+используйте [examples/allure](examples/allure/README.md). Обычный прогон зелёный;
+намеренное демонстрационное падение включается только отдельным флагом.
+
 ## Изменения Core и adapters
 
 Сохраняйте общий код ожиданий для sync и async facade. Predicate получает
