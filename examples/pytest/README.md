@@ -1,95 +1,95 @@
-# Примеры использования с pytest
+# Pytest usage examples
 
-Все команды ниже выполняются из корня репозитория. Для полного набора примеров
-подготовьте development-окружение:
+Run all commands below from the repository root. Prepare the development
+environment for the complete set of examples:
 
 ```shell
 uv sync --all-groups --all-extras
 uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 ```
 
-Девять сценариев используют `FakeTransport` и выполняются без брокера. Он
-имитирует события тестируемого сервиса: настоящую публикацию в приложении
-выполняет ваш сервис или отдельный producer. Это примеры API наблюдения,
-а не интеграционная проверка Kafka.
+Nine scenarios use `FakeTransport` and run without a broker. It simulates events
+from the service under test; your service or a separate producer performs real
+publication. These examples demonstrate the observation API rather than verify
+Kafka integration.
 
-Примеры с `AllureReporter`, диагностическими JSON-вложениями и командами
-генерации и просмотра HTML находятся в [../allure](../allure/README.md).
+See [../allure](../allure/README.md) for examples with `AllureReporter`, diagnostic
+JSON attachments, and commands to generate and view HTML reports.
 
-| Файл | Что показывает |
+| File | Demonstrates |
 | --- | --- |
-| [conftest.py](conftest.py) | Function-scoped factory fixtures, yield fixture активного watcher и имитация действия сервиса. |
-| [test_sync.py](test_sync.py) | Обычные `def test_*`, корреляция по header, envelope с key/headers и `pytest.mark.parametrize`. |
-| [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, параллельные waiters и чтение истории через `wait_for_count`. |
-| [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, явный resolver смешанных типов и guard `on_type`. |
-| [test_kafka.py](test_kafka.py) | Реальный брокер, уникальный topic, независимый producer и cleanup через yield fixture. |
+| [conftest.py](conftest.py) | Function-scoped factory fixtures, a yield fixture for an active watcher, and a simulated service action. |
+| [test_sync.py](test_sync.py) | Ordinary `def test_*` functions, header correlation, an envelope with key/headers, and `pytest.mark.parametrize`. |
+| [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, parallel waiters, and reading history with `wait_for_count`. |
+| [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, an explicit resolver for mixed types, and the `on_type` guard. |
+| [test_kafka.py](test_kafka.py) | A real broker, a unique topic, an independent producer, and cleanup through a yield fixture. |
 
-## Обычные синхронные тесты
+## Ordinary synchronous tests
 
-Для запуска только синхронных raw-примеров достаточно pytest и базовой
-библиотеки; `pytest-asyncio`, Kafka и Protobuf не нужны:
+Only pytest and the base library are needed to run the synchronous raw examples;
+`pytest-asyncio`, Kafka, and Protobuf are optional:
 
 ```shell
 python -m pip install -e '.[pytest]'
 python -m pytest examples/pytest/test_sync.py -v
 ```
 
-В `conftest.py` fixture `sync_events` создаёт ленивую factory. Сам тест открывает
-наблюдение через `with sync_events.watch(...)`. Контекст возвращается после READY,
-поэтому действие сервиса вызывается внутри `with`, после создания scope.
+The `sync_events` fixture in `conftest.py` creates a lazy factory. The test opens
+observation with `with sync_events.watch(...)`. Entering the context waits for
+READY, so the service action belongs inside `with`, after creating the scope.
 
-Fixture `watched_events` показывает другой вариант: `watch()` открывается до
-теста, watcher передаётся через `yield`, а контекст закрывается при teardown,
-включая случай неуспешного assertion. Параметризованный тест получает отдельные
-transport, watcher и историю для каждого значения параметра.
+The `watched_events` fixture shows another approach: it opens `watch()` before
+the test, passes the watcher through `yield`, and closes the context during
+teardown, including after a failed assertion. The parametrized test gets an
+independent transport, watcher, and history for each parameter value.
 
-`perform_operation` — обычный callback fixture, вызываемый из тела теста.
-В своём проекте замените его вызовом вашего service client. Library matchers
-и decoders при этом остаются короткими callbacks без I/O.
+`perform_operation` is an ordinary callback fixture called by the test. Replace
+it with your service client in your own project. Library matchers and decoders
+should remain short callbacks without I/O.
 
-## Асинхронные тесты
+## Asynchronous tests
 
-Нужен extra `pytest-asyncio`:
+Install the `pytest-asyncio` extra:
 
 ```shell
 python -m pip install -e '.[pytest-asyncio]'
 python -m pytest -c pyproject.toml examples/pytest/test_async.py -v
 ```
 
-Async factory тоже предоставляется обычной `pytest.fixture`: ресурсы открываются
-в `async with` внутри теста. Параллельные ожидания создаются через
-`asyncio.create_task` и завершаются через `asyncio.gather`. Они могут увидеть одну
-и ту же запись; найденное событие не удаляется из Journal.
+An ordinary `pytest.fixture` also provides the async factory: resources open in
+`async with` inside the test. Parallel expectations use `asyncio.create_task`
+and finish through `asyncio.gather`. They can observe the same record; a matched
+event is not removed from the Journal.
 
-Общий `pytest.ini` в этой папке содержит только опции pytest, поэтому raw-примеры
-работают и без async plugin. Команды async/full-прогона явно используют
-`pyproject.toml`, где настроены strict mode и function loop scope. При переносе
-примеров в собственный проект задайте соответствующие настройки pytest-asyncio
-в его конфигурации.
+The shared `pytest.ini` in this directory contains only pytest options, so the
+raw examples also work without an async plugin. Async and full-suite commands
+explicitly select `pyproject.toml`, which configures strict mode and function
+loop scope. Configure pytest-asyncio accordingly when copying these examples
+to your own project.
 
-## Protobuf без генерации дополнительной схемы
+## Protobuf without compiling another schema
 
 ```shell
 python -m pip install -e '.[pytest,protobuf]'
 python -m pytest examples/pytest/test_protobuf.py -v
 ```
 
-Для самостоятельного запуска используются готовые generated-классы
-`StringValue` и `Int32Value` из пакета Protobuf. Для своей схемы передавайте
-класс из вашего `*_pb2.py` так же, как `message_type=StringValue` в примере.
-Открытая схема `OperationEvent` находится в [../proto/example.proto](../proto/example.proto).
+The standalone examples use the generated `StringValue` and `Int32Value` classes
+included in Protobuf. For your schema, pass a class from your `*_pb2.py` just as
+the example passes `message_type=StringValue`. The public `OperationEvent`
+schema is in [../proto/example.proto](../proto/example.proto).
 
-В смешанном потоке тип выбирается по уникальному header `event-type`.
-`on_type(Int32Value, ...)` пропускает неподходящий тип, не вызывая вложенный
-matcher. Тип не угадывается по бинарному содержимому.
+In the mixed stream, a unique `event-type` header selects the type.
+`on_type(Int32Value, ...)` skips another type without calling the nested matcher.
+The type is not guessed from the binary payload.
 
-## Отдельный пример с настоящей Kafka
+## A separate example with real Kafka
 
-Вариант с `AllureReporter`, диагностическими вложениями и просмотром HTML:
-[Kafka и AllureReporter](../allure/README.md#kafka-и-allurereporter).
+For `AllureReporter`, diagnostic attachments, and HTML viewing commands, see
+[Kafka and AllureReporter](../allure/README.md#kafka-and-allurereporter).
 
-Запустите локальную Kafka из `compose.yaml` и укажите её адрес. Пример создаёт
-уникальный topic и удаляет его в `finally`.
+Start the local Kafka instance from `compose.yaml` and provide its address. The
+example creates a unique topic and deletes it in `finally`.
 
 ```shell
 uv sync --all-groups --all-extras
@@ -98,21 +98,21 @@ KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml examples/
 docker compose down
 ```
 
-Для существующего брокера с разрешениями на создание и удаление topics достаточно
-задать его адрес в `KAFKA_BOOTSTRAP_SERVERS`. Выбор порта и сброс локальных данных:
-[../../docs/local-kafka.md](../../docs/local-kafka.md).
+For an existing broker with permission to create and delete topics, set its
+address in `KAFKA_BOOTSTRAP_SERVERS`. Port selection and resetting local data
+are described in [../../docs/local-kafka.md](../../docs/local-kafka.md).
 
-Без переменной `KAFKA_BOOTSTRAP_SERVERS` этот пример пропускается. Заданный,
-но недоступный брокер вызывает ошибку. Переменная окружения принадлежит
-тестовому проекту: сам Observer не ищет настройки подключения автоматически.
+The example is skipped without `KAFKA_BOOTSTRAP_SERVERS`. An explicitly configured
+but unavailable broker causes a failure. The environment variable belongs to
+the test project: Observer itself does not discover connection settings.
 
-`KafkaAdapterHarness` предоставляет независимый producer и дожидается broker
-acknowledgement. В обычном black-box тесте вместо `harness.publish(...)` вызывают
-реальное приложение, а в `SyncEventObserver` явно передают `KafkaAdapter` с
-`KafkaConfig`. Настройки TLS/SASL и политика replay описаны в
-[руководстве Kafka](../../docs/kafka.md).
+`KafkaAdapterHarness` provides an independent producer and waits for broker
+acknowledgement. An ordinary black-box test calls the application instead of
+`harness.publish(...)` and explicitly passes a `KafkaAdapter` with `KafkaConfig`
+to `SyncEventObserver`. See the [Kafka guide](../../docs/kafka.md) for TLS/SASL
+configuration and replay policy.
 
-Создавайте scope до действия. `ScopeStart.from_now()` фиксирует следующую
-позицию admission в runtime, а не время публикации сообщения в брокере.
-`wait_for_count(..., 2)` считает разные Journal records, даже если payload
-одинаков. Последовательные `wait_for` сами по себе не проверяют порядок событий.
+Create the scope before the action. `ScopeStart.from_now()` captures the next
+admission position in the runtime rather than the broker publication time.
+`wait_for_count(..., 2)` counts distinct Journal records even when their payloads
+are identical. Sequential `wait_for` calls do not check event ordering by themselves.

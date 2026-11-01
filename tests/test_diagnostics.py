@@ -569,7 +569,7 @@ def test_formatted_attachments_count_towards_cumulative_export_budget():
             ),
         ),
     )
-    payload = {"title": "готово 😀", "values": [0] * 10}
+    payload = {"title": "all done now 😀", "values": [0] * 10}
     diagnostics.record_mismatch("expectation_1", 1, (), payload=payload)
     diagnostics.record_expectation(expectation_id="expectation_1", outcome="timeout")
 
@@ -607,7 +607,9 @@ def test_truncated_attachment_keeps_indentation_with_a_tight_remaining_budget():
             limits=DiagnosticLimits(max_attachment_bytes=2048, max_export_bytes=1500, max_mismatch_samples=1),
         ),
     )
-    diagnostics.record_mismatch("expectation_1", 1, (), payload={"title": "готово 😀", "values": [0] * 10})
+    diagnostics.record_mismatch(
+        "expectation_1", 1, (), payload={"title": "all done now 😀", "values": [0] * 10}
+    )
     diagnostics.record_expectation(expectation_id="expectation_1", outcome="timeout")
 
     report = diagnostics.export()

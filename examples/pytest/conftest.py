@@ -1,4 +1,4 @@
-"""Fixtures принадлежат тестовому проекту; plugin библиотеки их не создаёт."""
+"""Fixtures belong to the test project; the library plugin does not create them."""
 
 from collections.abc import Callable, Iterator
 
@@ -10,13 +10,13 @@ from event_observer.testing import FakeTransport
 
 @pytest.fixture
 def transport() -> FakeTransport:
-    # Новый transport на каждый тест: история одного теста не попадает в другой.
+    # A new transport per test keeps one test's history out of another.
     return FakeTransport()
 
 
 @pytest.fixture
 def sync_events(transport: FakeTransport) -> SyncEventObserver:
-    # Factory ленива. Ресурсы открывает и закрывает контекст watch() в тесте.
+    # The factory is lazy. The test's watch() context opens and closes resources.
     return SyncEventObserver(transport=transport)
 
 
@@ -27,7 +27,7 @@ def async_events(transport: FakeTransport) -> EventObserver:
 
 @pytest.fixture
 def watched_events(sync_events: SyncEventObserver) -> Iterator[SyncEventWatcher[bytes | None]]:
-    # Yield fixture подтверждает READY до теста и закрывает watcher при teardown.
+    # The yield fixture confirms READY before the test and closes the watcher during teardown.
     with sync_events.watch(source="operations") as watcher:
         yield watcher
 
@@ -35,7 +35,7 @@ def watched_events(sync_events: SyncEventObserver) -> Iterator[SyncEventWatcher[
 @pytest.fixture
 def perform_operation(transport: FakeTransport) -> Callable[[str], None]:
     def perform(operation_id: str) -> None:
-        # Имитация внешнего сервиса. В реальном проекте здесь вызывают service_client.
+        # Simulate an external service. A real project would call service_client here.
         headers = (("operation-id", operation_id.encode()),)
         for status in (b"started", b"completed"):
             transport.publish(status, source="operations", key=operation_id.encode(), headers=headers)

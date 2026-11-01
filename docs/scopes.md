@@ -1,7 +1,7 @@
-# Scopes и корреляция
+# Scopes and correlation
 
-Scope — фильтр и логическая начальная граница поверх общего Journal. Он не
-создаёт отдельный consumer и не хранит собственную копию истории.
+A scope is a filter and a logical starting boundary over the shared Journal.
+It does not create a separate consumer or keep its own copy of the history.
 
 ```python
 from event_observer import ScopeStart
@@ -18,27 +18,28 @@ with events.watch(source="example.events", message_type=OperationEvent) as watch
     completed = operation.wait_for(field_equals("status", COMPLETED), timeout=5.0)
 ```
 
-Здесь `events` — `SyncEventObserver`, `service` — клиент тестируемой системы,
-`OperationEvent` — generated Protobuf class вашего проекта. Reader продолжает
-работать во время блокирующего вызова сервиса. Для `EventObserver` используйте
-`async with` и `await operation.wait_for(...)`.
+Here, `events` is a `SyncEventObserver`, `service` is a client for the system
+under test, and `OperationEvent` is your project's generated Protobuf class.
+The reader continues running during the blocking service call. For
+`EventObserver`, use `async with` and `await operation.wait_for(...)`.
 
-## Начальная граница
+## Starting boundary
 
-| Start | Область |
+| Start | Range |
 |---|---|
-| `ScopeStart.all_retained()` | Default: логический диапазон родителя, включая сведения об уже утраченной истории |
-| `ScopeStart.from_now()` | Следующая admission-позиция на момент исполнения команды в runtime |
-| `ScopeStart.from_sequence(n)` | Явная неотрицательная позиция не позже текущего next sequence |
+| `ScopeStart.all_retained()` | Default: the parent's logical range, including information about history already lost |
+| `ScopeStart.from_now()` | The next admission position when the command executes in the runtime |
+| `ScopeStart.from_sequence(n)` | An explicit nonnegative position no later than the current next sequence |
 
-`from_now` относится к приёму в Journal. Сообщение, уже опубликованное в брокере,
-но ещё находящееся в native buffers, может поступить после этой границы.
-В sync режиме граница фиксируется до возврата `scope()` вызывающему потоку.
+`from_now` refers to admission to the Journal. A message already published to
+the broker but still in native buffers can arrive after this boundary.
+In sync mode, the boundary is fixed before `scope()` returns to the calling
+thread.
 
-Вложенный scope наследует все фильтры родителя и выбирает максимум родительской
-и собственной границ. Сначала проверяется parent filter; если он не совпал,
-child predicate не вызывается. Определение scope неизменно: для другой
-корреляции создайте новый scope.
+A nested scope inherits all parent filters and takes the maximum of the
+parent's and its own boundaries. The parent filter is checked first; if it does
+not match, the child predicate is not called. A scope definition is immutable:
+create a new scope for a different correlation.
 
 ```python
 from event_observer.matchers import header_equals
@@ -46,35 +47,35 @@ from event_observer.matchers import header_equals
 operation_with_header = operation.scope(header_equals("tenant", b"example"))
 ```
 
-Correlation можно задавать по payload, source, key, headers и валидному trace ID.
-Для mixed-type потока используйте `on_type(T, matcher)` для типоспецифичных полей.
-Scope фильтрует уже принятые события: нерелевантные сообщения продолжают занимать
-общий Journal и могут привести к переполнению.
+Correlation can use payload, source, key, headers, and a valid trace ID.
+For a mixed-type stream, use `on_type(T, matcher)` for type-specific fields.
+A scope filters events already received: irrelevant messages still occupy the
+shared Journal and can cause overflow.
 
-## Ожидания и полнота
+## Expectations and completeness
 
-Каждое ожидание заново сканирует логический диапазон scope собственным cursor.
-Ожидания не потребляют события: одна запись может удовлетворить несколько
-независимых проверок. `wait_for_count(matcher, N, timeout=...)` выбирает первые
-N различных Journal records с одним общим deadline; бизнес-дубликаты считаются
-отдельными записями.
+Each expectation scans the scope's logical range again with its own cursor.
+Expectations do not consume events: one record can satisfy several independent
+checks. `wait_for_count(matcher, N, timeout=...)` selects the first N distinct
+Journal records with one shared deadline; business duplicates count as
+separate records.
 
-`wait_for` возвращает копию payload, `wait_for_event` — detached envelope с
-payload и metadata. Уже полученные результаты принадлежат вызывающему коду.
-Последовательные ожидания находят ранее принятые сообщения, но не доказывают
-порядок событий. Temporal assertions отложены за пределы MVP.
+`wait_for` returns a payload copy; `wait_for_event` returns a detached envelope
+with payload and metadata. Results already returned belong to the calling
+code. Sequential expectations find previously received messages but do not
+prove event ordering. Temporal assertions are deferred beyond the MVP.
 
-По умолчанию `require_complete=True`. Если DROP policy удалила запись из
-требуемого диапазона, строгое ожидание даёт `IncompleteObservationError`, даже
-если подходящее сообщение сохранилось. Создание нового default scope не
-скрывает прежнюю потерю. Явный `from_now` может выбрать полный диапазон после неё.
+The default is `require_complete=True`. If a DROP policy removed a record from
+the required range, a strict expectation raises `IncompleteObservationError`,
+even if a matching message was retained. Creating a new default scope does not
+hide previous loss. Explicit `from_now` can select a complete range after it.
 
-`require_complete=False` разрешает искать по сохранившейся неполной истории.
-Известная terminal transport/decode/Journal failure всё равно завершает
-ожидания ошибкой и видна при нормальном выходе из контекста.
+`require_complete=False` allows searching the retained incomplete history.
+A known terminal transport/decode/Journal failure still terminates expectations
+with an error and is visible on normal context exit.
 
-`scope.snapshot()` возвращает ограниченные summaries ожиданий, нижнюю границу
-и полноту диапазона; для построения snapshot predicates повторно не вызываются.
-Counters относятся к конкретным evaluations, а не к уникальным сообщениям
-сразу всех ожиданий. Ограничение `max_scopes` задаётся через `RuntimeLimits`.
-Закрытие watcher запрещает новые ожидания всех его scopes.
+`scope.snapshot()` returns bounded expectation summaries, the lower boundary,
+and range completeness; predicates are not called again to build the snapshot.
+Counters refer to individual evaluations, rather than unique messages across
+all expectations. The `max_scopes` limit is configured through `RuntimeLimits`.
+Closing a watcher prohibits new expectations in all of its scopes.

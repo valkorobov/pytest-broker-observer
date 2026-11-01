@@ -1,6 +1,6 @@
-# Проверка адаптера
+# Adapter verification
 
-Core не зависит от pytest. Публичные testing helpers подключаются явно:
+Core does not depend on pytest. Public testing helpers are enabled explicitly:
 
 ```python
 from event_observer.testing.contracts import (
@@ -14,44 +14,47 @@ class TestMyAdapter(LifecycleContract, ReadinessContract, IsolationContract):
     pass
 ```
 
-Проект адаптера предоставляет async fixture `adapter_harness` по Protocol
-`event_observer.testing.harness.AdapterTestHarness`. Каждый contract method —
-отдельный pytest node. Fixture создаёт независимый publisher и очищает только
-свои источники в `finally`. Никакие подключения не создаются при collection.
-Каждая session предоставляет один receive iterator на весь свой срок жизни.
+The adapter project provides an async `adapter_harness` fixture that follows the
+`event_observer.testing.harness.AdapterTestHarness` Protocol. Each contract
+method is a separate pytest node. The fixture creates an independent publisher
+and cleans up only its own sources in `finally`. No connections are created
+during collection. Each session provides one receive iterator for its entire
+lifetime.
 
-`FakeTransport` поддерживает READY barrier, немедленную доставку, контролируемые
-failure/end, ограниченный handoff и stalled close. Публиковать можно из потока
-sync-теста: в runtime отправляется не более одного отложенного wakeup на session.
-История самого fake используется для replay тестовых сценариев; он не является
-production-брокером или гарантией ограниченной памяти test publisher.
+`FakeTransport` supports a READY barrier, immediate delivery, controlled
+failure/end, bounded handoff, and stalled close. Publishing from a sync test
+thread is supported: at most one pending wakeup per session is sent to the
+runtime. The fake's own history is used to replay test scenarios; it is not a
+production broker or a guarantee of bounded memory for the test publisher.
 
-Для проверки существующего Kafka-брокера предназначен `KafkaAdapterHarness`:
+Use `KafkaAdapterHarness` to verify an existing Kafka broker:
 
 ```sh
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest tests/integration -v
 ```
 
-Базовые контракты проверяют READY, отсутствие скрытых commits/конкуренции за
-доставку в пределах заявленных capabilities, пустой источник, history replay,
-null/empty payload, headers/key, независимость readers и lifecycle. Отдельные
-Kafka integration tests проверяют explicit offsets, timestamp fallback,
-partition expansion и открытую транзакцию через latest boundary.
+The base contracts verify READY, the absence of hidden commits/delivery
+competition within the declared capabilities, an empty source, history replay,
+null/empty payload, headers/key, independent readers, and lifecycle. Separate
+Kafka integration tests verify explicit offsets, timestamp fallback,
+partition expansion, and an open transaction across a latest boundary.
 
-Harness создаёт уникальные topics и удаляет только зарегистрированные им имена.
-Producer receipt означает delivery acknowledgement, а не помещение в локальную
-очередь producer. Невозможность подключения к явно указанному брокеру — failure.
-Без переменной окружения реальные интеграционные nodes имеют явный skip.
+The harness creates unique topics and deletes only names it has registered.
+A producer receipt means delivery acknowledgement, rather than placement in
+the producer's local queue. Failure to connect to an explicitly specified
+broker is a failure. Without the environment variable, real integration nodes
+have an explicit skip.
 
-Native-client doubles проверяют редкие interleavings и ошибки без брокера.
-Они не подменяют тесты Fetch/ACL/транзакций на настоящей Kafka. Отдельные fault
-extension Protocols не содержат молча работающих no-op implementations.
+Native-client doubles verify rare interleavings and errors without a broker.
+They do not replace Fetch/ACL/transaction tests on real Kafka. Separate fault
+extension Protocols do not contain silently succeeding no-op implementations.
 
-Временные тесты ядра используют injected clock, версии журнала и barriers;
-граница deadline проверяется до, точно на и после admission timestamp.
-Отдельно проверены lost wakeup, error-before-commit, 100 waiters с отменами,
-conservative loss compaction, process/thread/loop affinity и повторный sync
-lifecycle. Callbacks работают в runtime, а не в потоке sync-теста.
+Core timing tests use an injected clock, journal versions, and barriers;
+the deadline boundary is checked before, exactly at, and after the admission
+timestamp. Separate checks cover lost wakeup, error-before-commit, 100 waiters
+with cancellations, conservative loss compaction, process/thread/loop affinity,
+and repeated sync lifecycle. Callbacks run in the runtime, rather than the
+sync test thread.
 
-Полные broker faults, Toxiproxy и benchmarks перечислены как оставшиеся gates в
-[status.md](status.md); CI-конфигурация не является свидетельством их выполнения.
+Full broker faults, Toxiproxy, and benchmarks are listed as remaining gates in
+[status.md](status.md); CI configuration is not evidence that they have run.

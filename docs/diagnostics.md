@@ -1,14 +1,14 @@
-# Диагностика и безопасные отчёты
+# Diagnostics and safe reports
 
-У watcher есть `watcher.diagnostics.snapshot()`. Snapshot содержит неизменяемые
-записи lifecycle, завершённые ожидания и агрегированные счётчики приёма.
-`scope.snapshot()` показывает сохранённые результаты ожиданий данного scope;
-повторно вызывать пользовательский predicate для отчёта не требуется.
+A watcher provides `watcher.diagnostics.snapshot()`. The snapshot contains
+immutable lifecycle records, completed expectations, and aggregated receive
+counters. `scope.snapshot()` shows the saved expectation results for that scope;
+the user predicate does not need to be called again for reporting.
 
-Сводка ожидания различает `evaluated`, `matched`, `scope_excluded` и
-`not_applicable`. Для несовпадений сохраняются первые и последние samples,
-номера событий и коды причин. `EventTimeoutError.diagnostics` помогает отличить
-пустой поток от неподходящей correlation или недостаточного count.
+An expectation summary distinguishes `evaluated`, `matched`, `scope_excluded`,
+and `not_applicable`. For mismatches, the first and last samples, event sequence
+numbers, and reason codes are retained. `EventTimeoutError.diagnostics` helps
+distinguish an empty stream from an unsuitable correlation or insufficient count.
 
 ```python
 from event_observer.diagnostics import DiagnosticLimits, DiagnosticPolicy, ReportingMode
@@ -24,29 +24,30 @@ policy = DiagnosticPolicy(
 )
 ```
 
-По умолчанию `ERRORS_ONLY` отправляет reporters отчёт при ошибке. `SUMMARY`
-также включает успешные операции. `VERBOSE` сохраняет те же ограничения памяти.
-Входящие события агрегируются в `snapshot.counters`, чтобы частый receive
-не вытеснял lifecycle. Суммарный export budget watcher по умолчанию — 2 MiB;
-один JSON attachment — до 256 KiB. Усечение сохраняет валидный JSON и явные
-счётчики пропусков.
+By default, `ERRORS_ONLY` sends a report to reporters on failure. `SUMMARY`
+also includes successful operations. `VERBOSE` retains the same memory limits.
+Incoming events are aggregated in `snapshot.counters` so frequent receives do
+not evict lifecycle records. The default total watcher export budget is 2 MiB;
+a single JSON attachment is limited to 256 KiB. Truncation preserves valid JSON
+and explicit omission counters.
 
-`watcher.diagnostics.export()` возвращает `DiagnosticExport`; его `.to_dict()`
-и `.to_json()` создают отделённое представление. `.to_json()` и все JSON-вложения
-отчёта форматируются с `indent=2`. Лимиты учитывают размер UTF-8 документа вместе
-с отступами и переносами строк. Snapshot уже очищен согласно политике;
-он не содержит protobuf objects, исключений или native clients.
+`watcher.diagnostics.export()` returns `DiagnosticExport`; its `.to_dict()`
+and `.to_json()` create a detached representation. `.to_json()` and all report
+JSON attachments are formatted with `indent=2`. Limits account for the UTF-8
+document size, including indentation and line breaks. The snapshot has already
+been sanitized according to the policy; it contains no protobuf objects,
+exceptions, or native clients.
 
-## Раскрытие содержимого
+## Content disclosure
 
-В JSON-экспорте `METADATA_ONLY` исключает payload, key, headers, expected/actual значения,
-пользовательские descriptions, source labels и trace IDs. `allowed_fields`
-разрешает выбранные дополнительные labels; `aliases` заменяет их значения.
-Credentials и transport config исключены из диагностического экспорта.
+In JSON exports, `METADATA_ONLY` excludes payload, key, headers, expected/actual
+values, user descriptions, source labels, and trace IDs. `allowed_fields`
+permits selected additional labels; `aliases` replaces their values.
+Credentials and transport configuration are excluded from diagnostic exports.
 
-С разрешённым disclosure несовпавшие samples автоматически получают
-ограниченные копии содержимого. Явный `disclose_payload()` также доступен
-для отдельных артефактов:
+With disclosure enabled, mismatch samples automatically receive bounded
+content copies. Explicit `disclose_payload()` is also available for individual
+artifacts:
 
 ```python
 from event_observer.diagnostics import DiagnosticPolicy, DisclosurePolicy
@@ -63,21 +64,22 @@ policy = DiagnosticPolicy(
 )
 ```
 
-Redactor получает независимую копию. Его исключение или невалидный JSON
-приводят к `payload_omitted` и безопасному коду ошибки, без fallback к исходному
-содержимому. `FULL_PAYLOAD` — отдельное явное разрешение раскрытия сообщения.
-Обработка содержимого запускается при оценке несовпадений, за пределами receive
-и без Journal locks. По умолчанию payload не инспектируется даже ради отчёта.
-Суммарное сохранённое содержимое samples ограничено capture budget, равным
-`max_export_bytes`; при исчерпании сохраняются metadata и признак усечения.
+The redactor receives an independent copy. An exception or invalid JSON from
+it produces `payload_omitted` and a safe error code, without falling back to
+the original content. `FULL_PAYLOAD` is a separate explicit permission to
+disclose a message. Content processing runs during mismatch evaluation,
+outside receive and without Journal locks. By default, the payload is not
+inspected even for reporting. Total retained sample content is limited by
+a capture budget equal to `max_export_bytes`; when exhausted, metadata and
+a truncation indicator are retained.
 
-Оригинальные exceptions могут оставаться в Python chaining. Политика защищает
-собственные exports библиотеки; она не управляет traceback pytest или внешним
-пользовательским logger.
+Original exceptions may remain in Python chaining. The policy protects the
+library's own exports; it does not control pytest tracebacks or external user
+loggers.
 
 ## Allure
 
-Установите зависимость из локального проекта:
+Install the dependency from the local project:
 
 ```shell
 python -m pip install -e '.[allure]'
@@ -95,86 +97,89 @@ events = SyncEventObserver(
 )
 ```
 
-Запускайте pytest с `--alluredir`, чтобы плагин записывал результаты и reporter
-получал активный test context. `SUMMARY` в примере включает вложения при успехе;
-без этой настройки действует `ERRORS_ONLY`. Полный набор запускаемых тестов,
-генерация HTML и просмотр отчёта, включая намеренный `FAILED`, описаны в
-[examples/allure](../examples/allure/README.md).
+Run pytest with `--alluredir` so the plugin records results and the reporter
+receives an active test context. `SUMMARY` in the example includes attachments
+on success; without this setting, `ERRORS_ONLY` applies. The complete runnable
+test suite, HTML generation, and report viewing, including an intentional
+`FAILED`, are described in [examples/allure](../examples/allure/README.md).
 
-Для настоящего брокера есть [Kafka-примеры с AllureReporter](../examples/allure/README.md#kafka-и-allurereporter):
-Compose, корреляция, ожидаемый timeout и отдельный отчёт с JSON-вложениями.
+For a real broker, see the [Kafka examples with AllureReporter](../examples/allure/README.md#kafka-and-allurereporter):
+Compose, correlation, an expected timeout, and a separate report with JSON attachments.
 
-Reporter создаёт завершённые summary steps, не держит step открытым между
-`await` и не создаёт step на каждое сообщение. Он проверяет активный test
-context и не прикрепляет отчёт наблюдения к следующему тесту. Фактическая
-длительность ожидания хранится в JSON. Ошибка reporter не меняет результат
-ожидания. Каждый watcher получает отдельный Allure binding в контексте текущего
-теста, поэтому factory с reporter можно хранить в session fixture. Binding
-предыдущего watcher не записывает вложения в следующий тест.
+The reporter creates completed summary steps, does not hold a step open across
+`await`, and does not create a step for each message. It checks the active test
+context and does not attach an observation report to the next test. The actual
+expectation duration is stored in JSON. A reporter failure does not change
+the expectation outcome. Each watcher receives a separate Allure binding in
+the current test's context, so a factory with a reporter can be kept in a
+session fixture. A previous watcher's binding does not write attachments to
+the next test.
 
-Автоматические отчёты включают только новые завершённые ожидания и новые
-diagnostic records. Вход в READY и обычный выход из `watch()` не создают
-дополнительные summary steps. В режиме `SUMMARY` одно ожидание даёт один
-summary с результатом в Allure.
-Новая ошибка контекста, транспорта или cleanup создаёт отдельный отчёт
-без повторного вложения уже отправленных результатов матчинга.
-Ручные `snapshot()` и `export()` сохраняют полную удержанную историю watcher.
+Automatic reports include only newly completed expectations and new diagnostic
+records. Entering READY and normally exiting `watch()` do not create additional
+summary steps. In `SUMMARY` mode, one expectation produces one summary with
+its result in Allure.
+A new context, transport, or cleanup error creates a separate report without
+attaching previously sent matching results again.
+Manual `snapshot()` and `export()` retain the watcher's full retained history.
 
-Заголовок summary включает класс транспортного адаптера и топик/стрим watcher:
+The summary title includes the transport adapter class and the watcher's topic/stream:
 `Event observation summary [KafkaAdapter: orders.events]`.
-Эти имена отображаются в заголовке независимо от disclosure JSON; `aliases`
-применяется и к ним. Например, `aliases={"KafkaAdapter": "Kafka", "internal.orders": "orders"}`
-даёт заголовок `Event observation summary [Kafka: orders]`. Метки ограничены
-512 символами каждая, переводы строк заменяются пробелами. У каждого watcher
-свой заголовок, в том числе при общей factory и параллельных ожиданиях.
+These names appear in the title regardless of JSON disclosure; `aliases` also
+applies to them. For example, `aliases={"KafkaAdapter": "Kafka", "internal.orders": "orders"}`
+produces the title `Event observation summary [Kafka: orders]`. Each label is
+limited to 512 characters, with line breaks replaced by spaces. Each watcher
+has its own title, including when sharing a factory and running concurrent
+expectations.
 
-`DiagnosticExport.attachments` содержит готовые JSON-артефакты:
-`expectation-result.json`, `mismatches.json`, `event-timeline.json`, а при
-соответствующей ошибке — `observer-summary.json` и `transport-state.json`.
-Разрешённое содержимое Protobuf помещается в `protobuf-message.json`, остальных
-JSON-compatible payload — в `message-content.json`. Allure прикрепляет только
-эти уже очищенные документы. Лимиты учитывают encoded JSON и совокупный размер
-всех вложений.
+`DiagnosticExport.attachments` contains ready-to-use JSON artifacts:
+`expectation-result.json`, `mismatches.json`, `event-timeline.json`, and, for
+the corresponding errors, `observer-summary.json` and `transport-state.json`.
+Disclosed Protobuf content goes into `protobuf-message.json`; other
+JSON-compatible payloads go into `message-content.json`. Allure attaches only
+these already sanitized documents. Limits account for encoded JSON and the
+combined size of all attachments.
 
-Завершённые ожидания также получают `expectation-result.txt` с текстовой
-расшифровкой. Она показывает исход и его объяснение, найденное и запрошенное
-число событий, время выполнения и заданный timeout, исключения по scope,
-неприменимые типы, причины несовпадений и полноту наблюдения. При нескольких
-ожиданиях в одном export сначала идёт последнее завершённое; ID ожидания
-связывает текст с JSON. Автоматическая отправка не повторяет предыдущие ожидания.
+Completed expectations also receive `expectation-result.txt` with a text
+explanation. It shows the outcome and its explanation, the number of events
+found and requested, elapsed time and the configured timeout, scope exclusions,
+not-applicable types, mismatch reasons, and observation completeness. When one
+export contains several expectations, the most recently completed one comes
+first; the expectation ID links the text to JSON. Automatic reporting does
+not repeat previous expectations.
 
-Текст строится по сохранённым очищенным результатам, без повторного вызова
-matcher. Он не включает payload, key, headers и тексты исключений; разрешённое
-содержимое сообщения остаётся в отдельных JSON-вложениях. Allure прикрепляет
-расшифровку как `text/plain`. Для текста действуют те же лимиты по фактическим
-UTF-8 bytes и общему export budget. При нехватке бюджета сначала сохраняются
-JSON-артефакты; текст может быть усечён с уведомлением или опущен.
+The text is built from retained sanitized results, without calling the matcher
+again. It excludes payload, key, headers, and exception text; disclosed message
+content remains in separate JSON attachments. Allure attaches the explanation
+as `text/plain`. The same limits on actual UTF-8 bytes and the total export
+budget apply to text. When the budget is insufficient, JSON artifacts take
+priority; text may be truncated with a notice or omitted.
 
 ## Trace context
 
-`ObservedEvent.trace_context` содержит `MISSING`, `VALID`, `INVALID` либо
-`AMBIGUOUS`. Неверный `traceparent` не мешает декодировать сообщение.
-Некорректный `tracestate` отбрасывается отдельно от корректного trace ID.
-Библиотека учитывает versioning W3C, не создаёт spans и не устанавливает
-извлечённый context в текущий OpenTelemetry context.
+`ObservedEvent.trace_context` contains `MISSING`, `VALID`, `INVALID`, or
+`AMBIGUOUS`. An invalid `traceparent` does not prevent message decoding.
+Invalid `tracestate` is discarded separately from a valid trace ID.
+The library respects W3C versioning, does not create spans, and does not
+install the extracted context as the current OpenTelemetry context.
 
-Trace IDs экспортируются только с `export_trace_ids=True`, а tracestate —
-с отдельным `export_tracestate=True`. Baggage автоматически не переносится.
+Trace IDs are exported only with `export_trace_ids=True`, and tracestate
+requires a separate `export_tracestate=True`. Baggage is not carried automatically.
 
-## Изоляция и оценка payload
+## Payload isolation and estimation
 
-`DefaultPayloadAccess` возвращает отделённые копии пользовательским callbacks,
-результатам и redactor. Для Protobuf используется `CopyFrom`; его accounted
-оценка равна `128 + 2 * ByteSize()`. Для остальных объектов суммируются
-`sys.getsizeof` уникальных объектов, содержимое встроенных containers,
-instance dictionaries и slots, включая унаследованные private slots.
+`DefaultPayloadAccess` returns detached copies to user callbacks, results,
+and the redactor. Protobuf uses `CopyFrom`; its accounted estimate is
+`128 + 2 * ByteSize()`. For other objects, the estimate sums `sys.getsizeof`
+for unique objects, built-in container contents, instance dictionaries,
+and slots, including inherited private slots.
 
-Обход ограничен 64 уровнями и 100 000 просмотренными references. Большой
-container обходится постепенно, без дополнительного списка всех его элементов.
-Общий объект не учитывается дважды, но просмотр повторяющихся references также
-ограничен. Превышение бюджета вызывает `PayloadIsolationError`.
+Traversal is limited to 64 levels and 100,000 visited references. A large
+container is traversed incrementally, without an additional list of all its
+elements. A shared object is not counted twice, but visits to repeated
+references are also bounded. Exceeding the budget raises `PayloadIsolationError`.
 
-Непрозрачные native allocations нельзя измерить таким обходом. Decoder,
-возвращающий подобные объекты, должен предоставить собственный `PayloadAccess`
-с `clone_for_user(value)` и `estimate_bytes(value)`. Модель accounted bytes
-не является измерением RSS всего процесса.
+Opaque native allocations cannot be measured by this traversal. A decoder
+returning such objects must provide its own `PayloadAccess` with
+`clone_for_user(value)` and `estimate_bytes(value)`. The accounted-bytes model
+is not a measurement of the entire process's RSS.

@@ -1,126 +1,126 @@
-# Event Observer — окончательная техническая спецификация
+# Event Observer — final technical specification
 
-**Редакция:** 1.0  
-**Дата:** 1 ноября 2026 года  
-**Основание:** решения ADR-001–012 и дополнительное требование поддержки синхронных тестов.  
-**Первый целевой выпуск:** 0.1.0.  
-**Рабочий дистрибутив:** `event-observer`; рабочее пространство импортов: `event_observer`.  
-**Статус:** нормативное задание на реализацию, а не описание уже выпущенного или протестированного продукта.
+**Revision:** 1.0\
+**Date:** November 1, 2026\
+**Basis:** ADR-001–012 decisions and the additional requirement to support synchronous tests.\
+**First target release:** 0.1.0.\
+**Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
+**Status:** normative implementation requirements, not a description of a released or tested product.
 
-Доступность имени в PyPI, право использования имени, лицензия и подтверждённые диапазоны зависимостей должны быть проверены перед публикацией. Команды установки с рабочим именем не являются рекомендацией устанавливать одноимённый существующий сторонний пакет.
+PyPI name availability, the right to use the name, the license, and verified dependency ranges must be checked before publication. Installation commands using the working name are not a recommendation to install an existing third-party package with the same name.
 
-Документ описывает самостоятельную библиотеку. Он не содержит исходников, схем сообщений, адресов инфраструктуры, credentials или иных материалов закрытого проекта. Примеры предметной области вымышлены. Реализация не должна требовать доступа к закрытому репозиторию.
+This document describes a standalone library. It contains no source code, message schemas, infrastructure addresses, credentials, or other materials from a private project. Domain examples are fictional. Implementation must not require access to a private repository.
 
-## Содержание
+## Contents
 
-1. [Статус требований и реестр решений](#s01)
-2. [Назначение, границы продукта и MVP](#s02)
-3. [Основные сценарии: sync и async](#s03)
-4. [Архитектура и владение ресурсами](#s04)
-5. [Нормализованные модели данных](#s05)
-6. [Публичный API наблюдения](#s06)
-7. [Readiness, стартовые позиции и replay](#s07)
-8. [Event Journal, память и полнота](#s08)
-9. [Transport Adapter API и backpressure](#s09)
-10. [Kafka Adapter первого выпуска](#s10)
-11. [Decoder, Protobuf и смешанные типы](#s11)
-12. [Matchers и Expectations](#s12)
+1. [Requirement status and decision register](#s01)
+2. [Purpose, product boundaries, and MVP](#s02)
+3. [Main scenarios: sync and async](#s03)
+4. [Architecture and resource ownership](#s04)
+5. [Normalized data models](#s05)
+6. [Public observation API](#s06)
+7. [Readiness, start positions, and replay](#s07)
+8. [Event Journal, memory, and completeness](#s08)
+9. [Transport Adapter API and backpressure](#s09)
+10. [Kafka Adapter for the first release](#s10)
+11. [Decoder, Protobuf, and mixed types](#s11)
+12. [Matchers and Expectations](#s12)
 13. [Scoped correlation](#s13)
-14. [Время, конкурентность и фиксация результата](#s14)
-15. [Lifecycle, ошибки и cleanup](#s15)
-16. [Дополнение ADR-013: синхронный API](#s16)
-17. [Diagnostics, Allure, secrets и trace context](#s17)
-18. [Temporal Assertions: контракт следующего этапа](#s18)
-19. [Программная конфигурация и pytest](#s19)
-20. [Каталог ошибок](#s20)
-21. [Тестирование и contract testing framework](#s21)
-22. [Совместимость, benchmarks, CI/CD и release gates](#s22)
-23. [Packaging, pyproject.toml и публикация](#s23)
-24. [Стабильность API, документация и deprecation](#s24)
-25. [План реализации и критерии приёмки](#s25)
-26. [Уточнения при консолидации ADR](#s26)
-27. [Внешние технические основания](#s27)
+14. [Time, concurrency, and result commitment](#s14)
+15. [Lifecycle, errors, and cleanup](#s15)
+16. [ADR-013 supplement: synchronous API](#s16)
+17. [Diagnostics, Allure, secrets, and trace context](#s17)
+18. [Temporal Assertions: next-stage contract](#s18)
+19. [Programmatic configuration and pytest](#s19)
+20. [Error catalog](#s20)
+21. [Testing and contract testing framework](#s21)
+22. [Compatibility, benchmarks, CI/CD, and release gates](#s22)
+23. [Packaging, pyproject.toml, and publication](#s23)
+24. [API stability, documentation, and deprecation](#s24)
+25. [Implementation plan and acceptance criteria](#s25)
+26. [Clarifications made while consolidating ADRs](#s26)
+27. [External technical references](#s27)
 
 ---
 
 <a id="s01"></a>
-## 1. Статус требований и реестр решений
+## 1. Requirement status and decision register
 
-### 1.1. Нормативные формулировки
+### 1.1. Normative terms
 
-**MUST / MUST NOT** — обязательное требование / запрет. **SHOULD / SHOULD NOT** — рекомендуемое поведение, отступление требует документированного основания и теста. **MAY** — допустимое расширение, не являющееся обязательством выпуска.
+**MUST / MUST NOT** indicate a mandatory requirement or prohibition. **SHOULD / SHOULD NOT** indicate recommended behavior; a deviation requires a documented rationale and a test. **MAY** indicates an allowed extension, not a release commitment.
 
-Если ранний иллюстративный пример ADR расходится с этой спецификацией, для реализации используется данный документ. Изменения существенных контрактов после принятия спецификации оформляются новой редакцией и записью в changelog. Названия методов в кодовых блоках нормативны, если блок прямо не обозначен как схема, шаблон или пример реализации.
+If an early illustrative ADR example conflicts with this specification, this document governs implementation. Changes to essential contracts after the specification is accepted require a new revision and a changelog entry. Method names in code blocks are normative unless a block is explicitly labeled as a sketch, template, or implementation example.
 
-Числовые defaults ниже — проектные настройки, а не измеренная производительность и не гарантия верхнего предела RSS. Положения о сторонних инструментах снабжены ссылками на первичную документацию в разделе 27. Собственные MUST/SHOULD — решения этого проекта.
+The numeric defaults below are project settings, not measured performance or a guaranteed upper RSS bound. Statements about third-party tools link to primary documentation in section 27. The project's own MUST/SHOULD statements are its design decisions.
 
-### 1.2. Реестр
+### 1.2. Register
 
-| Решение | Выбор | Нормативное содержание |
+| Decision | Choice | Normative content |
 |---|---|---|
-| ADR-001 | B | Унифицированный Event Observer, разделение Core, Transport, Decoder и Reporting |
-| ADR-002 | B | Новые события по умолчанию, явный replay, readiness и fail-closed при выявленном нарушении наблюдения |
-| ADR-003 | B | Ограниченный Journal; FAIL по умолчанию; независимые читатели |
-| ADR-004 | B | Python predicates и структурированные matchers; единый deadline |
-| ADR-005 | A | Программная конфигурация; пользовательские fixtures; отсутствие скрытых подключений |
-| ADR-006 | B | Публичный Transport Protocol, явная передача адаптера, contract tests |
-| ADR-007 | B | Decoder abstraction, Protobuf и явный resolver для mixed-type streams |
-| ADR-008 | B | Структурированная диагностика, необязательный Allure, пассивный trace context |
-| ADR-009 | B | Scoped correlation поверх общего Journal |
-| ADR-010 | B | Temporal assertions без сценарного DSL; реализация после 0.1 |
-| ADR-011 | B | Contract tests, реальные брокеры, fault injection и release gates |
-| ADR-012 | A | Один дистрибутив, optional extras, единое версионирование |
-| Дополнение ADR-013 | Новое требование | Полноценный sync API в 0.1 поверх того же runtime; архитектурная детализация в разделе 16 |
+| ADR-001 | B | Unified Event Observer, with separate Core, Transport, Decoder, and Reporting layers |
+| ADR-002 | B | New events by default, explicit replay, readiness, and fail-closed behavior when an observation violation is detected |
+| ADR-003 | B | Bounded Journal; FAIL by default; independent readers |
+| ADR-004 | B | Python predicates and structured matchers; a single deadline |
+| ADR-005 | A | Programmatic configuration; user fixtures; no hidden connections |
+| ADR-006 | B | Public Transport Protocol, an explicitly supplied adapter, and contract tests |
+| ADR-007 | B | Decoder abstraction, Protobuf, and an explicit resolver for mixed-type streams |
+| ADR-008 | B | Structured diagnostics, optional Allure, and passive trace context |
+| ADR-009 | B | Scoped correlation over a shared Journal |
+| ADR-010 | B | Temporal assertions without a scenario DSL; implementation after 0.1 |
+| ADR-011 | B | Contract tests, real brokers, fault injection, and release gates |
+| ADR-012 | A | One distribution, optional extras, and unified versioning |
+| ADR-013 supplement | New requirement | Complete sync API in 0.1 over the same runtime; architectural details in section 16 |
 
-Пользователь отдельно подтвердил необходимость синхронных тестов. Название `SyncEventObserver` и модель выделенного event loop — техническая конкретизация этого требования в данной спецификации, а не ранее существовавшая реализация.
+The user separately confirmed the need for synchronous tests. The `SyncEventObserver` name and dedicated event loop model are this specification's technical definition of that requirement, not a pre-existing implementation.
 
 <a id="s02"></a>
-## 2. Назначение, границы продукта и MVP
+## 2. Purpose, product boundaries, and MVP
 
-### 2.1. Задача
+### 2.1. Goal
 
-Библиотека помогает black-box интеграционным тестам подключиться к брокеру **до тестового действия**, накопить сообщения и проверить результаты без собственного consumer loop, sleeps, десериализации в каждом тесте и ручного управления offsets.
+The library helps black-box integration tests connect to a broker **before the test action**, accumulate messages, and verify results without writing a consumer loop, adding sleeps, deserializing in every test, or managing offsets manually.
 
-Она предназначена для обычных `def test_*` и асинхронных `async def test_*`. Core MUST работать вне pytest. Тестируемая система не обязана использовать определённый Python-фреймворк или вообще быть написана на Python.
+It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Core MUST work outside pytest. The system under test need not use any particular Python framework or be written in Python.
 
-### 2.2. Обязательный состав 0.1.0
+### 2.2. Required scope of 0.1.0
 
-| Область | Входит в 0.1.0 |
+| Area | Included in 0.1.0 |
 |---|---|
-| Runtime | `EventObserver` для async и `SyncEventObserver` для sync; единое ядро |
-| Транспорт | Kafka через `confluent-kafka`; независимые sessions, ручное назначение партиций |
-| Старт | `latest`, `earliest`, явные Kafka offsets, разрешение timestamp |
-| Форматы | Raw bytes / null payload; обычный Protobuf через `*_pb2.py` |
-| Mixed types | Явные header/source/callable resolvers; `FAIL_FAST`, `SKIP_UNKNOWN_TYPE` |
-| Journal | Ограниченный in-memory журнал, FAIL / DROP_OLDEST / DROP_NEWEST, учёт потерь |
-| Ожидания | `wait_for`, `wait_for_event`, `wait_for_count` |
-| Matchers | Поля, presence, partial Protobuf, композиция, payload/event predicates |
-| Корреляция | Scopes, вложенные scopes, история / from-now / sequence, payload и metadata |
-| Диагностика | Ограниченные snapshots, причины несовпадений, ошибки; Allure по opt-in |
-| Трассировка | Извлечение W3C trace context без создания spans |
-| Тестирование | Fake adapter, переиспользуемые contract tests, реальная Kafka, базовые faults, xdist, sync/async parity |
-| Поставка | Wheel + sdist, типизация, extras, документация, защищённый release pipeline |
+| Runtime | `EventObserver` for async and `SyncEventObserver` for sync; a shared core |
+| Transport | Kafka through `confluent-kafka`; independent sessions and manual partition assignment |
+| Start | `latest`, `earliest`, explicit Kafka offsets, and timestamp resolution |
+| Formats | Raw bytes / null payload; ordinary Protobuf through `*_pb2.py` |
+| Mixed types | Explicit header/source/callable resolvers; `FAIL_FAST`, `SKIP_UNKNOWN_TYPE` |
+| Journal | Bounded in-memory journal, FAIL / DROP_OLDEST / DROP_NEWEST, and loss tracking |
+| Expectations | `wait_for`, `wait_for_event`, `wait_for_count` |
+| Matchers | Fields, presence, partial Protobuf, composition, and payload/event predicates |
+| Correlation | Scopes, nested scopes, history / from-now / sequence, payload, and metadata |
+| Diagnostics | Bounded snapshots, mismatch reasons, and errors; opt-in Allure |
+| Tracing | W3C trace context extraction without creating spans |
+| Testing | Fake adapter, reusable contract tests, real Kafka, basic faults, xdist, and sync/async parity |
+| Delivery | Wheel + sdist, typing, extras, documentation, and a protected release pipeline |
 
-### 2.3. После MVP
+### 2.3. After the MVP
 
-Temporal assertions, RabbitMQ, Redis Streams, затем Redis Pub/Sub и NATS реализуются отдельными этапами. Их архитектурные контракты фиксируются сейчас, но наличие этих разделов не разрешает рекламировать несуществующий адаптер или публиковать пустые extras.
+Temporal assertions, RabbitMQ, Redis Streams, followed by Redis Pub/Sub and NATS, will be implemented in separate stages. Their architectural contracts are defined now, but the presence of these sections does not authorize advertising a nonexistent adapter or publishing empty extras.
 
-За пределами ближайшего MVP: Schema Registry, автоматическое угадывание схем, отправка сообщений, HTTP/gRPC-клиенты, дисковый Journal, reconnect с восстановлением checkpoints, динамическое расширение partition assignment, distributed journal, сценарный DSL и генерация OpenTelemetry spans.
+Outside the immediate MVP: Schema Registry, automatic schema guessing, message publication, HTTP/gRPC clients, an on-disk Journal, reconnect with checkpoint recovery, dynamic partition assignment expansion, a distributed journal, a scenario DSL, and OpenTelemetry span generation.
 
-### 2.4. Границы гарантий
+### 2.4. Limits of the guarantees
 
-Наблюдение не доказывает exactly-once, отсутствие дубликатов, глобальный порядок между Kafka partitions, отсутствие потерь у producer, абсолютную сохранность данных брокера или отсутствие события в будущем. Библиотека MUST делать явными обнаруженную неполноту и область, в которой выполнено утверждение.
+Observation does not prove exactly-once delivery, absence of duplicates, global ordering across Kafka partitions, absence of producer losses, absolute durability of broker data, or absence of an event in the future. The library MUST make detected incompleteness and the range over which an assertion was evaluated explicit.
 
-MVP не является hard real-time системой. Синхронный пользовательский callback или зависший native-клиент нельзя считать принудительно прерываемым по таймеру.
+The MVP is not a hard real-time system. A synchronous user callback or a hung native client cannot be assumed to be forcibly interruptible by a timer.
 
 <a id="s03"></a>
-## 3. Основные сценарии: sync и async
+## 3. Main scenarios: sync and async
 
-Примеры описывают целевой API. Модули `example_pb2`, `sync_service_client` и `async_service_client` относятся к пользовательскому тестовому проекту.
+The examples describe the target API. The `example_pb2`, `sync_service_client`, and `async_service_client` modules belong to the user's test project.
 
-### 3.0. Публичная synthetic схема примера
+### 3.0. Public synthetic example schema
 
-Эта схема не связана с закрытым проектом; её можно использовать в examples и contract fixtures. Generated Python-файл создаётся обычным Protobuf toolchain в development environment, а не во время работы observer.
+This schema is unrelated to any private project and can be used in examples and contract fixtures. The generated Python file is created by the usual Protobuf toolchain in the development environment, not while the observer runs.
 
 ```proto
 syntax = "proto3";
@@ -147,7 +147,7 @@ message OperationCompleted {
 }
 ```
 
-### 3.1. Обычный синхронный pytest-тест
+### 3.1. Ordinary synchronous pytest test
 
 ```python
 from uuid import uuid4
@@ -182,7 +182,7 @@ def test_operation(events, sync_service_client):
             start=ScopeStart.from_now(),
         )
 
-        # Reader продолжает работать, пока этот обычный вызов блокирует тест.
+        # The reader keeps running while this ordinary call blocks the test.
         sync_service_client.perform(operation_id=operation_id)
 
         event = scope.wait_for(
@@ -192,9 +192,9 @@ def test_operation(events, sync_service_client):
         assert event.operation_id == operation_id
 ```
 
-Для этого режима не нужны `pytest.mark.asyncio`, async fixture или установленный `pytest-asyncio`. Блокирующее ожидание возвращает значение, а не coroutine и не Future.
+This mode requires neither `pytest.mark.asyncio`, an async fixture, nor an installed `pytest-asyncio`. A blocking expectation returns a value, not a coroutine or a Future.
 
-### 3.2. Асинхронный тест
+### 3.2. Asynchronous test
 
 ```python
 from uuid import uuid4
@@ -232,18 +232,18 @@ async def test_operation_async(async_events, async_service_client):
         assert event.operation_id == operation_id
 ```
 
-Тип ожидаемого сообщения, matcher, scope, Journal, ошибки и диагностические форматы в двух режимах одинаковы. Различаются механизм вызова и владелец event loop.
+The expected message type, matcher, scope, Journal, errors, and diagnostic formats are identical in both modes. The call mechanism and event loop owner differ.
 
-### 3.3. Быстро прошедшие промежуточные состояния
+### 3.3. Brief intermediate states
 
 ```python
 created = scope.wait_for(field_equals("status", CREATED), timeout=5.0)
 completed = scope.wait_for(field_equals("status", COMPLETED), timeout=5.0)
 ```
 
-Второе ожидание MUST обнаружить уже сохранённый `COMPLETED`, даже если он поступил до завершения первого. Эти вызовы не являются проверкой порядка `CREATED → COMPLETED`: порядок задаётся отдельным temporal API после MVP.
+The second expectation MUST find an already retained `COMPLETED`, even if it arrived before the first expectation finished. These calls do not assert the order `CREATED → COMPLETED`: ordering is specified by a separate temporal API after the MVP.
 
-### 3.4. Проверка metadata
+### 3.4. Checking metadata
 
 ```python
 observed = scope.wait_for_event(
@@ -255,10 +255,10 @@ assert observed.raw.source == "example.events"
 partition = observed.raw.metadata["kafka.partition"]
 ```
 
-Публичный результат не даёт изменять канонический payload Journal. Полученные пользователем результаты после возврата принадлежат пользователю и не входят в дальнейший бюджет хранения библиотеки.
+The public result does not allow mutation of the Journal's canonical payload. Returned results belong to the user and are excluded from the library's subsequent retention budget.
 
 <a id="s04"></a>
-## 4. Архитектура и владение ресурсами
+## 4. Architecture and resource ownership
 
 ```mermaid
 flowchart TB
@@ -276,30 +276,30 @@ flowchart TB
     G --> X[Explicit reporters]
 ```
 
-### 4.1. Правила зависимостей
+### 4.1. Dependency rules
 
-Core MUST NOT импортировать `confluent_kafka`, `google.protobuf`, `pytest`, `allure` или `opentelemetry` при обычном импорте `event_observer`. Необязательные модули загружаются при использовании соответствующей возможности.
+Core MUST NOT import `confluent_kafka`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
 
-Transport не знает о business predicates, Protobuf-классах и Allure. Decoder не знает о consumer lifecycle. Journal не выполняет commits/acks. Expectation Engine читает Journal, а не брокер. Reporter не участвует в подтверждении доставки.
+Transport has no knowledge of business predicates, Protobuf classes, or Allure. Decoder has no knowledge of consumer lifecycle. Journal does not perform commits/acks. Expectation Engine reads the Journal, not the broker. Reporter does not participate in delivery acknowledgment.
 
-### 4.2. Владельцы
+### 4.2. Owners
 
-| Объект | Владелец и время жизни |
+| Object | Owner and lifetime |
 |---|---|
-| `EventObserver` / `SyncEventObserver` | Ленивая фабрика пользователя; без соединений и фоновых потоков до `watch().__enter__` / `__aenter__` |
-| `TransportAdapter` | Фабрика независимых sessions; хранит неизменяемую конфигурацию |
-| `TransportSession` | Один watcher; собственный клиент и контролируемые ресурсы |
-| `EventJournal` | Один watcher; один writer в одном event loop |
-| `EventScope` | Лёгкое представление; без собственного consumer и копии Journal |
-| Expectation | Один вызов ожидания; deadline, позиция сканирования и ограниченное состояние |
-| Sync runtime loop | Один активный sync watcher; работает непрерывно до cleanup |
-| Kafka polling worker | Одна Kafka session; сериализует операции blocking-клиента |
-| Reporter binding | Один watcher/тестовый reporting context; не глобальный singleton |
+| `EventObserver` / `SyncEventObserver` | User's lazy factory; no connections or background threads before `watch().__enter__` / `__aenter__` |
+| `TransportAdapter` | Factory of independent sessions; stores immutable configuration |
+| `TransportSession` | One watcher; owns its client and controlled resources |
+| `EventJournal` | One watcher; one writer in one event loop |
+| `EventScope` | Lightweight view; no consumer or Journal copy of its own |
+| Expectation | One wait call; deadline, scan position, and bounded state |
+| Sync runtime loop | One active sync watcher; runs continuously until cleanup |
+| Kafka polling worker | One Kafka session; serializes blocking client operations |
+| Reporter binding | One watcher/test reporting context; not a global singleton |
 
-Адаптер, поддерживающий оба facade, MUST создавать loop-bound ресурсы внутри `open`, а не в конструкторе. Реализация MUST NOT разделять transport session, task, lock или Journal между pytest-xdist процессами.
+An adapter supporting both facades MUST create loop-bound resources inside `open`, not in its constructor. The implementation MUST NOT share a transport session, task, lock, or Journal between pytest-xdist processes.
 
 <a id="s05"></a>
-## 5. Нормализованные модели данных
+## 5. Normalized data models
 
 ### 5.1. RawEvent
 
@@ -320,17 +320,17 @@ class RawEvent:
     delivery_id: str | None = None
 ```
 
-`...` в моделях означает поле, подлежащее реализации, а не runtime default. В реализации отсутствующие mappings создаются безопасной factory и копируются в неизменяемое представление.
+`...` in the models denotes a field to implement, not a runtime default. In the implementation, absent mappings are created by a safe factory and copied into an immutable representation.
 
-**DATA-01.** `payload=None` отличается от `payload=b""`. Null payload и пустая бинарная строка не взаимозаменяемы.
+**DATA-01.** `payload=None` differs from `payload=b""`. A null payload and an empty byte string are not interchangeable.
 
-**DATA-02.** Заголовки сохраняют порядок, повторяющиеся имена и null values. Преобразование в `dict` с потерей дублей запрещено.
+**DATA-02.** Headers preserve order, duplicate names, and null values. Conversion to a `dict` that loses duplicates is forbidden.
 
-**DATA-03.** `source` — конкретный нормализованный источник события. Транспортно-специфичные поля имеют namespace: `kafka.partition`, `kafka.offset`, `kafka.timestamp_ms`, `kafka.timestamp_kind`. Строковое представление native client object не является metadata.
+**DATA-03.** `source` is the event's concrete normalized source. Transport-specific fields are namespaced: `kafka.partition`, `kafka.offset`, `kafka.timestamp_ms`, `kafka.timestamp_kind`. A native client object's string representation is not metadata.
 
-**DATA-04.** `delivery_id` — непрозрачный session-local токен для settlement extension. Это не бизнес-идентификатор и не ключ дедупликации; в стандартный отчёт не включается.
+**DATA-04.** `delivery_id` is an opaque session-local token for the settlement extension. It is neither a business identifier nor a deduplication key and is excluded from the default report.
 
-### 5.2. Событие Journal
+### 5.2. Journal event
 
 ```python
 from datetime import datetime
@@ -351,26 +351,26 @@ class ObservedEvent(Generic[T]):
     trace_context: "TraceContextInfo | None"
 ```
 
-`sequence` монотонно увеличивается внутри watcher и никогда не переиспользуется. Это не Kafka offset. Один Kafka record, повторно доставленный транспортом, может получить другой Journal sequence: автоматической дедупликации нет.
+`sequence` increases monotonically within a watcher and is never reused. It is not a Kafka offset. A Kafka record redelivered by the transport can receive a different Journal sequence: there is no automatic deduplication.
 
-`recorded_monotonic` присваивается в атомарной операции admission/append. Именно это время используется для deadlines и temporal assertions. Время получения native-клиентом и broker timestamp MAY сохраняться отдельно, но не подменяют время Journal.
+`recorded_monotonic` is assigned during the atomic admission/append operation. This is the time used for deadlines and temporal assertions. Native client receive time and broker timestamp MAY be retained separately but do not replace Journal time.
 
-`recorded_at` — timezone-aware UTC для отчёта. Wall-clock никогда не используется для расчёта timeout.
+`recorded_at` is timezone-aware UTC for reporting. Wall-clock time is never used to calculate a timeout.
 
-### 5.3. Ошибка декодирования — не payload
+### 5.3. A decoding error is not a payload
 
-Journal имеет типизированные внутренние записи `DecodedRecord`, `FilteredRecord`, `DecodeFailureRecord` и `LossRange`. Ошибку декодирования MUST NOT представлять как `ObservedEvent(payload=None)`: `None` является допустимым значением RawDecoder, и смешение состояний разрушает типизацию.
+The Journal has typed internal `DecodedRecord`, `FilteredRecord`, `DecodeFailureRecord`, and `LossRange` records. A decoding error MUST NOT be represented as `ObservedEvent(payload=None)`: `None` is a valid RawDecoder value, and conflating these states breaks typing.
 
-В обычные payload matchers поступают только успешно декодированные события. Отфильтрованные и ошибочные записи доступны через ограниченную диагностику.
+Only successfully decoded events reach ordinary payload matchers. Filtered and failed records are available through bounded diagnostics.
 
-### 5.4. Immutable envelope не делает Protobuf immutable
+### 5.4. An immutable envelope does not make Protobuf immutable
 
-Frozen dataclass запрещает замену поля, но не модификацию mutable payload. Journal сохраняет исходные bytes и собственный декодированный объект. Для встроенного Protobuf-кодека публичные результаты и пользовательские callbacks получают независимые копии через интерфейс сообщения; `CopyFrom` документирован Protobuf. [S04]
+A frozen dataclass prevents field replacement but does not prevent mutation of a mutable payload. The Journal retains the original bytes and its own decoded object. For the built-in Protobuf codec, public results and user callbacks receive independent copies through the message interface; Protobuf documents `CopyFrom`. [S04]
 
-Пользовательский Decoder MUST передавать владение результатом runtime. Для произвольного mutable типа используется `PayloadAccess[T]`: независимое копирование и модель учёта размера. По умолчанию допустим `deepcopy`; неудача копирования — явная `PayloadIsolationError`, а не передача внутреннего объекта без защиты.
+A user Decoder MUST transfer ownership of its result to the runtime. Arbitrary mutable types use `PayloadAccess[T]`: independent copying and a size accounting model. `deepcopy` is an acceptable default; a copying failure is an explicit `PayloadIsolationError`, not permission to expose an unprotected internal object.
 
 <a id="s06"></a>
-## 6. Публичный API наблюдения
+## 6. Public observation API
 
 ### 6.1. Factories
 
@@ -402,37 +402,37 @@ class EventObserver:
 
 
 class SyncEventObserver:
-    # Тот же набор аргументов конструктора и watch.
-    # watch возвращает ContextManager[SyncEventWatcher[T]], не coroutine.
+    # The constructor and watch accept the same arguments.
+    # watch returns ContextManager[SyncEventWatcher[T]], not a coroutine.
     ...
 ```
 
-Реальные annotations `watch` MUST использовать overloads: `message_type=type[T]` и `decoder=Decoder[T]` дают `T`; отсутствие обоих даёт `bytes | None`. Указание обоих запрещено. Generic `T` в сокращённой сигнатуре не означает обязательной зависимости Core от Protobuf.
+The actual `watch` annotations MUST use overloads: `message_type=type[T]` and `decoder=Decoder[T]` produce `T`; omitting both produces `bytes | None`. Supplying both is forbidden. Generic `T` in the abbreviated signature does not imply a mandatory Core dependency on Protobuf.
 
-Разрешение встроенного `KafkaConfig` в `KafkaAdapter` — изолированный convenience-layer. Core не проверяет `isinstance(session, KafkaSession)` для выбора семантики.
+Resolving the built-in `KafkaConfig` into `KafkaAdapter` is an isolated convenience layer. Core does not check `isinstance(session, KafkaSession)` to select semantics.
 
-### 6.2. Watchers и scopes
+### 6.2. Watchers and scopes
 
-| Метод | Async watcher/scope | Sync watcher/scope |
+| Method | Async watcher/scope | Sync watcher/scope |
 |---|---|---|
 | `wait_for(matcher, *, timeout, description=None, require_complete=True)` | `await → T` | `→ T` |
 | `wait_for_event(...)` | `await → ObservedEvent[T]` | `→ ObservedEvent[T]` |
 | `wait_for_count(matcher, count, *, timeout, description=None, require_complete=True)` | `await → list[T]` | `→ list[T]` |
-| `scope(matcher, *, name=None, start=None)` | `→ EventScope[T]`, без I/O | `→ SyncEventScope[T]`, bounded portal call |
-| `snapshot()` | Согласованный `JournalSnapshot` / `ScopeSnapshot` в owner loop | Detached snapshot через portal |
-| `diagnostics.snapshot()` | Безопасный `DiagnosticSnapshot` | Detached безопасный snapshot |
-| `close()` | `await → None`, только watcher | `→ None`, только watcher |
+| `scope(matcher, *, name=None, start=None)` | `→ EventScope[T]`, no I/O | `→ SyncEventScope[T]`, bounded portal call |
+| `snapshot()` | Consistent `JournalSnapshot` / `ScopeSnapshot` in the owner loop | Detached snapshot through the portal |
+| `diagnostics.snapshot()` | Safe `DiagnosticSnapshot` | Detached safe snapshot |
+| `close()` | `await → None`, watcher only | `→ None`, watcher only |
 
-Scopes не имеют собственного `close()`. Закрытие watcher делает новые ожидания всех scopes недопустимыми. Завершённый watcher сохраняет detached snapshots для диагностики, но не предоставляет replay после закрытия в MVP.
+Scopes do not have their own `close()`. Closing the watcher makes new expectations invalid for all scopes. A finished watcher retains detached snapshots for diagnostics but does not provide replay after closing in the MVP.
 
-### 6.3. Нормы вызова
+### 6.3. Invocation rules
 
-`watch()` MUST NOT выполнять I/O. Вход в контекст выполняет запуск и возвращает READY watcher. Повторный вход в тот же context/session запрещён; новый вызов `watch()` создаёт новое наблюдение.
+`watch()` MUST NOT perform I/O. Entering the context performs startup and returns a READY watcher. Re-entering the same context/session is forbidden; a new `watch()` call creates a new observation.
 
-Factory может использоваться как session-scoped fixture, если не имеет loop-bound состояния. Активный watcher SHOULD быть function-scoped или жить непосредственно внутри теста. Share одного watcher между тестами не создаёт автоматической логической изоляции.
+A factory may be used as a session-scoped fixture if it has no loop-bound state. An active watcher SHOULD be function-scoped or live directly inside a test. Sharing a watcher between tests does not provide automatic logical isolation.
 
 <a id="s07"></a>
-## 7. Readiness, стартовые позиции и replay
+## 7. Readiness, start positions, and replay
 
 ### 7.1. StartPosition
 
@@ -443,137 +443,137 @@ StartPosition.at_offset({0: 125, 1: 242})
 StartPosition.at_timestamp(timestamp, require_existing=False)
 ```
 
-| Политика | Норма |
+| Policy | Requirement |
 |---|---|
-| `latest()` | Default. Зафиксировать текущие границы; читать новые записи относительно этих границ |
-| `earliest()` | Начать с ранней доступной позиции, не обещая существование всей истории |
-| `at_offset(mapping)` | Явные включающие нижние границы Kafka по всем выбранным partitions; без silent fallback |
-| `at_timestamp(t)` | Разрешить стартовую позицию по timestamp; не устанавливает вечный фильтр по timestamp |
-| `committed()` | Не поддерживается в MVP |
-| Произвольная native position | Extension после появления соответствующего адаптера |
+| `latest()` | Default. Capture the current boundaries; read new records relative to those boundaries |
+| `earliest()` | Start at the earliest available position without promising that the entire history exists |
+| `at_offset(mapping)` | Explicit inclusive Kafka lower bounds for all selected partitions; no silent fallback |
+| `at_timestamp(t)` | Resolve a start position by timestamp; does not establish a permanent timestamp filter |
+| `committed()` | Not supported in the MVP |
+| Arbitrary native position | Extension once a corresponding adapter exists |
 
-`timestamp` MUST быть timezone-aware datetime либо явно типизированным epoch milliseconds, но не неоднозначным `float`. Mapping offsets MUST покрывать весь выбранный набор partitions. Позиции отсутствующих partitions отклоняются.
+`timestamp` MUST be a timezone-aware datetime or explicitly typed epoch milliseconds, not an ambiguous `float`. The offsets mapping MUST cover the entire selected partition set. Positions for nonexistent partitions are rejected.
 
 ### 7.2. Readiness barrier
 
-**START-01.** Успешный вход в контекст означает: источник разрешён; поддерживаемая политика проверена; reader независим; позиции установлены; receive path способен принимать события; известной startup failure нет.
+**START-01.** Successful context entry means that the source is resolved, the supported policy is checked, the reader is independent, positions are set, the receive path can accept events, and no startup failure is known.
 
-**START-02.** Между transport readiness и запуском core reader не должно быть незащищённого окна потери. Пустой topic не требует публикации служебного тестового сообщения для READY.
+**START-02.** There must be no unprotected loss window between transport readiness and starting the core reader. An empty topic does not require publishing a service test message to reach READY.
 
-**START-03.** Сообщения между фиксацией boundary и возвратом входа в контекст входят в диапазон наблюдения. Они не отбрасываются ради формулировки «только после `with`».
+**START-03.** Messages between boundary capture and the return from context entry are within the observation range. They are not discarded to enforce wording such as 'only after `with`'.
 
-**START-04.** Подготовка имеет отдельный `startup_timeout`. Ошибка/отмена частично выполненного запуска MUST запускать rollback уже созданных ресурсов, даже если session ещё не возвращена.
+**START-04.** Preparation has a separate `startup_timeout`. Failure/cancellation of a partially completed startup MUST roll back resources already created, even if the session has not yet been returned.
 
 ### 7.3. Kafka boundary
 
-Kafka boundary — вектор offsets по partitions, не атомарная отметка времени топика. Для `latest` фиксируется uncached high watermark каждой выбранной partition и используется явный numeric assignment. High watermark описывается клиентом как offset последней записи + 1. [S05]
+A Kafka boundary is a vector of partition offsets, not an atomic topic timestamp. For `latest`, the uncached high watermark of each selected partition is captured and an explicit numeric assignment is used. The client describes the high watermark as the last record's offset + 1. [S05]
 
-Нельзя заменять эту процедуру одной настройкой `auto.offset.reset=latest`. В MVP reset при недоступной позиции настроен на ошибку, сохранённые group offsets не используются.
+This procedure cannot be replaced with the single `auto.offset.reset=latest` setting. In the MVP, reset for an unavailable position is configured to fail, and stored group offsets are not used.
 
-Позиция `offset == high` допустима: это ожидание будущих сообщений. `offset < low` и `offset > high` при разрешении позиции дают явную ошибку. Внутри `[low, high)` compacted/control/невидимая transactional запись может не выдаваться. Поэтому `at_offset(n)` означает «читать с нижней границы n», а не «гарантировать наличие бизнес-сообщения точно n».
+The position `offset == high` is valid: it waits for future messages. Resolving `offset < low` or `offset > high` produces an explicit error. Within `[low, high)`, a compacted/control/invisible transactional record may not be returned. Therefore, `at_offset(n)` means 'read from lower bound n', not 'guarantee a business message at exactly n'.
 
 ### 7.4. Timestamp replay
 
-`offsets_for_times` возвращает раннюю доступную позицию с timestamp не меньше запроса; при отсутствии подходящей записи клиент может вернуть `-1`. [S05]
+`offsets_for_times` returns the earliest available position with a timestamp no smaller than the requested value; the client may return `-1` if no suitable record exists. [S05]
 
-При отсутствии записи и `require_existing=False` выбирается зафиксированная high boundary этой partition. При `require_existing=True` отсутствие подходящей позиции хотя бы в одной выбранной partition — `StartPositionUnavailableError`.
+If no record exists and `require_existing=False`, the captured high boundary of that partition is selected. With `require_existing=True`, absence of a suitable position in any selected partition produces `StartPositionUnavailableError`.
 
-Затем выполняется обычное чтение. Timestamp replay не доказывает, что timestamp всех последующих сообщений монотонен или удовлетворяет исходному порогу. Для такого требования нужен отдельный matcher.
+Ordinary reading then follows. Timestamp replay does not prove that all subsequent message timestamps are monotonic or satisfy the original threshold. Such a requirement needs a separate matcher.
 
-### 7.5. Isolation и topology
+### 7.5. Isolation and topology
 
-Kafka использует `assign`, уникальный diagnostic `group.id`, `enable.auto.commit=false`, `enable.auto.offset.store=false`, без commits. Независимость обеспечивается прямым чтением, а не только уникальным именем группы.
+Kafka uses `assign`, a unique diagnostic `group.id`, `enable.auto.commit=false`, and `enable.auto.offset.store=false`, with no commits. Independence is provided by direct reading, not merely by a unique group name.
 
-Топология MVP — `STATIC_FAIL`: набор partitions фиксируется, metadata проверяется периодически. Обнаруженное изменение завершает наблюдение ошибкой; новые partitions не подключаются молча с конца.
+The MVP topology policy is `STATIC_FAIL`: the partition set is fixed and metadata is checked periodically. A detected change terminates observation with an error; new partitions are not silently attached at their ends.
 
-Проверка топологии не является непрерывной транзакционной блокировкой: изменение может быть обнаружено после завершения отдельного assertion. Уже возвращённый результат не переписывается. Известная background failure MUST быть видна при выходе из контекста, даже если активных waiters не осталось.
+Topology checking is not a continuous transactional lock: a change can be detected after an individual assertion completes. A previously returned result is not rewritten. A known background failure MUST be visible when the context exits, even if no active waiters remain.
 
-### 7.6. Непрерывность
+### 7.6. Continuity
 
-`CONTINUOUS` означает отсутствие обнаруженного нарушения в заявленной области; это не доказательство отсутствия всех потерь. `UNCERTAIN` и `GAP_DETECTED` приводят к fail-closed в MVP при затронутой требуемой области. Адаптер не запускает новый reader с `latest` после ошибки.
+`CONTINUOUS` means no violation was detected within the declared range; it does not prove absence of all losses. `UNCERTAIN` and `GAP_DETECTED` cause fail-closed behavior in the MVP when the required range is affected. The adapter does not start a new reader with `latest` after an error.
 
-Скачок Kafka offsets сам по себе MUST NOT считаться потерей: compaction и transactional visibility делают арифметику `offset + 1` недостаточной. Зафиксированные ошибки доступности позиции, переполнение handoff и известный разрыв наблюдения учитываются отдельно.
+A jump in Kafka offsets by itself MUST NOT be considered a loss: compaction and transactional visibility make `offset + 1` arithmetic insufficient. Detected position availability errors, handoff overflow, and known observation gaps are tracked separately.
 
 <a id="s08"></a>
-## 8. Event Journal, память и полнота
+## 8. Event Journal, memory, and completeness
 
-### 8.1. Модель хранения
+### 8.1. Retention model
 
-Journal — single-writer / multiple-readers структура одного runtime event loop. Каждый watcher имеет отдельный Journal. Reader брокера один; waiters не конкурируют за доставку и не удаляют найденные события.
+The Journal is a single-writer / multiple-readers structure in one runtime event loop. Each watcher has a separate Journal. There is one broker reader; waiters do not compete for delivery or remove matched events.
 
-**JOURNAL-01.** Admission назначает sequence, монотонное время и увеличивает version атомарно. Любой не принятый из-за политики payload получает запись о пропуске либо terminal failure, а не исчезает без следа.
+**JOURNAL-01.** Admission atomically assigns a sequence and monotonic time and increments the version. Every payload rejected by policy produces a skip record or terminal failure rather than disappearing without a trace.
 
-**JOURNAL-02.** Matchers никогда не вызываются под Journal lock. Структурированный matcher библиотеки может читать каноническое сообщение; пользовательский predicate/custom matcher получает независимую копию.
+**JOURNAL-02.** Matchers are never called under the Journal lock. A library structured matcher may read the canonical message; a user predicate/custom matcher receives an independent copy.
 
-**JOURNAL-03.** Ограничиваются не только сохранённые события, но и pinned batches, промежуточные копии, результаты незавершённых expectations, gaps ledger и diagnostic samples.
+**JOURNAL-03.** Bounds apply not only to retained events but also to pinned batches, intermediate copies, results of unfinished expectations, the gaps ledger, and diagnostic samples.
 
 ### 8.2. Defaults
 
-| Настройка | Default | Значение |
+| Setting | Default | Meaning |
 |---|---:|---|
-| `max_events` | 10 000 | Сохранённые decoded records |
-| `max_bytes` | 64 MiB | Accounted budget Journal, не точный RSS |
-| `max_event_bytes` | 16 MiB | Hard limit сырого события: payload, key, headers и ограниченные metadata |
-| `max_active_waiters` | 128 | Защита от неограниченного состояния expectations |
-| `max_scopes` | 256 | Зарегистрированные логические определения scopes |
-| `max_loss_ranges` | 1 024 | Точный ledger утраченных диапазонов до conservative compaction |
-| `max_result_events` | 10 000 | Верхняя граница `count` и одного результата |
-| `max_result_bytes` | 64 MiB | Суммарный accounted budget ещё не выданных результатов watcher |
-| `scan_batch_events` | 64 | Максимальный шаг сканирования до cooperative yield |
+| `max_events` | 10 000 | Retained decoded records |
+| `max_bytes` | 64 MiB | Accounted Journal budget, not exact RSS |
+| `max_event_bytes` | 16 MiB | Hard raw event limit: payload, key, headers, and bounded metadata |
+| `max_active_waiters` | 128 | Protection against unbounded expectation state |
+| `max_scopes` | 256 | Registered logical scope definitions |
+| `max_loss_ranges` | 1 024 | Exact ledger of lost ranges before conservative compaction |
+| `max_result_events` | 10 000 | Upper bound on `count` and a single result |
+| `max_result_bytes` | 64 MiB | Total accounted budget of watcher results not yet returned |
+| `scan_batch_events` | 64 | Maximum scanning step before a cooperative yield |
 
-Настройки MUST быть положительными конечными значениями соответствующего типа. `max_event_bytes` не может превышать предел вместимости transport handoff. Уменьшение бюджета ниже одного разрешённого события — configuration error, а не deadlock на ожидании свободного места.
+Settings MUST be positive finite values of the appropriate type. `max_event_bytes` cannot exceed the transport handoff capacity limit. Reducing the budget below one allowed event is a configuration error, not a deadlock while waiting for free space.
 
-Дополнительные лимиты waiters/scopes/results конкретизируют ранее открытый вопрос ресурсов. Они настраиваемы и не являются обещанием производительности при максимальных значениях.
+The additional waiter/scope/result limits resolve the previously open resource question. They are configurable and do not promise performance at their maximum values.
 
 ### 8.3. Accounted bytes
 
-Модель учёта MUST быть детерминированной и опубликованной: длина raw bytes, key/headers, ограниченный encoded metadata size, фиксированные overhead-поправки структур и оценка декодированного объекта. Для Protobuf wire size не равен фактическому native heap; его использование допускается только как документированная оценка.
+The accounting model MUST be deterministic and published: lengths of raw bytes and key/headers, bounded encoded metadata size, fixed structural overhead adjustments, and an estimate for the decoded object. For Protobuf, wire size is not the actual native heap size; it may be used only as a documented estimate.
 
-Библиотека MUST NOT обещать, что `max_bytes=64 MiB` ограничит весь процесс 64 MiB. Дополнительную память используют Python, native client buffers, парсер, результаты у пользователя и другие fixtures. Размер до декодирования ограничивается, но это не абсолютная защита от расширения бинарного представления в heap.
+The library MUST NOT promise that `max_bytes=64 MiB` limits the entire process to 64 MiB. Python, native client buffers, the parser, user-owned results, and other fixtures use additional memory. Size is limited before decoding, but this is not absolute protection against expansion of a binary representation on the heap.
 
-Snapshot не должен копировать весь Journal неограниченно. Defaults snapshot — metadata и ограниченная выборка; явный экспорт payload подчиняется отдельным budget и disclosure policy.
+A snapshot must not make an unbounded copy of the entire Journal. Snapshot defaults are metadata and a bounded sample; explicit payload export is governed by separate budgets and a disclosure policy.
 
-### 8.4. Политики aggregate overflow
+### 8.4. Aggregate overflow policies
 
-| Политика | Поведение | Продолжение |
+| Policy | Behavior | Continue |
 |---|---|---|
-| `FAIL` | Записать bounded failure summary; observer terminal failure | Нет |
-| `DROP_OLDEST` | Удалить старые записи до освобождения места; зарегистрировать утраченный диапазон | Да, история неполна |
-| `DROP_NEWEST` | Не сохранить новую запись; зарегистрировать её sequence/диапазон и причину | Да, история неполна |
+| `FAIL` | Record a bounded failure summary; terminal observer failure | No |
+| `DROP_OLDEST` | Remove old records until space is available; register the lost range | Yes, with incomplete history |
+| `DROP_NEWEST` | Do not retain the new record; register its sequence/range and reason | Yes, with incomplete history |
 
-`max_event_bytes` — отдельный hard safety limit. Его превышение даёт `EventTooLargeError` при любой aggregate overflow policy; нельзя пытаться безлимитно распарсить запись, чтобы затем её отбросить. Это явное уточнение раннего примера ADR-003, согласованное с transport backpressure.
+`max_event_bytes` is a separate hard safety limit. Exceeding it produces `EventTooLargeError` under every aggregate overflow policy; an implementation cannot attempt an unbounded parse merely to discard the record afterward. This explicitly clarifies the early ADR-003 example and is consistent with transport backpressure.
 
-DROP-политики MUST NOT распространяться автоматически на скрытые transport queues. Там потеря является transport failure.
+DROP policies MUST NOT apply automatically to hidden transport queues. Loss there is a transport failure.
 
-### 8.5. Полнота диапазона
+### 8.5. Range completeness
 
-Глобальный `DEGRADED` — только summary. Проверка полноты MUST выполняться для конкретного диапазона `sequence` expectation и его области декодирования.
+A global `DEGRADED` state is only a summary. Completeness MUST be checked for the expectation's specific `sequence` range and decoding domain.
 
-По умолчанию новая проверка наследует **логическую начальную границу watcher/scope**, а не незаметно сдвигается на первую сохранившуюся запись. Поэтому ранняя eviction не превращает неполную историю в полную только потому, что waiter создан позже.
+By default, a new assertion inherits the **logical start boundary of its watcher/scope** rather than silently shifting to the first retained record. Earlier eviction therefore does not turn incomplete history into complete history merely because the waiter was created later.
 
-`ScopeStart.from_now()` может создать новый полный диапазон после предыдущей eviction. Это не восстанавливает удалённую историю, а явно выбирает более позднюю область.
+`ScopeStart.from_now()` can create a new complete range after an earlier eviction. It does not restore removed history; it explicitly selects a later range.
 
-Если records удалены после их проверки, в MVP выбирается консервативное правило: `require_complete=True` требует сохранённой/подтверждённой полноты всего проверяемого диапазона к точке фиксации результата. Waiter MUST NOT выдавать полный результат, опираясь на неограниченные приватные архивы удалённых записей.
+If records are removed after evaluation, the MVP uses a conservative rule: `require_complete=True` requires retained/confirmed completeness of the entire evaluated range at the result commitment point. A waiter MUST NOT return a complete result by relying on unbounded private archives of removed records.
 
-Loss ledger хранит объединяемые диапазоны. При достижении `max_loss_ranges` разрешено укрупнить область до conservative `UNKNOWN/INCOMPLETE`; запрещено забыть gap и объявить историю полной. Границы после последней затронутой позиции могут оставаться пригодными.
+The loss ledger stores mergeable ranges. Upon reaching `max_loss_ranges`, it may coarsen a range into a conservative `UNKNOWN/INCOMPLETE` state; it must not forget a gap and declare the history complete. Boundaries after the last affected position may remain usable.
 
-### 8.6. Filtered, failed и lost
+### 8.6. Filtered, failed, and lost
 
-| Состояние | Значение |
+| State | Meaning |
 |---|---|
-| `FILTERED` | Явно исключено из заявленной decode domain; не является потерей транспорта |
-| `MISMATCH` | Декодировано, но не подошло matcher |
-| `NOT_APPLICABLE` | Проверка не применима к данному допустимому типу |
-| `DECODE_FAILED` | Тип/формат не удалось обработать; fail-fast в MVP, кроме явно unknown-type exclusion |
-| `DROPPED` | История утрачена из-за retention policy |
-| `TRANSPORT_GAP` | Известное нарушение доставки/позиции |
+| `FILTERED` | Explicitly excluded from the declared decode domain; not a transport loss |
+| `MISMATCH` | Decoded but did not satisfy the matcher |
+| `NOT_APPLICABLE` | The check does not apply to this otherwise valid type |
+| `DECODE_FAILED` | The type/format could not be processed; fail-fast in the MVP except for explicit unknown-type exclusion |
+| `DROPPED` | History lost because of the retention policy |
+| `TRANSPORT_GAP` | Known delivery/position violation |
 
-Scope фильтруется после admission. Он не уменьшает поток в общем Journal и не защищает watcher от переполнения нерелевантными сообщениями.
+A scope filters after admission. It does not reduce the stream in the shared Journal or protect the watcher against overflow caused by irrelevant messages.
 
 <a id="s09"></a>
-## 9. Transport Adapter API и backpressure
+## 9. Transport Adapter API and backpressure
 
-### 9.1. Базовые контракты
+### 9.1. Base contracts
 
 ```python
 from typing import AsyncIterator, Protocol
@@ -603,11 +603,11 @@ class TransportAdapter(Protocol):
     ) -> TransportSession: ...
 ```
 
-`receive` — обычный метод, возвращающий async iterator, либо async generator с эквивалентной внешней формой. Он не возвращает coroutine, которую сначала нужно отдельно await для получения iterator.
+`receive` is an ordinary method returning an async iterator, or an async generator with an equivalent external form. It does not return a coroutine that must first be awaited separately to obtain the iterator.
 
-`OpenContext` содержит observation identity, startup deadline в общем monotonic clock domain, buffer limits и safe diagnostic sink. Он не содержит Protobuf-класс, matcher или Allure object.
+`OpenContext` contains observation identity, the startup deadline in the shared monotonic clock domain, buffer limits, and a safe diagnostic sink. It contains no Protobuf class, matcher, or Allure object.
 
-`wait_failure()` нужен, чтобы terminal transport failure стала видна, даже когда reader временно остановлен backpressure. Он возвращает типизированную ошибку при failure, `None` только при намеренном закрытии. Отмена одного monitor waiter не отменяет исходный session failure signal. Если receive неожиданно завершился у бесконечного источника, Core создаёт `UnexpectedStreamEndError`.
+`wait_failure()` makes terminal transport failure visible even when backpressure temporarily pauses the reader. It returns a typed error on failure and `None` only on intentional closure. Cancelling one monitor waiter does not cancel the underlying session failure signal. If receive unexpectedly ends for an infinite source, Core creates `UnexpectedStreamEndError`.
 
 ### 9.2. Resolved readiness
 
@@ -620,30 +620,30 @@ class TransportReadiness:
     ready_monotonic: float
 ```
 
-Static capabilities описывают потенциальные возможности адаптера; resolved capabilities — реально применимый режим конкретной session. Permission failure не кодируется как «capability нет» и не проглатывается.
+Static capabilities describe the adapter's potential capabilities; resolved capabilities describe the mode actually applicable to a particular session. A permission failure is neither encoded as 'capability unavailable' nor swallowed.
 
 ### 9.3. Capability model
 
-| Группа | Пример значений |
+| Group | Example values |
 |---|---|
 | `start_modes` | LATEST, EARLIEST, OFFSET, TIMESTAMP, NATIVE_POSITION |
 | `isolation_modes` | INDEPENDENT_READER, DEDICATED_SUBSCRIPTION |
 | `flow_control_modes` | FETCH_LIMIT, PAUSE_RESUME, PREFETCH, NONE |
 | `ordering_scope` | NONE, SOURCE, PARTITION, NATIVE_DOMAIN |
-| `supports_headers` | Доступность нормализованных headers |
-| `supports_key` | Доступность message key |
-| `supports_source_timestamps` | Timestamp и его происхождение |
-| `supports_position_tracking` | Native позиция для диагностики |
-| `supports_topology_detection` | Проверка выбранной топологии |
-| `supports_settlement` | Нужен optional settlement extension |
+| `supports_headers` | Availability of normalized headers |
+| `supports_key` | Availability of the message key |
+| `supports_source_timestamps` | Timestamp and its origin |
+| `supports_position_tracking` | Native position for diagnostics |
+| `supports_topology_detection` | Checking the selected topology |
+| `supports_settlement` | Optional settlement extension is required |
 
-Наличие flow control не является гарантией фиксированного native RSS. Capability MUST NOT означать «неограниченный replay»: retention, compaction и права описываются отдельно.
+Flow control does not guarantee fixed native RSS. A capability MUST NOT imply 'unbounded replay': retention, compaction, and permissions are described separately.
 
-Рабочий режим competing consumer обычной очереди приложения не является безопасным режимом официального адаптера. Для будущего RabbitMQ выбирается отдельная очередь с собственными bindings; для Redis Streams — независимый XREAD, не чужая consumer group. RabbitMQ Streams — отдельная transport semantics, не AMQP queue replay.
+Competing consumption from an ordinary application queue is not a safe official adapter mode. Future RabbitMQ support uses a separate queue with its own bindings; Redis Streams uses independent XREAD, not another consumer group. RabbitMQ Streams has separate transport semantics, not AMQP queue replay.
 
 ### 9.4. Settlement extension
 
-Ранее формулировка «ack после Journal» не имела точки вызова в протоколе. Фиксируется явный optional extension:
+The earlier wording 'ack after the Journal' had no invocation point in the protocol. An explicit optional extension is defined:
 
 ```python
 class SettlementSession(Protocol):
@@ -654,82 +654,82 @@ class SettlementSession(Protocol):
     ) -> None: ...
 ```
 
-`DeliveryOutcome` — `ADMITTED`, `FILTERED` или `DISCARDED_BY_EXPLICIT_JOURNAL_POLICY`. Runtime вызывает settlement только после фиксации соответствующего outcome. Journal не вызывает адаптер сам.
+`DeliveryOutcome` is `ADMITTED`, `FILTERED`, or `DISCARDED_BY_EXPLICIT_JOURNAL_POLICY`. The runtime invokes settlement only after committing the corresponding outcome. The Journal does not call the adapter itself.
 
-При decode failure, hard oversize или FAIL overflow ack не отправляется как успешный. Адаптер документирует reject/requeue/закрытие своей изолированной subscription. При DROP policy разрешён settlement явно зафиксированного discard; полнота уже отмечена нарушенной.
+On decode failure, hard oversize, or FAIL overflow, an ack is not sent as if processing succeeded. The adapter documents reject/requeue/closure of its isolated subscription. A DROP policy permits settlement of an explicitly recorded discard; completeness is already marked as violated.
 
-Kafka не объявляет `supports_settlement`, не создаёт receipt и не выполняет offset commit. Никакого общего «commit» в EventWatcher нет.
+Kafka does not advertise `supports_settlement`, create a receipt, or perform an offset commit. EventWatcher has no generic 'commit'.
 
 ### 9.5. Session ownership
 
-Каждый `watch` создаёт отдельную session. В MVP нет shared consumer, connection pool и скрытого multiplexing. Одна session допускает только один receive iterator. Все loop-bound объекты принадлежат runtime loop; при sync mode это частный background loop.
+Each `watch` creates a separate session. The MVP has no shared consumer, connection pool, or hidden multiplexing. A session permits only one receive iterator. All loop-bound objects belong to the runtime loop; in sync mode, this is a private background loop.
 
-`close` идемпотентен: concurrent close requests присоединяются к одной операции. Startup rollback является обязанностью `open`, если оно не смогло вернуть session. Error path MUST быть проверен на каждой ступени подготовки.
+`close` is idempotent: concurrent close requests join one operation. Startup rollback is `open`'s responsibility if it could not return a session. The error path MUST be tested at every preparation stage.
 
 ### 9.6. Bounded transfer
 
-Default transport handoff: 256 записей и 16 MiB accounted bytes. Ограничение по bytes включает находящийся у producer-side bridge элемент и pending передачу, а не только длину `asyncio.Queue`.
+Default transport handoff: 256 records and 16 MiB of accounted bytes. The byte bound includes the item held by the producer-side bridge and a pending transfer, not merely the length of `asyncio.Queue`.
 
-**FLOW-01.** Нельзя создавать unbounded `call_soon_threadsafe` callbacks или отдельный Future/Task на каждое входящее сообщение без ограничения in-flight.
+**FLOW-01.** It is forbidden to create unbounded `call_soon_threadsafe` callbacks or a separate Future/Task per incoming message without an in-flight bound.
 
-**FLOW-02.** Bridge резервирует capacity до публикации callback в event loop. Выборка и pause/resume имеют high/low watermarks, чтобы не дёргать управление на каждом сообщении.
+**FLOW-02.** The bridge reserves capacity before publishing a callback to the event loop. Fetching and pause/resume use high/low watermarks to avoid toggling control for every message.
 
-**FLOW-03.** Native buffers настраиваются отдельно и отражаются в diagnostics. Их пределы не выдаются за точное ограничение общей RAM.
+**FLOW-03.** Native buffers are configured separately and reflected in diagnostics. Their limits must not be presented as an exact bound on total RAM.
 
-**FLOW-04.** У session остаётся отдельный control path для stop/failure. Полный data buffer не должен блокировать close или доставку terminal error.
+**FLOW-04.** A session retains a separate control path for stop/failure. A full data buffer must not block close or delivery of a terminal error.
 
-**FLOW-05.** При невозможности сохранить принятую запись и отсутствии безопасного flow control возникает `TransportBackpressureError`. Молчаливый transport drop запрещён.
+**FLOW-05.** If an accepted record cannot be retained and safe flow control is unavailable, `TransportBackpressureError` is raised. Silent transport drops are forbidden.
 
-Для будущего RabbitMQ prefetch ограничивает неподтверждённые доставки; значение 0 означает отсутствие этого ограничения. [S07] Для Redis Streams cursor продвигается по полученным IDs; повторять `$` на каждом XREAD нельзя. [S08]
+For future RabbitMQ support, prefetch limits unacknowledged deliveries; a value of 0 means no such limit. [S07] For Redis Streams, the cursor advances using received IDs; repeating `$` on every XREAD is forbidden. [S08]
 
 <a id="s10"></a>
-## 10. Kafka Adapter первого выпуска
+## 10. Kafka Adapter for the first release
 
-### 10.1. Клиент и потоковая модель
+### 10.1. Client and threading model
 
-Используется `confluent-kafka.Consumer`. На session создаётся один polling worker; все операции consumer — configuration/start, assign, poll, pause/resume, metadata inspection и close — сериализуются через этот worker. Native blocking call MUST NOT выполняться в asyncio loop.
+`confluent-kafka.Consumer` is used. Each session creates one polling worker; all consumer operations—configuration/start, assign, poll, pause/resume, metadata inspection, and close—are serialized through that worker. A native blocking call MUST NOT run in the asyncio loop.
 
-Полученные payload переводятся в принадлежащие Python immutable bytes с ограниченным временем удержания native message objects. Worker передаёт записи через bounded bridge. Broker callbacks преобразуются в типизированные состояния, но не вызывают Allure или пользовательские matchers.
+Received payloads are converted into immutable bytes owned by Python, with bounded retention of native message objects. The worker transfers records through a bounded bridge. Broker callbacks are converted into typed states but do not call Allure or user matchers.
 
-### 10.2. Управляемые параметры
+### 10.2. Managed parameters
 
-| Параметр | Норма |
+| Parameter | Requirement |
 |---|---|
-| `enable.auto.commit` | `false`, переопределение запрещено |
-| `enable.auto.offset.store` | `false`, переопределение запрещено |
-| `auto.offset.reset` | `error`, не fallback к latest/earliest |
+| `enable.auto.commit` | `false`; overriding is forbidden |
+| `enable.auto.offset.store` | `false`; overriding is forbidden |
+| `auto.offset.reset` | `error`, not fallback to latest/earliest |
 | `allow.auto.create.topics` | `false` |
-| Assignment | Явный список topic/partition/numeric offset |
-| Group coordination | Не используется для распределения partitions |
-| `group.id` | Уникальный session diagnostic ID, без commit semantics |
-| `enable.partition.eof` | Может использоваться readiness/diagnostics; EOF не является бизнес-событием или terminal end |
-| `isolation.level` | Явно задан; default библиотеки `read_committed` |
-| Native queue/fetch limits | Явно настроены, протестированы и показаны как отдельный budget |
+| Assignment | Explicit list of topic/partition/numeric offset |
+| Group coordination | Not used for partition distribution |
+| `group.id` | Unique session diagnostic ID, without commit semantics |
+| `enable.partition.eof` | May be used for readiness/diagnostics; EOF is neither a business event nor a terminal end |
+| `isolation.level` | Explicitly set; the library default is `read_committed` |
+| Native queue/fetch limits | Explicitly configured, tested, and reported as a separate budget |
 
-`auto.offset.reset=error`, consumer queue limits и transactional isolation имеют клиент-специфичную семантику; применяется конфигурация librdkafka, не механическая копия Java consumer options. [S06]
+`auto.offset.reset=error`, consumer queue limits, and transactional isolation have client-specific semantics; librdkafka configuration applies, not a mechanical copy of Java consumer options. [S06]
 
-### 10.3. Транзакции
+### 10.3. Transactions
 
-`read_committed` означает, что абортированные транзакционные записи не выдаются. Наблюдаемая доступность может останавливаться на last stable offset. [S06]
+`read_committed` means aborted transactional records are not returned. Observable availability may stop at the last stable offset. [S06]
 
-MVP сохраняет из ADR-002 **numeric high-watermark boundary для latest**: записи с offset ниже зафиксированной границы исключены, даже если существовавшая до READY транзакция закоммитится позже. Это «новые log records после boundary», а не «всё, что стало committed после READY».
+The MVP preserves ADR-002's **numeric high-watermark boundary for latest**: records with offsets below the captured boundary are excluded even if a transaction that existed before READY commits later. This means 'new log records after the boundary', not 'everything that became committed after READY'.
 
-Readiness MUST NOT требовать получения committed бизнес-записи или бесконечно ждать закрытия чужой открытой транзакции. Реализация должна подтверждать работоспособность fetch path отдельно от наличия видимых данных. Transactional integration tests обязательны для объявления такой поддержки.
+Readiness MUST NOT require receiving a committed business record or indefinitely await closure of someone else's open transaction. The implementation must confirm fetch path functionality separately from the presence of visible data. Transactional integration tests are required before claiming this support.
 
-### 10.4. Readiness и faults
+### 10.4. Readiness and faults
 
-Одних успешных `metadata` и `assign` недостаточно для заявления «Read ACL точно проверен». Адаптер SHOULD подтвердить успешный fetch/доступность reader для выбранных partitions, включая пустые, без изменения топика. Если подтверждение не получено за startup budget, вход завершается ошибкой, а не оптимистическим READY.
+Successful `metadata` and `assign` alone are insufficient to claim that the Read ACL has definitely been checked. The adapter SHOULD confirm successful fetching/reader availability for the selected partitions, including empty ones, without modifying the topic. If confirmation is not obtained within the startup budget, context entry fails instead of optimistically returning READY.
 
-Native-клиент может выполнять внутренние сетевые retries. Библиотека не обещает видеть каждый короткий сетевой сбой. Известная terminal error, недоступная позиция или интервал, непрерывность которого невозможно подтвердить по политике адаптера, фиксируются fail-closed. Молчаливый restart с другой позиции запрещён.
+The native client may perform internal network retries. The library does not promise to observe every brief network fault. A known terminal error, unavailable position, or interval whose continuity cannot be confirmed under the adapter's policy is recorded with fail-closed behavior. A silent restart from a different position is forbidden.
 
-Для топологии задаётся положительный `topology_check_interval`; предлагаемый default 1.0 s. Это контрольная периодичность, не hard real-time гарантия обнаружения. Metadata probe и poll имеют конечные таймауты, ограниченные lifecycle budget.
+Topology has a positive `topology_check_interval`; the proposed default is 1.0 s. This is a checking interval, not a hard real-time detection guarantee. Metadata probes and polling have finite timeouts bounded by the lifecycle budget.
 
 ### 10.5. Kafka-specific acceptance
 
-MUST проверить: empty topic readiness; несколько partitions; данные между boundary и READY; production сразу после READY; retained committed offsets не используются; offset==high; out-of-range без reset; compacted gaps; transactional visibility; topic recreated/topology changed при обнаружении; EOF не завершает observer; bridge pressure; close под нагрузкой; auth/ACL failures; две независимые sessions на одном topic.
+MUST test: empty topic readiness; multiple partitions; data between boundary capture and READY; production immediately after READY; retained committed offsets are not used; offset==high; out-of-range without reset; compacted gaps; transactional visibility; detected topic recreation/topology change; EOF does not stop the observer; bridge pressure; close under load; auth/ACL failures; two independent sessions on one topic.
 
 <a id="s11"></a>
-## 11. Decoder, Protobuf и смешанные типы
+## 11. Decoder, Protobuf, and mixed types
 
 ### 11.1. Decoder API
 
@@ -743,23 +743,23 @@ class Decoder(Protocol[T_co]):
     def decode(self, event: RawEvent) -> T_co: ...
 ```
 
-Decoder синхронный, не выполняет сетевого I/O, не изменяет RawEvent, создаёт отдельный результат на вызов. Encoder не обязателен и в MVP отсутствует. Custom callbacks считаются доверенным кодом проекта, но не освобождаются от требований ограниченного времени и отсутствия мутаций канонического состояния.
+A Decoder is synchronous, performs no network I/O, does not mutate RawEvent, and creates a separate result for each call. An Encoder is not required and is absent from the MVP. Custom callbacks are trusted project code but still must satisfy the bounded-time and canonical-state immutability requirements.
 
-`RawDecoder` возвращает `bytes | None`. `ProtobufDecoder[T]` принимает generated Python class `type[T]`. Сокращение `message_type=T` создаёт этот decoder.
+`RawDecoder` returns `bytes | None`. `ProtobufDecoder[T]` accepts a generated Python class `type[T]`. The `message_type=T` shorthand creates this decoder.
 
 ### 11.2. Protobuf deserialization
 
-Алгоритм: проверить размер → проверить null → создать новый message → `ParseFromString` → при включённой настройке `IsInitialized` → вернуть сообщение. Ошибки библиотечного парсера сохраняются как cause нормализованной ошибки. API чтения, presence и копирования сообщений соответствует generated Python API. [S04]
+The algorithm is: check size → check null → create a new message → `ParseFromString` → optionally check `IsInitialized` → return the message. Library parser errors are retained as the cause of a normalized error. Message access, presence, and copying follow the generated Python API. [S04]
 
-**PROTO-01.** `b""` может быть корректным Protobuf-сообщением с default fields. Его MUST NOT объявлять повреждённым только из-за нулевой длины. `None` в default ProtobufDecoder даёт `NullPayloadError`.
+**PROTO-01.** `b""` can be a valid Protobuf message with default fields. It MUST NOT be declared corrupt solely because its length is zero. `None` produces `NullPayloadError` in the default ProtobufDecoder.
 
-**PROTO-02.** `validate_required_fields=True` по умолчанию проверяет missing required fields proto2 после разбора. Это не проверка бизнес-валидности, а Protobuf initialization.
+**PROTO-02.** `validate_required_fields=True` checks for missing proto2 required fields after parsing by default. This checks Protobuf initialization, not business validity.
 
-**PROTO-03.** Unknown fields сохраняются настолько, насколько это обеспечивает используемый runtime. Нельзя «починить» несовместимый payload, удалив неизвестные поля перед matcher.
+**PROTO-03.** Unknown fields are preserved to the extent supported by the runtime in use. An incompatible payload cannot be 'repaired' by removing unknown fields before matching.
 
-**PROTO-04.** Успешный parse не доказывает правильный тип. Нельзя определять тип перебором всех `*_pb2` классов до первого успешного parse.
+**PROTO-04.** A successful parse does not prove that the type is correct. The type cannot be determined by trying every `*_pb2` class until the first successful parse.
 
-**PROTO-05.** Generated-code/runtime compatibility проверяется отдельно от совместимости wire schema. При несовместимости `*_pb2.py` и установленного Protobuf runtime нельзя обещать работоспособность только потому, что пакет `protobuf` установлен. [S14]
+**PROTO-05.** Generated-code/runtime compatibility is checked separately from wire schema compatibility. If `*_pb2.py` and the installed Protobuf runtime are incompatible, functionality cannot be promised merely because the `protobuf` package is installed. [S14]
 
 ### 11.3. Resolver API
 
@@ -768,7 +768,7 @@ class ProtobufTypeResolver(Protocol):
     def resolve(self, event: RawEvent) -> "type[Message] | None": ...
 ```
 
-Опциональный `known_message_types` даёт конечный набор классов для ранней валидации matchers. Built-in resolvers публикуют его обязательно; dynamic custom resolver может не знать полный набор.
+Optional `known_message_types` supplies a finite set of classes for early matcher validation. Built-in resolvers must expose it; a dynamic custom resolver may not know the complete set.
 
 ```python
 decoder = ResolvingProtobufDecoder(
@@ -782,42 +782,42 @@ decoder = ResolvingProtobufDecoder(
 )
 ```
 
-Default mapping keys бинарные. Текстовые ключи разрешены только с явно заданным `encoding`. `SourceTypeResolver` использует нормализованное имя источника. `CallableTypeResolver` принимает пользовательскую функцию; неправильный тип результата даёт `UnsupportedMessageTypeError`.
+Default mapping keys are binary. Text keys are permitted only with an explicitly specified `encoding`. `SourceTypeResolver` uses the normalized source name. `CallableTypeResolver` accepts a user function; an invalid result type produces `UnsupportedMessageTypeError`.
 
 ### 11.4. Missing, unknown, ambiguous
 
-| Ситуация | Default |
+| Situation | Default |
 |---|---|
-| Discriminator отсутствует | `UnknownMessageTypeError(reason="missing_discriminator")` |
-| Значение не зарегистрировано | `UnknownMessageTypeError(reason="unregistered_type")` |
-| Несколько одноимённых headers | `AmbiguousMessageTypeError`, даже если значения одинаковы |
-| Некорректная выбранная текстовая кодировка | `TypeResolverError` |
-| Resolver выбросил exception | `TypeResolverError` с cause |
-| Возвращён не Protobuf class | `UnsupportedMessageTypeError` |
-| Тип известен, parse невозможен | `InvalidPayloadError` |
+| Discriminator is missing | `UnknownMessageTypeError(reason="missing_discriminator")` |
+| Value is not registered | `UnknownMessageTypeError(reason="unregistered_type")` |
+| Multiple headers with the same name | `AmbiguousMessageTypeError`, even if their values are identical |
+| Invalid selected text encoding | `TypeResolverError` |
+| Resolver raises an exception | `TypeResolverError` with a cause |
+| Result is not a Protobuf class | `UnsupportedMessageTypeError` |
+| Type is known, parsing is impossible | `InvalidPayloadError` |
 
-`REQUIRE_UNIQUE` — политика type header по умолчанию. FIRST/LAST не включаются неявно.
+`REQUIRE_UNIQUE` is the default type header policy. FIRST/LAST are not enabled implicitly.
 
 ### 11.5. Decode policies
 
-`FAIL_FAST` — default. Первая decode/resolver error регистрируется bounded summary и переводит watcher в terminal failure.
+`FAIL_FAST` is the default. The first decode/resolver error is recorded as a bounded summary and puts the watcher into terminal failure.
 
-`SKIP_UNKNOWN_TYPE` подавляет **только** `UnknownMessageTypeError` (включая отсутствие discriminator согласно явно принятой области). Событие становится `FILTERED`. Ambiguous header, ошибка функции resolver, null payload известного Protobuf-типа и повреждённый payload остаются фатальными.
+`SKIP_UNKNOWN_TYPE` suppresses **only** `UnknownMessageTypeError` (including a missing discriminator according to the explicitly accepted domain). The event becomes `FILTERED`. Ambiguous headers, a resolver function error, a null payload of a known Protobuf type, and a corrupt payload remain fatal.
 
-`SKIP_INVALID` не входит в 0.1. Это предотвращает превращение реального нарушения схемы в обычный timeout.
+`SKIP_INVALID` is not part of 0.1. This prevents a real schema violation from becoming an ordinary timeout.
 
-Область декодирования фиксируется на старте. Нельзя ожидать неизвестный/исключённый тип и одновременно заявлять полноту всех сообщений topic. Diagnostics показывает счётчики filtered records без безлимитного сохранения их raw payload.
+The decoding domain is fixed at startup. It is not valid to expect an unknown/excluded type while claiming completeness for all topic messages. Diagnostics exposes filtered record counters without retaining their raw payloads without bounds.
 
-### 11.6. Typing и ownership
+### 11.6. Typing and ownership
 
-`message_type=OperationEvent` даёт `EventWatcher[OperationEvent]` или `SyncEventWatcher[OperationEvent]`. Mixed-type decoder даёт явно аннотированный union либо `Message` при динамическом наборе. Union не обещается автоматически выводить из произвольного dictionary.
+`message_type=OperationEvent` produces `EventWatcher[OperationEvent]` or `SyncEventWatcher[OperationEvent]`. A mixed-type decoder produces an explicitly annotated union, or `Message` for a dynamic type set. Automatic union inference from an arbitrary dictionary is not promised.
 
-Пользовательский decoder для mutable типа MAY передать `PayloadAccess[T]` с `clone_for_user(value)` и `estimate_bytes(value)`. Встроенные Raw/Protobuf обеспечивают этот контракт. Кодирование сообщения обратно для каждой проверки не требуется: для Protobuf используется независимое копирование уже разобранного значения.
+A user decoder for a mutable type MAY supply `PayloadAccess[T]` with `clone_for_user(value)` and `estimate_bytes(value)`. Built-in Raw/Protobuf implementations provide this contract. Re-encoding the message for each evaluation is unnecessary: Protobuf uses an independent copy of the already parsed value.
 
 <a id="s12"></a>
-## 12. Matchers и Expectations
+## 12. Matchers and Expectations
 
-### 12.1. Два явных протокола
+### 12.1. Two explicit protocols
 
 ```python
 T_contra = TypeVar("T_contra", contravariant=True)
@@ -831,9 +831,9 @@ class EventMatcher(Protocol[T]):
     def match_event(self, event: ObservedEvent[T]) -> "MatchResult": ...
 ```
 
-Разные имена методов устраняют неоднозначность двух структурных Protocol с одинаковым `match(...)`. Обычный `Callable[[T], bool]` трактуется только как payload predicate. Полный event predicate требует явной обёртки `event_predicate(fn)`.
+Distinct method names remove the ambiguity between two structural Protocols with the same `match(...)`. An ordinary `Callable[[T], bool]` is treated only as a payload predicate. A full event predicate requires the explicit `event_predicate(fn)` wrapper.
 
-Внутри Engine всё компилируется в event matcher. Композиции умеют поднимать payload matcher к event matcher; публичный пользователь не пишет adapter вручную.
+Inside the Engine, everything is compiled into an event matcher. Compositions can lift a payload matcher into an event matcher; public users do not write the adapter manually.
 
 ### 12.2. MatchResult
 
@@ -858,243 +858,243 @@ class Mismatch:
     actual: "DiagnosticValue"
 ```
 
-`DiagnosticValue` проходит disclosure/redaction до экспорта. Произвольный `repr` живого объекта или полная строка predicate не являются безопасным диагностическим значением.
+`DiagnosticValue` passes through disclosure/redaction before export. An arbitrary live object's `repr` or the full predicate string is not a safe diagnostic value.
 
 ### 12.3. MVP matchers
 
-| Matcher | Семантика |
+| Matcher | Semantics |
 |---|---|
-| `field_equals(path, value)` | Равенство поля |
-| `field_matches(path, matcher)` | Вложенная проверка |
-| `has_field(path)` | Explicit presence; неподдерживаемая presence — configuration error |
-| `protobuf_partial(mapping)` | Рекурсивное сравнение заданных полей |
-| `all_of`, `any_of`, `not_` | Композиция трёхзначных результатов |
-| `predicate(fn)` | Явная обёртка payload predicate |
-| `event_predicate(fn)` | Явная обёртка полного события |
-| `is_message_type(T)` | Проверка класса сообщения; другой класс — MISMATCH |
-| `on_type(T, matcher)` | Type guard: другой тип → NOT_APPLICABLE, вложенный matcher не вызывается |
-| `header_equals`, `key_equals`, `source_equals` | Сравнение metadata |
-| `trace_id_equals` | Сравнение валидного extracted trace ID |
+| `field_equals(path, value)` | Field equality |
+| `field_matches(path, matcher)` | Nested check |
+| `has_field(path)` | Explicit presence; unsupported presence is a configuration error |
+| `protobuf_partial(mapping)` | Recursive comparison of specified fields |
+| `all_of`, `any_of`, `not_` | Composition of three-valued results |
+| `predicate(fn)` | Explicit payload predicate wrapper |
+| `event_predicate(fn)` | Explicit full-event wrapper |
+| `is_message_type(T)` | Message class check; another class is MISMATCH |
+| `on_type(T, matcher)` | Type guard: another type → NOT_APPLICABLE; the nested matcher is not called |
+| `header_equals`, `key_equals`, `source_equals` | Metadata comparison |
+| `trace_id_equals` | Comparison of a valid extracted trace ID |
 
-`on_type` добавлен как точное защитное правило для mixed streams. `all_of(is_message_type(T), user_predicate)` не является гарантией short-circuit: all_of может собирать диагностику всех ветвей. Для predicate, безопасного только на `T`, MUST использовать `on_type` либо собственную явную проверку `isinstance`.
+`on_type` is added as an explicit guard for mixed streams. `all_of(is_message_type(T), user_predicate)` does not guarantee short-circuiting: all_of may collect diagnostics from every branch. A predicate that is safe only for `T` MUST use `on_type` or its own explicit `isinstance` check.
 
 ### 12.4. Protobuf semantics
 
-Field paths используют имена полей protobuf schema, не JSON aliases. Вложенный absent message при explicit presence даёт mismatch, а не подстановку созданного по умолчанию вложенного объекта. У implicit-presence scalar читается значение по Protobuf semantics; `has_field` для него отклоняется. Presence не угадывается через `value != default`. [S04]
+Field paths use protobuf schema field names, not JSON aliases. An absent nested message with explicit presence produces a mismatch instead of substituting a default-created nested object. An implicit-presence scalar is read according to Protobuf semantics; `has_field` is rejected for it. Presence is not inferred from `value != default`. [S04]
 
-В partial comparison: указанные scalar поля сравниваются; вложенные messages рекурсивно; repeated — вся заданная упорядоченная последовательность; maps — указанные ключи; oneof — активная ветвь; неизвестное имя поля — ошибка конфигурации. `None` не означает отсутствие поля. Enum сравнивается численно/совместимым enum значением; строковые имена не преобразуются молча.
+In partial comparison, specified scalar fields are compared; nested messages are compared recursively; repeated fields use the entire specified ordered sequence; maps use the specified keys; oneof uses the active branch; an unknown field name is a configuration error. `None` does not mean field absence. Enums are compared numerically or using a compatible enum value; string names are not silently converted.
 
-Для конечного набора допустимых типов field path валидируется при binding. Если его нет ни в одном допустимом descriptor — configuration error. Для события другого типа отсутствие пути может дать NOT_APPLICABLE.
+For a finite set of allowed types, a field path is validated during binding. If it exists in none of the allowed descriptors, this is a configuration error. Absence of the path in an event of another type may produce NOT_APPLICABLE.
 
-Для dynamic decoder без конечного набора типов ранняя валидация невозможна. Структурированный доступ к типоспецифичным полям требует `on_type(T, ...)`/явного descriptor binding; произвольные predicates остаются доступны. Нельзя скрывать опечатки бесконечным NOT_APPLICABLE.
+For a dynamic decoder without a finite type set, early validation is impossible. Structured access to type-specific fields requires `on_type(T, ...)`/explicit descriptor binding; arbitrary predicates remain available. Typos cannot be hidden behind endless NOT_APPLICABLE results.
 
-### 12.5. Композиция
+### 12.5. Composition
 
-Нормативная трёхзначная логика:
+Normative three-valued logic:
 
-- `all_of`: если есть MISMATCH → MISMATCH; иначе если есть NOT_APPLICABLE → NOT_APPLICABLE; иначе MATCH.
-- `any_of`: если есть MATCH → MATCH; иначе если есть NOT_APPLICABLE → NOT_APPLICABLE; иначе MISMATCH.
-- `not_`: MATCH ↔ MISMATCH; NOT_APPLICABLE остаётся NOT_APPLICABLE.
+- `all_of`: if any result is MISMATCH → MISMATCH; otherwise, if any is NOT_APPLICABLE → NOT_APPLICABLE; otherwise MATCH.
+- `any_of`: if any result is MATCH → MATCH; otherwise, if any is NOT_APPLICABLE → NOT_APPLICABLE; otherwise MISMATCH.
+- `not_`: MATCH ↔ MISMATCH; NOT_APPLICABLE remains NOT_APPLICABLE.
 
-Пустые `all_of`/`any_of` в публичном API отклоняются, чтобы случайная пустая конфигурация не совпала со всем потоком. `all_of` собирает bounded mismatches всех применимых ветвей. `any_of` может завершить оценку после первого MATCH в порядке объявления; непройденные ветви не оцениваются задним числом ради отчёта.
+Empty `all_of`/`any_of` compositions are rejected by the public API so that an accidentally empty configuration does not match the entire stream. `all_of` collects bounded mismatches from all applicable branches. `any_of` may stop evaluation after the first MATCH in declaration order; unevaluated branches are not evaluated retrospectively for reporting.
 
-Исключение оценённой ветви не превращается в mismatch. Callback MUST быть детерминированным, коротким и без I/O. Между callbacks каноническое значение не должно изменяться; для независимых пользовательских ветвей мутация их copy не влияет на другие ветви.
+An exception from an evaluated branch does not become a mismatch. A callback MUST be deterministic, short, and free of I/O. The canonical value must not change between callbacks; for independent user branches, mutation of one branch's copy does not affect the others.
 
-### 12.6. `wait_for` и `wait_for_event`
+### 12.6. `wait_for` and `wait_for_event`
 
-Ожидание сканирует историю от логической нижней границы, затем новые записи; не потребляет события; возвращает первый MATCH по Journal sequence. NOT_APPLICABLE пропускается с отдельным счётчиком. Одинаковая запись может удовлетворить нескольким независимым waiters.
+An expectation scans history from the logical lower bound, then new records; it does not consume events and returns the first MATCH by Journal sequence. NOT_APPLICABLE is skipped with a separate counter. The same record can satisfy several independent waiters.
 
-Каждому вызову назначаются expectation ID, один deadline и `next_sequence`. Проверенная данным waiter запись повторно не оценивается при обычном пробуждении; диагностика не запускает predicate повторно.
+Each call receives an expectation ID, one deadline, and `next_sequence`. A record already evaluated by that waiter is not reevaluated on an ordinary wakeup; diagnostics does not rerun the predicate.
 
-`wait_for` возвращает payload copy. `wait_for_event` возвращает detached envelope с независимым payload. После terminal failure новые ожидания сразу получают ошибку.
+`wait_for` returns a payload copy. `wait_for_event` returns a detached envelope with an independent payload. After terminal failure, new expectations fail immediately.
 
 ### 12.7. `wait_for_count`
 
-`count=N` означает найти первые N различных Journal records, удовлетворивших matcher, и вернуть их в Journal order. Это «не меньше N к моменту успеха», не доказательство ровно N за всё время. Автоматической дедупликации по бизнес-ID нет.
+`count=N` means finding the first N distinct Journal records satisfying the matcher and returning them in Journal order. It means 'at least N by the success point', not proof of exactly N over all time. There is no automatic deduplication by business ID.
 
-`N` — положительное целое, не bool; превышение result limits отклоняется до ожидания. На весь набор действует один deadline. Реализация через N повторных `wait_for` запрещена: так можно получить одну запись несколько раз.
+`N` is a positive integer, not bool; exceeding result limits is rejected before waiting. One deadline covers the entire set. Implementing this as N repeated `wait_for` calls is forbidden because that could return the same record multiple times.
 
-Незавершённый CountExpectation резервирует ограниченную память найденных результатов. При превышении бюджета — `ExpectationResourceLimitError`, а не скрытое удаление совпадений.
+An unfinished CountExpectation reserves bounded memory for matched results. Exceeding the budget produces `ExpectationResourceLimitError`, not silent removal of matches.
 
 ### 12.8. Exceptions predicates
 
-Predicate должен возвращать настоящий `bool`; coroutine/awaitable или другое значение дают `InvalidMatcherResultError`. Async callback SHOULD отклоняться при binding; обнаруженный возвращённый coroutine закрывается безопасно, чтобы не оставить предупреждение «never awaited».
+A predicate must return an actual `bool`; a coroutine/awaitable or another value produces `InvalidMatcherResultError`. An async callback SHOULD be rejected during binding; a detected returned coroutine is closed safely to avoid a 'never awaited' warning.
 
-Обычное исключение функции оборачивается в `MatcherEvaluationError` с chaining и safe указанием sequence. Ошибка завершает только конкретный waiter, не весь observer. `KeyboardInterrupt`, `SystemExit` и cancellation не преобразуются в mismatch; отмена ожидания сохраняет свою семантику.
+An ordinary function exception is wrapped in `MatcherEvaluationError` with chaining and a safe sequence reference. The error terminates only that waiter, not the entire observer. `KeyboardInterrupt`, `SystemExit`, and cancellation are not converted into mismatches; cancelling an expectation preserves its semantics.
 
 <a id="s13"></a>
 ## 13. Scoped correlation
 
-### 13.1. Scope — представление, не подписка
+### 13.1. A scope is a view, not a subscription
 
-`watcher.scope(filter, *, name=None, start=None)` создаёт неизменяемое определение области. Оно использует общий Journal и не создаёт consumer, transport session или собственную копию истории.
+`watcher.scope(filter, *, name=None, start=None)` creates an immutable range definition. It uses the shared Journal and creates no consumer, transport session, or separate history copy.
 
-Scope filter и expectation matcher — разные уровни: первый определяет принадлежность сценарию, второй — ожидаемое состояние. Одно сообщение может входить в несколько scopes. Отмена или ошибка одного scoped waiter не меняет остальные.
+The scope filter and expectation matcher are separate layers: the former determines scenario membership, while the latter determines the expected state. A message can belong to multiple scopes. Cancellation or failure of one scoped waiter does not affect the others.
 
-### 13.2. Границы
+### 13.2. Boundaries
 
 ```python
-ScopeStart.all_retained()       # default: логическая история родителя
-ScopeStart.from_now()           # следующая admission-позиция
-ScopeStart.from_sequence(100)   # явная нижняя граница Journal
+ScopeStart.all_retained()       # default: parent's logical history
+ScopeStart.from_now()           # next admission position
+ScopeStart.from_sequence(100)   # explicit Journal lower bound
 ```
 
-Название `all_retained` не разрешает игнорировать уже известные gaps: оно включает доступные записи логического диапазона родителя и наследует его completeness. Для намеренного отказа от старой истории нужен `from_now` или явный sequence.
+The name `all_retained` does not permit ignoring known gaps: it includes the available records from the parent's logical range and inherits that range's completeness. Intentionally discarding old history requires `from_now` or an explicit sequence.
 
-`from_now` фиксируется в runtime атомарно с Journal version и следующим sequence. В sync mode граница фиксируется при исполнении команды в runtime, а не в момент её отправки из тестового потока; метод возвращает только после фиксации. События, ещё находящиеся в broker/native buffers, могут поступить позже и входят в новую область.
+`from_now` is captured in the runtime atomically with the Journal version and next sequence. In sync mode, the boundary is captured when the runtime executes the command, not when the test thread sends it; the method returns only after capture. Events still in broker/native buffers may arrive later and are included in the new range.
 
-`from_sequence` принимает неотрицательную позицию не позже текущего next sequence. При ссылке на удалённый участок scope создаётся, но строгие ожидания дают `IncompleteObservationError`. Позиция трактуется только в текущем watcher; foreign observer event/reference отклоняется.
+`from_sequence` accepts a nonnegative position no later than the current next sequence. Referencing a removed range creates the scope, but strict expectations produce `IncompleteObservationError`. The position is interpreted only within the current watcher; a foreign observer event/reference is rejected.
 
-### 13.3. Вложенность
+### 13.3. Nesting
 
-Effective lower bound — максимум границ всех предков. Effective filter — последовательное применение фильтров от родителя к ребёнку, затем matcher expectation.
+The effective lower bound is the maximum of all ancestor boundaries. The effective filter applies filters sequentially from parent to child, followed by the expectation matcher.
 
-Между уровнями используется short-circuit: событие, не прошедшее parent scope, не запускает child predicate. Внутри `all_of` действуют отдельные правила композиции раздела 12.
+Short-circuiting applies between levels: an event rejected by the parent scope does not invoke the child predicate. Separate composition rules from section 12 apply within `all_of`.
 
-Scopes не меняются после создания. Для другой корреляции создаётся новый scope. Лимит числа зарегистрированных scope definitions действует на watcher; безлимитный registry запрещён.
+Scopes do not change after creation. Different correlation requires a new scope. The limit on registered scope definitions applies per watcher; an unbounded registry is forbidden.
 
 ### 13.4. Correlation metadata
 
-Допускается корреляция по Protobuf field, exact source, message key, headers и валидному trace ID. `header_equals(name, expected_bytes)` по умолчанию требует уникального header. Отсутствие — mismatch; неоднозначный дублирующий header — явная ошибка оценки при REQUIRE_UNIQUE. Null header отличается от пустого.
+Correlation may use a Protobuf field, exact source, message key, headers, and a valid trace ID. `header_equals(name, expected_bytes)` requires a unique header by default. Absence is a mismatch; an ambiguous duplicate header is an explicit evaluation error under REQUIRE_UNIQUE. A null header differs from an empty one.
 
-Обёртка с `encoding="utf-8"` разрешает текстовое сравнение, но не молчаливое replacement decoding. Транспортные имена headers не превращаются автоматически в case-insensitive HTTP headers; правила normalization конкретного extractor документируются отдельно.
+A wrapper with `encoding="utf-8"` permits text comparison but not silent replacement decoding. Transport header names do not automatically become case-insensitive HTTP headers; normalization rules for a particular extractor are documented separately.
 
-Mixed types SHOULD использовать `on_type` и descriptor-aware matchers. Correlation predicate получает те же гарантии копирования и ошибок, что и обычный matcher.
+Mixed types SHOULD use `on_type` and descriptor-aware matchers. A correlation predicate receives the same copying and error guarantees as an ordinary matcher.
 
 ### 13.5. Trace correlation
 
-`trace_id_equals(expected)` сравнивает только validated trace ID. Missing/invalid context даёт mismatch и безопасную диагностическую причину, не decode failure.
+`trace_id_equals(expected)` compares only a validated trace ID. Missing/invalid context produces a mismatch and a safe diagnostic reason, not a decode failure.
 
-Trace ID не является доказательством принадлежности единственной бизнес-операции. Библиотека не меняет traceparent, не создаёт context propagation в HTTP/gRPC и не добавляет correlation IDs к бизнес-сообщениям. Выбор business ID/header/trace ID всегда явный.
+A trace ID does not prove membership in a single business operation. The library does not modify traceparent, create HTTP/gRPC context propagation, or add correlation IDs to business messages. The choice of business ID/header/trace ID is always explicit.
 
-### 13.6. Scoped waiters и snapshots
+### 13.6. Scoped waiters and snapshots
 
-В MVP каждый waiter вычисляет scope filters независимо, со своим cursor и deadline. Общего membership cache нет. Пользовательские callbacks не должны зависеть от числа вызовов или mutable внешнего состояния.
+In the MVP, each waiter evaluates scope filters independently, with its own cursor and deadline. There is no shared membership cache. User callbacks must not depend on call counts or mutable external state.
 
-`ScopeSnapshot` содержит definition, lower bound, completeness и bounded результаты expectations. Он не запускает пользовательский predicate повторно ради подсчёта сообщений.
+`ScopeSnapshot` contains the definition, lower bound, completeness, and bounded expectation results. It does not rerun a user predicate to count messages.
 
-Correlation counters относятся к конкретному expectation. Если summary агрегирует несколько waiters, поле явно называется `evaluations`, а не «уникальные события»: одно событие могло быть проверено много раз. Нельзя выдавать сумму повторных оценок за число полученных records.
+Correlation counters belong to a specific expectation. If a summary aggregates multiple waiters, the field is explicitly called `evaluations`, not 'unique events': one event may have been evaluated many times. The sum of repeated evaluations cannot be presented as the number of received records.
 
-Полный Journal остаётся доступным для диагностики в рамках budget/disclosure. Нерелевантные payload не раскрываются автоматически.
+The full Journal remains available for diagnostics within budget/disclosure limits. Irrelevant payloads are not disclosed automatically.
 
 <a id="s14"></a>
-## 14. Время, конкурентность и фиксация результата
+## 14. Time, concurrency, and result commitment
 
-### 14.1. Единый Clock
+### 14.1. Shared Clock
 
-Core использует инъецируемый `Clock.monotonic()`, production-реализация — `time.monotonic()`. Все внутренние deadlines и Journal timestamps одного watcher принадлежат одному clock domain. Wall-clock UTC используется только для отчёта. Планировщику asyncio передаётся вычисленный остаток времени; абсолютный `loop.time()` нельзя сравнивать с произвольным injected Clock без явного преобразования.
+Core uses injectable `Clock.monotonic()`; the production implementation uses `time.monotonic()`. All internal deadlines and Journal timestamps of one watcher belong to one clock domain. Wall-clock UTC is used only for reporting. The asyncio scheduler receives a calculated remaining duration; an absolute `loop.time()` cannot be compared with an arbitrary injected Clock without an explicit conversion.
 
-В sync API deadline фиксируется при входе в публичный блокирующий метод и передаётся runtime как абсолютное значение. Время очереди команд входит в budget; новый полный timeout после dispatch не выдаётся.
+In the sync API, the deadline is captured on entry to the public blocking method and passed to the runtime as an absolute value. Command queue time counts toward the budget; a fresh full timeout is not granted after dispatch.
 
-`timeout` и `duration` — положительные конечные секунды, не bool. Ноль, отрицательные значения, NaN и infinity отклоняются. Бесконечное ожидание в MVP запрещено.
+`timeout` and `duration` are positive finite seconds, not bool. Zero, negative values, NaN, and infinity are rejected. Infinite waits are forbidden in the MVP.
 
-### 14.2. Scanning и notification protocol
+### 14.2. Scanning and notification protocol
 
-Нормативный порядок:
+Normative order:
 
-1. На owner loop проверить lifecycle и relevant completeness; зарегистрировать waiter с lower bound и deadline.
-2. Под Journal synchronization получить ограниченный стабильный batch, version и retention сведения.
-3. Освободить synchronization; выполнить callbacks на защищённых пользовательских копиях.
-4. После batch вернуть управление loop; не допускать бесконечного scan без cooperative yield.
-5. Перед успехом повторно проверить terminal state, полноту диапазона и result budget.
-6. Если совпадения нет, под тем же synchronization проверить version и условия сна; ожидать только когда изменений действительно нет.
+1. On the owner loop, check lifecycle and relevant completeness; register the waiter with its lower bound and deadline.
+2. Under Journal synchronization, obtain a bounded stable batch, version, and retention information.
+3. Release synchronization; execute callbacks on protected user copies.
+4. Yield control to the loop after the batch; do not permit endless scanning without a cooperative yield.
+5. Before success, recheck terminal state, range completeness, and the result budget.
+6. If no match exists, check the version and sleep conditions under the same synchronization; wait only when nothing has actually changed.
 
-Это предотвращает lost wakeup между «проверил пустой журнал» и «начал ждать». Сам факт наличия `Condition` недостаточен без согласованной проверки version.
+This prevents a lost wakeup between 'checked an empty journal' and 'started waiting'. Merely having a `Condition` is insufficient without a coordinated version check.
 
-### 14.3. Граница deadline
+### 14.3. Deadline boundary
 
-Событие допустимо, если его `recorded_monotonic <= deadline`. При наступлении deadline фиксируется финальный upper sequence и выполняется ограниченная финальная обработка уже admitted допустимых записей. Сообщения, только находившиеся в broker/client buffers к deadline, не считаются наблюдавшимися вовремя.
+An event is eligible if its `recorded_monotonic <= deadline`. At the deadline, a final upper sequence is captured and bounded final processing of already admitted eligible records is performed. Messages that were only in broker/client buffers at the deadline do not count as having been observed in time.
 
-Final scan может закончиться после deadline. Поэтому timeout ограничивает окно допуска событий и ожидания новых данных, но не является жёсткой гарантией wall-clock длительности вызова при CPU starvation, тяжёлом matcher, копировании и reporting. Инструментация показывает `elapsed`, `deadline_overrun` и время callback; не обещает невозможного принудительного прерывания Python-кода.
+The final scan may finish after the deadline. A timeout therefore bounds the event admission window and waiting for new data, but is not a hard guarantee of the call's wall-clock duration under CPU starvation, expensive matching, copying, or reporting. Instrumentation shows `elapsed`, `deadline_overrun`, and callback duration; it does not promise impossible forced interruption of Python code.
 
-### 14.4. Linearization point результата
+### 14.4. Result linearization point
 
-Результат expectation становится окончательным при atomic commit в owner runtime после проверок состояния. До этой точки известная terminal failure запрещает успех. При строгом режиме known gap в требуемом диапазоне запрещает успех.
+An expectation result becomes final at atomic commitment in the owner runtime after state checks. Until that point, a known terminal failure prevents success. In strict mode, a known gap in the required range prevents success.
 
-После commit позднее событие или failure не переписывает возвращённое значение. Однако terminal observer failure всё равно MUST быть поднята при normal exit контекста, если нет другого основного исключения.
+After commitment, a late event or failure does not rewrite the returned value. However, a terminal observer failure MUST still be raised on normal context exit if there is no other primary exception.
 
-Гарантия относится к **известному runtime** состоянию. Ошибку, ещё не доставленную клиентом из native/network layer, невозможно поставить «раньше» уже выполненного commit задним числом.
+The guarantee applies to state **known to the runtime**. An error not yet delivered by the client from the native/network layer cannot retrospectively be placed 'before' an already completed commit.
 
-### 14.5. Приоритет исходов
+### 14.5. Outcome precedence
 
-До commit соблюдается порядок: явная отмена текущего вызова → известная terminal observer failure → неподдерживаемая/неполная область → ошибка текущего matcher → совпадение → исчерпание deadline.
+Before commitment, the order is: explicit cancellation of the current call → known terminal observer failure → unsupported/incomplete range → current matcher error → match → deadline exhaustion.
 
-Уже завершившийся matcher error не превращается в success при позднем совпадении. Отмена одного waiter снимает только его регистрации и reservations. Shutdown отдельно отменяет все активные ожидания по lifecycle policy.
+A matcher error that has already completed does not become success when a match arrives later. Cancelling one waiter removes only its registrations and reservations. Shutdown separately cancels all active expectations according to lifecycle policy.
 
-### 14.6. Неограничиваемые callbacks
+### 14.6. Callbacks that cannot be bounded
 
-`asyncio` выполняет callback/task в своём loop thread; blocking-код останавливает этот loop. Для взаимодействия между OS threads предусмотрены thread-safe scheduling API. [S01]
+`asyncio` executes callbacks/tasks in its loop thread; blocking code stops that loop. Thread-safe scheduling APIs support communication between OS threads. [S01]
 
-Core MUST измерять длительность callback и выдавать bounded slow-callback diagnostics. Он MUST NOT автоматически переносить arbitrary predicates в неограниченный thread pool. Изоляция недоверенного CPU-кода отдельным процессом не входит в MVP.
+Core MUST measure callback duration and emit bounded slow-callback diagnostics. It MUST NOT automatically move arbitrary predicates into an unbounded thread pool. Isolating untrusted CPU code in a separate process is outside the MVP.
 
 <a id="s15"></a>
-## 15. Lifecycle, ошибки и cleanup
+## 15. Lifecycle, errors, and cleanup
 
-### 15.1. Состояния
+### 15.1. States
 
-Operational lifecycle: CREATED → STARTING → READY → STOPPING → CLOSED. Ошибка подготовки/работы фиксирует FAILED. После успешной очистки operational failure остаётся в `terminal_error`, даже если ресурсный lifecycle дошёл до CLOSED.
+Operational lifecycle: CREATED → STARTING → READY → STOPPING → CLOSED. A preparation/runtime error records FAILED. After successful cleanup, the operational failure remains in `terminal_error` even if the resource lifecycle reached CLOSED.
 
-Состояние очистки отдельно: NOT_STARTED, RUNNING, COMPLETE, FAILED/ABANDONED. При зависшем ресурсе нельзя объявлять cleanup COMPLETE только потому, что caller перестал его ждать.
+Cleanup state is separate: NOT_STARTED, RUNNING, COMPLETE, FAILED/ABANDONED. A hung resource cannot be declared cleanup COMPLETE merely because the caller stopped waiting for it.
 
-Continuity и Journal completeness — отдельные измерения; они не сворачиваются в один enum «всё хорошо/плохо».
+Continuity and Journal completeness are separate dimensions; they are not collapsed into one 'everything good/bad' enum.
 
-### 15.2. Запуск и фоновые задачи
+### 15.2. Startup and background tasks
 
-Watcher владеет всеми созданными runtime tasks: receive, failure monitor, topology probe, bounded control handlers. Их handles сохраняются, исключения собираются, fire-and-forget без учёта запрещён.
+The watcher owns all runtime tasks it creates: receive, failure monitor, topology probe, and bounded control handlers. Their handles are retained, exceptions are collected, and untracked fire-and-forget is forbidden.
 
-При startup failure порядок rollback обратен порядку создания ресурсов. Startup timeout не оставляет поздно вернувшуюся session бесхозной: generation/lifecycle token блокирует публикацию READY после отмены запуска.
+On startup failure, rollback proceeds in reverse resource creation order. A startup timeout does not orphan a session returned late: a generation/lifecycle token prevents publication of READY after startup cancellation.
 
-### 15.3. Выход из контекста
+### 15.3. Context exit
 
-При выходе MUST: запретить новые ожидания; зафиксировать stopping; разбудить/завершить waiters; остановить reader и settlement; закрыть transport; собрать diagnostics; завершить owned tasks; освободить bridges; в sync mode завершить loop и join controlled threads.
+Exit MUST: reject new expectations; record stopping; wake/finish waiters; stop the reader and settlement; close the transport; collect diagnostics; finish owned tasks; release bridges; and, in sync mode, stop the loop and join controlled threads.
 
-Если пользовательский код уже выбросил исключение, оно остаётся основным. Cleanup failures прикрепляются безопасным diagnostic record и `add_note` без credentials; нельзя заменять AssertionError на ошибку закрытия.
+If user code has already raised an exception, it remains primary. Cleanup failures are attached through a safe diagnostic record and `add_note` without credentials; an AssertionError cannot be replaced with a close error.
 
-Если body завершилось успешно, terminal transport/decoder/Journal failure MUST быть поднята при exit. Это предотвращает «тест прошёл, хотя reader умер». Если одновременно возникла cleanup failure, сохраняется основная terminal cause и дополнительная cleanup diagnostics.
+If the body completed successfully, a terminal transport/decoder/Journal failure MUST be raised at exit. This prevents 'the test passed although the reader died'. If a cleanup failure occurs simultaneously, the primary terminal cause is preserved along with additional cleanup diagnostics.
 
-Если нет основной ошибки, но cleanup не выполнен, exit выбрасывает cleanup error и тест не считается успешным.
+If there is no primary error but cleanup did not finish, exit raises a cleanup error and the test is not considered successful.
 
-В тесте, намеренно ожидающем terminal observer failure, `pytest.raises` SHOULD охватывать весь context manager, а не подавлять ошибку только внутри `wait_for` и затем ожидать чистого exit.
+In a test intentionally expecting terminal observer failure, `pytest.raises` SHOULD surround the entire context manager rather than suppress the error only inside `wait_for` and then expect a clean exit.
 
 ### 15.4. Defaults lifecycle
 
-| Настройка | Default |
+| Setting | Default |
 |---|---:|
 | `startup_timeout` | 15 s |
 | `shutdown_timeout` | 5 s |
-| `sync_control_timeout` | 5 s для snapshot/scope/control без явного timeout |
-| `cancellation_grace` | 1 s, в пределах общего shutdown budget при shutdown |
+| `sync_control_timeout` | 5 s for snapshot/scope/control without an explicit timeout |
+| `cancellation_grace` | 1 s, within the overall shutdown budget during shutdown |
 
-`shutdown_timeout` — бюджет добросовестной очистки и ожидания, а не разрешение небезопасно убить thread. Native вызовы должны использовать собственные конечные таймауты и обслуживать stop requests.
+`shutdown_timeout` is a budget for best-effort cleanup and waiting, not permission to kill a thread unsafely. Native calls must use their own finite timeouts and service stop requests.
 
-### 15.5. Cancellation и KeyboardInterrupt
+### 15.5. Cancellation and KeyboardInterrupt
 
-Cleanup выполняется в отдельной tracked operation, защищённой от исходной отмены на ограниченный срок. Исходный `CancelledError` / `KeyboardInterrupt` после cleanup повторно распространяется. Простого `shield` без tracking и join недостаточно: после него не должна бесконтрольно жить забытая task.
+Cleanup runs as a separate tracked operation, protected from the original cancellation for a bounded interval. The original `CancelledError` / `KeyboardInterrupt` propagates again after cleanup. A simple `shield` without tracking and joining is insufficient: it must not leave a forgotten task running without control.
 
-Если callback/native call не возвращает управление, runtime может не успеть завершиться. Библиотека фиксирует failure/abandoned resources, не ложно сообщает CLOSED и не заявляет, что поток принудительно остановлен. Для таких fault tests используется subprocess с внешним hard timeout.
+If a callback/native call does not yield control, the runtime may not finish in time. The library records failure/abandoned resources, does not falsely report CLOSED, and does not claim that the thread was forcibly stopped. Such fault tests use a subprocess with an external hard timeout.
 
-GC/finalizer может выдать `ResourceWarning`, но не является основным механизмом сетевого cleanup. При SIGKILL, аварийном завершении worker и падении интерпретатора Python cleanup не гарантируется.
+GC/finalizers may issue `ResourceWarning`, but are not the primary mechanism for network cleanup. Python cleanup is not guaranteed under SIGKILL, worker crashes, or interpreter crashes.
 
 <a id="s16"></a>
-## 16. Дополнение ADR-013: синхронный API
+## 16. ADR-013 supplement: synchronous API
 
-### 16.1. Решение и область
+### 16.1. Decision and scope
 
-**SYNC-01.** Поддержка обычных синхронных тестов входит в 0.1.0 наравне с async API.
+**SYNC-01.** Support for ordinary synchronous tests is included in 0.1.0 alongside the async API.
 
-**SYNC-02.** Сохраняется `EventObserver` для async. Добавляются `SyncEventObserver`, `SyncEventWatcher[T]`, `SyncEventScope[T]`. Не используются auto-detect методы, которые в одном окружении возвращают `T`, а в другом coroutine.
+**SYNC-02.** `EventObserver` remains the async API. `SyncEventObserver`, `SyncEventWatcher[T]`, and `SyncEventScope[T]` are added. There are no auto-detect methods that return `T` in one environment and a coroutine in another.
 
-**SYNC-03.** Брокерные адаптеры и Expectations реализуются один раз. Sync facade не реализует второй Kafka consumer algorithm и не дублирует matchers, scopes, codecs, completeness или temporal logic.
+**SYNC-03.** Broker adapters and Expectations are implemented once. The sync facade does not implement a second Kafka consumer algorithm or duplicate matchers, scopes, codecs, completeness, or temporal logic.
 
-### 16.2. Почему недостаточно `asyncio.run` в каждом методе
+### 16.2. Why `asyncio.run` in every method is insufficient
 
-`asyncio.run` создаёт/управляет event loop и закрывает его по завершении; его нельзя вызвать, когда в том же потоке уже работает другой loop. [S02]
+`asyncio.run` creates/manages an event loop and closes it when finished; it cannot be called when another loop is already running in the same thread. [S02]
 
-Обёртка «`asyncio.run` вокруг open, потом вокруг wait_for» оставила бы промежуток без непрерывно работающего runtime и создала бы проблемы владения loop-bound объектами. Такой подход, а также `nest_asyncio` и скрытое monkey-patching loop, запрещён.
+A wrapper that runs `asyncio.run` around open and then around wait_for would leave an interval without a continuously running runtime and create ownership problems for loop-bound objects. This approach, `nest_asyncio`, and hidden loop monkey-patching are prohibited.
 
-### 16.3. Runtime модель
+### 16.3. Runtime model
 
-На входе в sync `with` создаётся выделенный background thread с собственным asyncio event loop. Loop работает **всё время контекста**, включая выполнение обычного HTTP/gRPC-вызова в pytest thread.
+Entering a synchronous `with` creates a dedicated background thread with its own asyncio event loop. The loop runs **throughout the context**, including while an ordinary HTTP/gRPC call executes in the pytest thread.
 
 ```text
 pytest/test thread                         watcher runtime thread
@@ -1108,60 +1108,60 @@ exit with               -- close --------> cancel tasks + close session
                          <-- closed ------- stop loop, join resources
 ```
 
-Kafka session дополнительно имеет собственный polling worker согласно разделу 10. Native клиент может иметь внутренние threads; число потоков не скрывается в performance diagnostics.
+A Kafka session additionally has its own polling worker as specified in section 10. The native client may have internal threads; the thread count is not hidden in performance diagnostics.
 
-Default — один runtime thread на активный sync watcher, а не глобальный loop на весь pytest run. Shared runtime/pooling откладываются: они усложняют isolation и cleanup.
+The default is one runtime thread per active sync watcher, rather than a global loop for the entire pytest run. Shared runtimes/pooling are deferred because they complicate isolation and cleanup.
 
 ### 16.4. Portal contract
 
-Sync facade передаёт команды посредством thread-safe scheduling, например `asyncio.run_coroutine_threadsafe`, и ожидает `concurrent.futures.Future` из другого потока. Эти API предназначены для такой межпоточной передачи; прямое обращение к asyncio objects из pytest thread запрещено. [S01, S03]
+The sync facade submits commands through thread-safe scheduling, such as `asyncio.run_coroutine_threadsafe`, and waits for a `concurrent.futures.Future` from another thread. These APIs are intended for such cross-thread communication; direct access to asyncio objects from the pytest thread is prohibited. [S01, S03]
 
-Команда содержит operation ID, immutable arguments, copied execution context, абсолютный deadline и lifecycle generation. Portal имеет bounded очередь/количество in-flight commands; для owner-thread MVP одновременно допускается один внешний blocking call на конкретном handle.
+A command contains an operation ID, immutable arguments, a copied execution context, an absolute deadline, and a lifecycle generation. The portal has a bounded queue/number of in-flight commands; the owner-thread MVP permits one external blocking call on a particular handle at a time.
 
-Возвращаемый объект полностью detached от Journal. Mutating результат в pytest thread не влияет на runtime и другие ожидания. Успешная команда не оставляет coroutine/task, ожидающую забытого future.
+The returned object is fully detached from the Journal. Mutating the result in the pytest thread does not affect the runtime or other expectations. A successful command leaves no coroutine/task waiting for a forgotten future.
 
-### 16.5. Thread affinity и API misuse
+### 16.5. Thread affinity and API misuse
 
-| Сценарий | Поведение MVP |
+| Scenario | MVP behavior |
 |---|---|
-| Обычный `def test_*` в одном тестовом потоке | Поддерживается |
-| Несколько sync watchers в одном тесте | Поддерживаются; у каждого отдельный runtime |
-| Sync и async тесты в одном pytest run | Поддерживаются; независимые sessions |
-| `SyncEventObserver` внутри потока с активным asyncio loop | `SyncAPIInAsyncContextError`; использовать `EventObserver` |
-| Вызов sync handle из его runtime thread | `ReentrantSyncCallError`, без deadlock |
-| Один sync watcher одновременно из нескольких пользовательских threads | Не поддерживается в 0.1; `ThreadAffinityError` |
-| Передача активного watcher другому process / после fork | Не поддерживается; PID/owner guard |
-| Передача async watcher в другой event loop | `EventLoopMismatchError` |
+| Ordinary `def test_*` in one test thread | Supported |
+| Multiple sync watchers in one test | Supported; each has a separate runtime |
+| Sync and async tests in one pytest run | Supported; independent sessions |
+| `SyncEventObserver` inside a thread with an active asyncio loop | `SyncAPIInAsyncContextError`; use `EventObserver` |
+| Calling a sync handle from its runtime thread | `ReentrantSyncCallError`, without deadlock |
+| Concurrent use of one sync watcher from multiple user threads | Unsupported in 0.1; `ThreadAffinityError` |
+| Passing an active watcher to another process / after fork | Unsupported; PID/owner guard |
+| Passing an async watcher to another event loop | `EventLoopMismatchError` |
 
-Ограничение owner thread касается публичного sync handle, не независимых внутренних runtime tasks. Для параллельных waiters пользователь использует async API; последовательные sync expectations по-прежнему видят общую накопленную историю.
+The owner-thread restriction applies to the public sync handle, not to independent internal runtime tasks. Users use the async API for parallel waiters; sequential sync expectations still see the same accumulated history.
 
-### 16.6. Где выполняется пользовательский код
+### 16.6. Where user code executes
 
-Decoders, resolvers, scope predicates, custom matchers и payload-copy helpers выполняются в runtime loop thread. Это MUST быть явно документировано.
+Decoders, resolvers, scope predicates, custom matchers, and payload-copy helpers execute in the runtime loop thread. This MUST be explicitly documented.
 
-Они MUST NOT предполагать pytest main thread, thread-local ORM session, синхронный UI loop, Allure context или thread-affine клиент. Они не должны вызывать blocking API того же watcher. Передаваемые closures должны быть чистыми; внешнее mutable состояние нельзя менять во время ожидания.
+They MUST NOT assume a pytest main thread, a thread-local ORM session, a synchronous UI loop, an Allure context, or a thread-affine client. They must not call the blocking API of the same watcher. Supplied closures must be pure; external mutable state must not be changed during an expectation.
 
-Для каждого публичного вызова MAY использоваться снимок `contextvars.copy_context`, чтобы разрешить чтение явно переданных context values. Обратная передача изменений contextvars в caller не выполняется. Thread-local variables не переносятся. Неявное применение OpenTelemetry context к background consumer запрещено.
+A snapshot of `contextvars.copy_context` MAY be used for each public call to allow reading explicitly supplied context values. Changes to contextvars are not propagated back to the caller. Thread-local variables are not transferred. Implicitly applying an OpenTelemetry context to the background consumer is prohibited.
 
-Startup/decoder context фиксируется при входе в `with`; matcher context — при конкретном ожидании. Извлечённый из сообщения trace context остаётся данными, а не текущим span контекстом runtime.
+The startup/decoder context is captured on entry to `with`; the matcher context is captured for each particular expectation. Trace context extracted from a message remains data, rather than becoming the runtime's current span context.
 
-### 16.7. Timeouts и отмена bridge
+### 16.7. Timeouts and bridge cancellation
 
-`timeout` начинается до dispatch. Если сообщение уже было admitted в допустимом интервале, позднее планирование runtime не меняет его timestamp.
+`timeout` starts before dispatch. If a message was already admitted within the allowed interval, later runtime scheduling does not change its timestamp.
 
-Portal MUST отличать domain `EventTimeoutError` от технического `SyncRuntimeUnresponsiveError`. Внешний timeout Future не разрешает немедленно забыть underlying coroutine: нужно послать cancel, получить подтверждение завершения в grace budget и снять reservations.
+The portal MUST distinguish a domain `EventTimeoutError` from a technical `SyncRuntimeUnresponsiveError`. An external Future timeout does not permit immediately forgetting the underlying coroutine: cancellation must be sent, completion acknowledged within the grace budget, and reservations released.
 
-`KeyboardInterrupt` возникает в caller; facade инициирует controlled cancellation и bounded cleanup, затем сохраняет исходное исключение. При неотзывчивом runtime фиксируются незавершённые ресурсы. Принудительное прекращение произвольного Python/native thread не входит в контракт.
+`KeyboardInterrupt` occurs in the caller; the facade initiates controlled cancellation and bounded cleanup, then preserves the original exception. Unfinished resources are recorded if the runtime is unresponsive. Forcibly terminating an arbitrary Python/native thread is outside the contract.
 
-### 16.8. Allure в sync mode
+### 16.8. Allure in sync mode
 
-Background threads формируют только structured diagnostic records. Создание Allure steps и attachments выполняется в исходном pytest/reporting thread на безопасных точках фасада, а не из Kafka polling callback или runtime reader.
+Background threads produce only structured diagnostic records. Allure steps and attachments are created in the original pytest/reporting thread at safe facade boundaries, rather than in a Kafka polling callback or runtime reader.
 
-Сведения о событии могут быть собраны в фоне, но renderer получает уже отредактированный bounded export. Ошибка reporter не превращает совпадение в неуспех.
+Event information may be collected in the background, but the renderer receives an already redacted bounded export. A reporter error does not turn a match into a failure.
 
 ### 16.9. Fixtures
 
-Обычная fixture, возвращающая `SyncEventObserver`, не требует teardown: factory ничего не открывает. Активный sync watcher может предоставляться yield fixture:
+An ordinary fixture returning `SyncEventObserver` requires no teardown: the factory opens nothing. A yield fixture may provide an active sync watcher:
 
 ```python
 @pytest.fixture
@@ -1173,43 +1173,43 @@ def operation_watcher(events):
         yield watcher
 ```
 
-Session-scoped active watcher допустим только как сознательно общая история; он не является рекомендуемым default. После закрытия runtime нет новых blocking calls кроме чтения cached detached diagnostics.
+A session-scoped active watcher is allowed only as deliberately shared history; it is not the recommended default. After the runtime closes, no new blocking calls are allowed except reading cached detached diagnostics.
 
-### 16.10. Обязательная sync/async parity
+### 16.10. Required sync/async parity
 
-Для одинаковой детерминированной последовательности admitted events оба режима MUST вернуть те же sequence IDs, match outcomes, domain error classes и completeness result. Время выполнения и число threads не обязаны совпадать.
+Given the same deterministic sequence of admitted events, both modes MUST return the same sequence IDs, match outcomes, domain error classes, and completeness result. Execution time and thread count need not be identical.
 
-Отдельно проверяются сбор во время блокирующего service call; readiness до body; уже поступившие события; timeout без dangling task; Ctrl-C в subprocess; exceptions chaining; cleanup после failed enter; повторное close; многократное создание/уничтожение watcher без накопления threads; Allure только в caller context.
+Separate checks cover collection during a blocking service call; readiness before the body; already-arrived events; timeout without a dangling task; Ctrl-C in a subprocess; exception chaining; cleanup after failed enter; repeated close; repeated watcher creation/destruction without accumulating threads; and Allure only in the caller context.
 
 <a id="s17"></a>
-## 17. Diagnostics, Allure, secrets и trace context
+## 17. Diagnostics, Allure, secrets, and trace context
 
-### 17.1. Контракт
+### 17.1. Contract
 
-Core предоставляет `DiagnosticRecord`, `DiagnosticSnapshot`, `ExpectationDiagnostics` и `ScopeDiagnostics`. Структуры immutable, versioned и JSON-сериализуемы после политики экспорта. Они не содержат native client, task, live exception или mutable protobuf object.
+Core provides `DiagnosticRecord`, `DiagnosticSnapshot`, `ExpectationDiagnostics`, and `ScopeDiagnostics`. The structures are immutable, versioned, and JSON-serializable after applying the export policy. They contain no native client, task, live exception, or mutable protobuf object.
 
-`DiagnosticRecord` содержит schema_version, kind, observer/scope/expectation IDs, UTC/monotonic timestamps и typed attributes. Diagnostic sequence не равен event sequence; ссылка на событие явная.
+`DiagnosticRecord` contains schema_version, kind, observer/scope/expectation IDs, UTC/monotonic timestamps, and typed attributes. A diagnostic sequence is not an event sequence; event references are explicit.
 
-Reporter получает **санитизированный export**, а не полный внутренний Journal. Reporters задаются при создании observer; hot-plug после READY не входит в MVP.
+A reporter receives a **sanitized export**, rather than the complete internal Journal. Reporters are specified when creating the observer; hot-plugging after READY is outside the MVP.
 
 ```python
 class DiagnosticReporter(Protocol):
     def emit(self, report: "DiagnosticExport") -> None: ...
 ```
 
-Это synchronous bounded callback на reporting boundary, не на пути receive. Долгие/сетевые reporters не включаются в MVP. Явный `export()` MAY возвращать ошибку caller; автоматический best-effort reporting не меняет результат expectation.
+This is a synchronous bounded callback at a reporting boundary, not on the receive path. Long-running/network reporters are outside the MVP. An explicit `export()` MAY return an error to the caller; automatic best-effort reporting does not change the expectation result.
 
-### 17.2. Что показывается при timeout
+### 17.2. What a timeout report shows
 
-Отчёт MUST различать: сообщений нет; сообщения есть, но исключены scope; correlation прошла, expectation не совпал; тип неприменим; нужный count не достигнут; нужный диапазон неполон; произошла runtime/transport error.
+The report MUST distinguish: no messages; messages present but excluded by the scope; correlation passed but the expectation did not match; an inapplicable type; the required count not reached; an incomplete required range; and a runtime/transport error.
 
-Сохраняются requested/resolved start boundary, scope lower bound, deadline и elapsed, evaluated/matched/filtered counters, bounded mismatch samples, terminal/cleanup outcomes и truncated flags. Для произвольного lambda нет обещания автоматически объяснить Python-выражение; используется safe description и факт false.
+The requested/resolved start boundary, scope lower bound, deadline and elapsed time, evaluated/matched/filtered counters, bounded mismatch samples, terminal/cleanup outcomes, and truncated flags are retained. There is no promise to automatically explain an arbitrary lambda's Python expression; a safe description and the fact that it returned false are used.
 
-Matcher не вызывается повторно ради отчёта. Sequence/trace/key/payload previews не подменяют сохранённый outcome.
+The matcher is not invoked again to produce a report. Sequence/trace/key/payload previews do not replace the stored outcome.
 
 ### 17.3. Allure steps
 
-Подключение явно:
+Integration is explicit:
 
 ```python
 from event_observer.integrations.allure import AllureReporter
@@ -1220,278 +1220,278 @@ events = SyncEventObserver(
 )
 ```
 
-Allure предоставляет step contexts и attachments через публичный API. [S09] Интеграция MUST NOT предполагать автоматически task-local step stack при нескольких concurrent asyncio waiters.
+Allure provides step contexts and attachments through its public API. [S09] The integration MUST NOT assume an automatically task-local step stack for multiple concurrent asyncio waiters.
 
-Безопасный default MVP — **завершённые summary steps**: после окончания операции renderer создаёт короткий step и прикрепляет фактическую duration/timeline из diagnostics. Он не держит открытый Allure context между `await` нескольких tasks. Для sync допускается live step в caller thread, но выдаваемая структура отчёта и error semantics должны совпадать.
+The safe MVP default is **completed summary steps**: after an operation finishes, the renderer creates a short step and attaches the actual duration/timeline from diagnostics. It does not keep an Allure context open between `await` calls of multiple tasks. A live step in the caller thread is allowed for sync, but the resulting report structure and error semantics must match.
 
-Долгоживущий step всего watcher, открытый в background task, запрещён. Отдельного step на каждое входящее сообщение нет. При parallel async expectations точная длительность берётся из attachment, а не из длительности короткого summary step.
+A long-lived step for the entire watcher, opened in a background task, is prohibited. There is no separate step for each incoming message. For parallel async expectations, the exact duration comes from an attachment, rather than the duration of the short summary step.
 
-Reporter MUST проверить активный test/report context; без него не записывать данные в следующий тест. В штатном context exit diagnostics flush выполняется до завершения fixture/test. Caller отвечает за свои внешние tasks; библиотека управляет только своими.
+The reporter MUST check for an active test/report context; without one, it must not write data to the next test. During normal context exit, diagnostics are flushed before the fixture/test finishes. The caller is responsible for its own external tasks; the library manages only its own.
 
-### 17.4. Attachments и limits
+### 17.4. Attachments and limits
 
-Default mode — `ERRORS_ONLY`. `SUMMARY` добавляет краткие результаты успехов; `VERBOSE` не отменяет budgets.
+The default mode is `ERRORS_ONLY`. `SUMMARY` adds concise successful results; `VERBOSE` does not remove budgets.
 
-| Артефакт | Условие |
+| Artifact | Condition |
 |---|---|
-| `observer-summary.json` | Ошибка watcher/контекста |
+| `observer-summary.json` | Watcher/context error |
 | `expectation-result.json` | Timeout, matcher error, failed expectation |
-| `mismatches.json` | Есть структурированные несовпадения |
-| `event-timeline.json` | Bounded существенные события lifecycle/expectation |
+| `mismatches.json` | Structured mismatches are present |
+| `event-timeline.json` | Bounded significant lifecycle/expectation events |
 | `transport-state.json` | Transport failure |
-| `protobuf-message.json` | Только разрешённый disclosure и redactor |
-| `raw-payload.bin` | Отдельный явный opt-in, ограничение размера |
+| `protobuf-message.json` | Only permitted disclosure and redactor |
+| `raw-payload.bin` | Separate explicit opt-in, size limit |
 
 | Diagnostic limit | Default |
 |---|---:|
 | Lifecycle/diagnostic records | 1 000 |
 | Completed expectation summaries | 256 |
-| Mismatch samples на expectation | 20, первые и последние |
-| Mismatches на один sample | 10 |
+| Mismatch samples per expectation | 20, first and last |
+| Mismatches per sample | 10 |
 | Attachment | 256 KiB |
-| Суммарный export budget watcher | 2 MiB |
-| Задаваемый пользователем общий test/report budget | Дополнительный явный объект, если несколько watchers |
+| Total export budget per watcher | 2 MiB |
+| User-specified total test/report budget | Additional explicit object for multiple watchers |
 
-Budget включает не только payload, но и encoded JSON overhead. При усечении JSON остаётся валидным; сохраняются counts/omitted/truncated. High-frequency receive events агрегируются, ошибки/lifecycle имеют резервированные квоты. Arbitrary неограниченные exception chains не сериализуются.
+The budget includes encoded JSON overhead as well as payload. Truncated JSON remains valid; counts/omitted/truncated are preserved. High-frequency receive events are aggregated, and errors/lifecycle have reserved quotas. Arbitrary unbounded exception chains are not serialized.
 
 ### 17.5. Redaction
 
-Default `METADATA_ONLY`: разрешённый allowlist технических полей; payload, key, произвольные headers, credentials, строки exception, matcher expected/actual values и пользовательские descriptions не раскрываются автоматически.
+Default `METADATA_ONLY`: a permitted allowlist of technical fields; payload, key, arbitrary headers, credentials, exception strings, matcher expected/actual values, and user descriptions are not disclosed automatically.
 
-`REDACTED_PAYLOAD` требует заданный redactor. `FULL_PAYLOAD` — явное разрешение вывода сообщений, но **не** разрешение выводить transport credentials/config.
+`REDACTED_PAYLOAD` requires a specified redactor. `FULL_PAYLOAD` explicitly permits message disclosure, but does **not** permit transport credential/config disclosure.
 
-Redactor вызывается на независимой копии вне locks. Он MUST возвращать ограниченную JSON-compatible структуру. При его ошибке — fail-closed для **экспорта содержимого**: payload опускается, сохраняется безопасный redaction error code; нельзя fallback к raw.
+The redactor runs on an independent copy outside locks. It MUST return a bounded JSON-compatible structure. A redactor error fails closed for **content export**: the payload is omitted and a safe redaction error code is retained; falling back to raw content is prohibited.
 
-Topic names, source labels, file paths, correlation IDs и даже schema names могут быть чувствительными. Политика предоставляет allowlist/aliasing для них. Хеширование ID не объявляется анонимизацией и не используется по умолчанию как «безопасная» замена.
+Topic names, source labels, file paths, correlation IDs, and even schema names can be sensitive. The policy provides allowlisting/aliasing for them. Hashing IDs is not declared to be anonymization and is not used by default as a "safe" substitute.
 
-Оригинальная cause сохраняется в Python exception chaining. Библиотека не гарантирует, что pytest traceback, пользовательский logger или сторонний plugin не покажет содержащийся там секрет. Санитизированность собственных attachments не равна санитизированности всего процесса.
+The original cause is retained in Python exception chaining. The library does not guarantee that a pytest traceback, user logger, or third-party plugin will not reveal a secret contained there. Sanitizing its own attachments does not sanitize the entire process.
 
 ### 17.6. Trace context
 
-Core извлекает W3C `traceparent` / `tracestate` через отдельный extractor без обязательного OpenTelemetry SDK. Format/version/length/zero IDs валидируются по W3C. [S10]
+Core extracts W3C `traceparent` / `tracestate` through a separate extractor without requiring the OpenTelemetry SDK. Format/version/length/zero IDs are validated according to W3C. [S10]
 
-`TraceContextInfo` содержит status (MISSING/VALID/INVALID/AMBIGUOUS), normalized trace ID/span ID/flags и по политике tracestate. Несколько неоднозначных traceparent не выбираются молча. Невалидный context не ломает Protobuf decode и не устанавливается в current context.
+`TraceContextInfo` contains a status (MISSING/VALID/INVALID/AMBIGUOUS), normalized trace ID/span ID/flags, and tracestate according to policy. Multiple ambiguous traceparent values are not chosen silently. Invalid context does not break Protobuf decoding and is not installed in the current context.
 
-Status основного trace context относится к `traceparent`; невалидный `tracestate` отбрасывается отдельно и не уничтожает корректно извлечённый trace ID. Validation поддерживает versioning по W3C, а не объявляет любое отличие от жёстко заданной длины version 00 ошибкой.
+The primary trace context status refers to `traceparent`; invalid `tracestate` is discarded separately and does not invalidate a correctly extracted trace ID. Validation supports W3C versioning rather than declaring every deviation from the hard-coded version 00 length an error.
 
-Baggage не экспортируется и не переносится автоматически. Trace IDs/tracestate включаются в отчёт только через opt-in. Библиотека не создаёт spans, не экспортирует telemetry и не обещает, что trace ID является единственным корректным business correlation key.
+Baggage is neither exported nor propagated automatically. Trace IDs/tracestate are included in reports only through opt-in. The library does not create spans, export telemetry, or promise that a trace ID is the only correct business correlation key.
 
 <a id="s18"></a>
-## 18. Temporal Assertions: контракт следующего этапа
+## 18. Temporal Assertions: next-stage contract
 
-Этот раздел нормативен для реализации temporal feature set после 0.1. В первом выпуске не публикуются методы-заглушки с `NotImplementedError` как будто это поддерживаемая функция.
+This section is normative for implementation of the temporal feature set after 0.1. The first release does not publish stub methods raising `NotImplementedError` as though they were a supported feature.
 
-### 18.1. Общий контракт
+### 18.1. General contract
 
-Все temporal операции доступны на watcher и scope; после появления функции — в sync и async facade. Используются Journal order, `recorded_monotonic`, один общий deadline, независимость waiters и полный проверяемый диапазон.
+All temporal operations are available on watcher and scope; once introduced, they are available in both sync and async facades. They use Journal order, `recorded_monotonic`, one shared deadline, independent waiters, and a complete checked range.
 
-| Операция | Результат |
+| Operation | Result |
 |---|---|
-| `wait_for_sequence(matchers, *, timeout, order=OBSERVED, contiguous=False, require_complete=True)` | Список разных payload records в найденном порядке |
+| `wait_for_sequence(matchers, *, timeout, order=OBSERVED, contiguous=False, require_complete=True)` | A list of distinct payload records in the discovered order |
 | `wait_for_any(alternatives, *, timeout, require_complete=True)` | `AnyMatch(name, event, event_sequence)` |
-| `assert_no_message(matcher, *, duration, start=NOW)` | `None` после полного окна либо ошибка |
-| `wait_for_event(matcher, *, timeout, after=event, within=seconds, ...)` | Событие после anchor в заданном интервале |
+| `assert_no_message(matcher, *, duration, start=NOW)` | `None` after the complete window, or an error |
+| `wait_for_event(matcher, *, timeout, after=event, within=seconds, ...)` | An event after the anchor within the specified interval |
 
-### 18.2. Порядок
+### 18.2. Order
 
-`OBSERVED` — sequence Journal. `TRANSPORT` разрешён только для сопоставимых ordering-domain positions. Kafka records разных partitions не становятся причинно упорядоченными из-за timestamp или очередности доставки.
+`OBSERVED` means Journal sequence. `TRANSPORT` is allowed only for comparable ordering-domain positions. Kafka records from different partitions do not acquire a causal order through timestamps or delivery order.
 
-Transport ordering требует capability/optional comparator с документированной областью. Если выбранная последовательность требует сравнить несопоставимые события, возникает `IncomparableEventOrderError`. Нельзя silently fallback к OBSERVED.
+Transport ordering requires a capability/optional comparator with a documented scope. If the selected sequence requires comparing incomparable events, `IncomparableEventOrderError` is raised. Silently falling back to OBSERVED is prohibited.
 
-### 18.3. Последовательности
+### 18.3. Sequences
 
-`contiguous=False` ищет существующую упорядоченную подпоследовательность. `contiguous=True` требует соседства среди событий, **прошедших scope**, а не всего broker stream. События вне scope не разрывают кандидата.
+`contiguous=False` searches for an existing ordered subsequence. `contiguous=True` requires adjacency among events that **passed the scope**, rather than the entire broker stream. Events outside the scope do not break a candidate.
 
-Одна запись не занимает две позиции одного результата. Поиск поддерживает перекрывающиеся начала и повторный старт. Для простой подпоследовательности без дополнительных временных условий допустим корректный greedy алгоритм; для contiguous/ограниченных вариантов нужен алгоритм, не теряющий валидные кандидаты. Утверждение «greedy всегда некорректен» не принимается.
+One record cannot occupy two positions in one result. The search supports overlapping starts and restarting. A correct greedy algorithm is acceptable for a simple subsequence without additional temporal constraints; contiguous/constrained variants require an algorithm that does not lose valid candidates. The claim that "greedy is always incorrect" is not accepted.
 
-Успех existential: найдена хотя бы одна последовательность. Это не утверждение, что весь бизнес-процесс соблюдал state machine. Best prefix — диагностический результат, не partial success.
+Success is existential: at least one sequence was found. It does not assert that the entire business process followed a state machine. The best prefix is a diagnostic result, not partial success.
 
-Состояние поиска ограничено `max_sequence_candidates` и result budget; при невозможности продолжить полный поиск — `ExpectationResourceLimitError`, а не скрытое отбрасывание кандидатов.
+Search state is bounded by `max_sequence_candidates` and the result budget; if a complete search cannot continue, the result is `ExpectationResourceLimitError`, rather than silently discarding candidates.
 
-### 18.4. Альтернативы
+### 18.4. Alternatives
 
-`wait_for_any` сканирует события по sequence. Для одного события проверяет альтернативы в insertion order, первая MATCH побеждает. Более раннее событие имеет приоритет над порядком альтернатив. После выбранного MATCH последующие ветви не обязаны оцениваться.
+`wait_for_any` scans events by sequence. For one event, it checks alternatives in insertion order, and the first MATCH wins. An earlier event takes priority over alternative order. After the selected MATCH, subsequent branches need not be evaluated.
 
-Ошибка реально оценённого matcher не считается проигрышем альтернативы. Операция не реализуется гонкой нескольких независимых waiters с недетерминированным выбором уже сохранённой истории.
+An error in a matcher that was actually evaluated is not treated as a losing alternative. The operation is not implemented as a race between multiple independent waiters with a nondeterministic choice over already-retained history.
 
-### 18.5. Отрицательные проверки
+### 18.5. Negative assertions
 
-`NOW` атомарно фиксирует next Journal sequence при запуске. `SCOPE_START` проверяет историю от logical scope lower bound **и** продолжает наблюдать `duration` после вызова. Продолжительность не трактуется как «до scope_start + duration».
+`NOW` atomically captures the next Journal sequence at startup. `SCOPE_START` checks history from the logical scope lower bound **and** continues observing for `duration` after the call. Duration is not interpreted as "until scope_start + duration".
 
-Совпавшее forbidden event в допустимом диапазоне даёт немедленный `UnexpectedEventError`. Успех возможен только после завершения полного окна и финального scan. Observer close, known gap, runtime failure и Journal loss не дают успеха.
+A matching forbidden event within the eligible range causes an immediate `UnexpectedEventError`. Success is possible only after the complete window and a final scan. Observer close, a known gap, runtime failure, and Journal loss do not yield success.
 
-`require_complete=False` для negative assertion запрещён. Нельзя доказать отсутствие сообщения, которое могло быть потеряно.
+`require_complete=False` is prohibited for a negative assertion. The absence of a message that may have been lost cannot be proven.
 
 ### 18.6. after/within
 
-Anchor обязан принадлежать тому же watcher. Событие результата имеет `sequence > anchor.sequence` и `0 <= recorded_time - anchor.recorded_time <= within`. Это время наблюдения, не SLA обработки сервиса.
+The anchor must belong to the same watcher. The result event has `sequence > anchor.sequence` and `0 <= recorded_time - anchor.recorded_time <= within`. This is observation time, not a service processing SLA.
 
-Если временное окно уже закончилось, проверяется сохранённая допустимая история без нового ожидания. Deadline вызова и temporal boundary независимы: раньше исчерпанный call budget даёт `EventTimeoutError`; закрытое temporal окно без совпадения — `TemporalConstraintError`. При совпадении границ используется явный temporal reason в diagnostics.
+If the time window has already ended, retained eligible history is checked without waiting again. The call deadline and temporal boundary are independent: an earlier exhausted call budget produces `EventTimeoutError`; a closed temporal window without a match produces `TemporalConstraintError`. When the boundaries coincide, diagnostics use an explicit temporal reason.
 
-### 18.7. Диагностика и приёмка temporal feature set
+### 18.7. Diagnostics and acceptance of the temporal feature set
 
-MUST проверить: накопленную до вызова последовательность; повторяющиеся начала; overlapping matchers; разные записи на разных шагах; scoped contiguous; детерминированную альтернативу; одинаковое событие для нескольких альтернатив; forbidden event до/на/после boundary; исключение исторических records в NOW; включение истории в SCOPE_START; gap в отрицательном окне; anchor другого watcher; incomparable order; cancellation; одинаковый sync/async результат.
+The following MUST be checked: a sequence accumulated before the call; repeated starts; overlapping matchers; distinct records at different steps; scoped contiguous matching; deterministic alternatives; the same event matching multiple alternatives; a forbidden event before/on/after the boundary; exclusion of historical records in NOW; inclusion of history in SCOPE_START; a gap within a negative window; an anchor from another watcher; incomparable order; cancellation; and identical sync/async results.
 
-На каждом failure сохраняется bounded prefix/alternative/window/anchor diagnostics без автоматического раскрытия payload.
+Each failure retains bounded prefix/alternative/window/anchor diagnostics without automatic payload disclosure.
 
 <a id="s19"></a>
-## 19. Программная конфигурация и pytest
+## 19. Programmatic configuration and pytest
 
-### 19.1. Конфигурация
+### 19.1. Configuration
 
-Нет обязательного YAML/TOML registry подключений, известных библиотеке env names или auto-discovery brokers. Пользователь создаёт типизированные configs через свои fixtures, secrets provider или test infrastructure.
+There is no mandatory YAML/TOML connection registry, library-defined environment variable names, or broker auto-discovery. Users create typed configs through their own fixtures, secrets provider, or test infrastructure.
 
-Config валидируется и копирует mutable mappings. Изменение исходного словаря не меняет работающую session. Фабрика не соединяется на import/collection. Для custom adapter нужен только реализованный Protocol, а не глобальная регистрация.
+Config validates and copies mutable mappings. Modifying the original dictionary does not change a running session. A factory does not connect during import/collection. A custom adapter requires only an implemented Protocol, rather than global registration.
 
-`client_options` разрешены для непредусмотренных клиентских настроек, но зарезервированные correctness параметры отклоняются при попытке переопределения. Неизвестный параметр не должен молча исчезать: ошибку выдаёт validation/client startup.
+`client_options` are allowed for client settings not explicitly provided by the library, but attempts to override reserved correctness parameters are rejected. An unknown parameter must not disappear silently: validation/client startup reports the error.
 
 ### 19.2. Credentials
 
-Secrets не выводятся через `repr`, не сериализуются в config snapshots и не сохраняются на диск библиотекой. `repr=False` — только дополнительная защита, не полноценная redaction policy.
+Secrets are not displayed by `repr`, serialized in config snapshots, or saved to disk by the library. `repr=False` is only an additional safeguard, not a complete redaction policy.
 
-MVP получает уже разрешённые credentials перед подключением. External secret manager не вызывается из matcher/consumer loop. Ротация действует для новых sessions; обновление активных OAuth credentials возможно только через явно поддержанный и протестированный callback клиента, без обещания общего credential refresh framework.
+The MVP receives already-resolved credentials before connecting. An external secret manager is not called from a matcher/consumer loop. Rotation applies to new sessions; updating active OAuth credentials is possible only through an explicitly supported and tested client callback, without promising a general credential refresh framework.
 
-### 19.3. Fixtures и loop scopes
+### 19.3. Fixtures and loop scopes
 
-| Объект | Рекомендованный fixture scope |
+| Object | Recommended fixture scope |
 |---|---|
-| Конфигурация брокера | session |
-| Stateless adapter/factory | function или session |
-| Активный watcher | function / explicit test context |
-| Journal | только watcher |
-| Stateless matcher definitions | любой |
+| Broker configuration | session |
+| Stateless adapter/factory | function or session |
+| Active watcher | function / explicit test context |
+| Journal | watcher only |
+| Stateless matcher definitions | any |
 
-Async watcher принадлежит одному loop. Fixture scope активной async session MUST быть согласован с loop scope pytest-asyncio. Сама обычная fixture, возвращающая ленивую factory, не требует async plugin. Синхронный режим не использует pytest-asyncio и не меняет его настройки.
+An async watcher belongs to one loop. The fixture scope of an active async session MUST be compatible with the pytest-asyncio loop scope. An ordinary fixture returning a lazy factory does not itself require an async plugin. Synchronous mode does not use pytest-asyncio or change its settings.
 
 ### 19.4. Pytest plugin
 
-Пассивный `pytest11` entry point разрешён ADR-012. Pytest обнаруживает installed entry points независимо от того, какой extra использовался при установке. [S11]
+A passive `pytest11` entry point is permitted by ADR-012. Pytest discovers installed entry points regardless of which extra was used during installation. [S11]
 
-Следовательно, plugin MUST безопасно загружаться при наличии pytest и не требовать Kafka/Protobuf/Allure; MUST NOT создавать fixture `events`, открывать соединения, устанавливать autouse observer или менять event loop policy.
+The plugin therefore MUST load safely when pytest is present without requiring Kafka/Protobuf/Allure; it MUST NOT create an `events` fixture, open connections, install an autouse observer, or change the event loop policy.
 
-Explicit integration MAY передать nodeid, worker_id, run_id в `ObservationIdentity` и добавить безопасные diagnostics к report. Без plugin библиотека полностью работоспособна. Core не читает «текущий pytest test» из глобального mutable state.
+Explicit integration MAY pass nodeid, worker_id, and run_id to `ObservationIdentity` and add safe diagnostics to the report. The library is fully functional without the plugin. Core does not read the "current pytest test" from global mutable state.
 
 ### 19.5. pytest-xdist
 
-Каждый worker создаёт собственные clients, loops, journals и identities. `observer_id` уникален для каждого `watch`, включая reruns. Worker/session fixture не является singleton на весь xdist запуск; это подтверждается документацией xdist. [S12]
+Each worker creates its own clients, loops, journals, and identities. `observer_id` is unique for every `watch`, including reruns. A worker/session fixture is not a singleton for the entire xdist run, as confirmed by the xdist documentation. [S12]
 
-Factory не передаёт активные handles между процессами. Runtime object содержит PID guard. Shared Kafka topic может быть прочитан каждым worker независимо, но логическая корреляция по operation ID всё равно обязательна для общего потока.
+A factory does not pass active handles between processes. A runtime object contains a PID guard. Each worker can read a shared Kafka topic independently, but logical correlation by operation ID remains mandatory for a shared stream.
 
-Вне pytest identity fields run/test/worker могут отсутствовать; observer ID обязателен. Сырые nodeids и correlation values не включаются в публичные отчёты без проверки disclosure policy.
+Outside pytest, the run/test/worker identity fields may be absent; the observer ID is required. Raw nodeids and correlation values are not included in public reports without applying the disclosure policy.
 
-### 19.6. Каталог публичных конфигурационных объектов
+### 19.6. Public configuration object catalog
 
-| Объект | Минимальные поля / назначение |
+| Object | Minimum fields / purpose |
 |---|---|
-| `JournalLimits` | `max_events`, `max_bytes`, `max_event_bytes`, `max_loss_ranges`; defaults раздела 8 |
+| `JournalLimits` | `max_events`, `max_bytes`, `max_event_bytes`, `max_loss_ranges`; section 8 defaults |
 | `JournalPolicy` | `limits: JournalLimits`, `overflow: OverflowPolicy = FAIL` |
-| `RuntimeLimits` | `max_active_waiters`, `max_scopes`, `max_result_events`, `max_result_bytes`, `scan_batch_events`; defaults раздела 8 |
-| `TransportBufferLimits` | `max_events=256`, `max_bytes=16 MiB`; native client budget задаётся отдельно |
-| `LifecyclePolicy` | `startup_timeout`, `shutdown_timeout`, `sync_control_timeout`, `cancellation_grace`; раздел 15 |
-| `DecodingPolicy` | `error_policy=FAIL_FAST`; Protobuf-specific required-fields настройка передаётся ProtobufDecoder |
-| `DiagnosticPolicy` | `disclosure=METADATA_ONLY`, `mode=ERRORS_ONLY`, `limits`, optional redactor и allowlists, trace export flags off |
-| `DiagnosticLimits` | Лимиты records/summaries/samples/attachments из раздела 17 |
+| `RuntimeLimits` | `max_active_waiters`, `max_scopes`, `max_result_events`, `max_result_bytes`, `scan_batch_events`; section 8 defaults |
+| `TransportBufferLimits` | `max_events=256`, `max_bytes=16 MiB`; native client budget is configured separately |
+| `LifecyclePolicy` | `startup_timeout`, `shutdown_timeout`, `sync_control_timeout`, `cancellation_grace`; section 15 |
+| `DecodingPolicy` | `error_policy=FAIL_FAST`; the Protobuf-specific required-fields setting is passed to ProtobufDecoder |
+| `DiagnosticPolicy` | `disclosure=METADATA_ONLY`, `mode=ERRORS_ONLY`, `limits`, optional redactor and allowlists, trace export flags off |
+| `DiagnosticLimits` | Record/summary/sample/attachment limits from section 17 |
 | `KafkaConfig` | `bootstrap_servers`, `security_protocol`, optional SASL/TLS, `isolation_level`, `topology_check_interval`, `client_options` |
-| `ObservationIdentity` | Optional `run_id`, `worker_id`, `test_id`; runtime добавляет уникальный observer ID |
+| `ObservationIdentity` | Optional `run_id`, `worker_id`, `test_id`; the runtime adds a unique observer ID |
 
-`KafkaConfig.bootstrap_servers` принимает непустую строку либо tuple адресов. `security_protocol` допускает PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL; default PLAINTEXT предназначен для явно выбранного тестового окружения, не для автоматического понижения безопасности. TLS/SASL не переключаются на plaintext при ошибке. Опциональные `sasl_mechanism`, `sasl_username`, `sasl_password`, `ssl_ca_location`, certificate/key settings валидируются согласованно; secret fields исключаются из repr. `isolation_level=read_committed` и `topology_check_interval=1.0` задаются явно библиотекой.
+`KafkaConfig.bootstrap_servers` accepts a nonempty string or a tuple of addresses. `security_protocol` allows PLAINTEXT, SSL, SASL_PLAINTEXT, and SASL_SSL; the PLAINTEXT default is intended for an explicitly selected test environment, not automatic security downgrades. TLS/SASL does not fall back to plaintext on an error. Optional `sasl_mechanism`, `sasl_username`, `sasl_password`, `ssl_ca_location`, and certificate/key settings are validated consistently; secret fields are excluded from repr. `isolation_level=read_committed` and `topology_check_interval=1.0` are explicitly set by the library.
 
-Policy/config dataclasses логически immutable. Default-объекты создаются factory, а не разделяются как mutable singleton. Настройки конкретного watch фиксируются перед startup; изменение factory configuration во время активной session не поддерживается.
+Policy/config dataclasses are logically immutable. Default objects are created by a factory rather than shared as a mutable singleton. Settings for a particular watch are captured before startup; modifying factory configuration while a session is active is unsupported.
 
-Официальный API этой редакции принимает `journal=JournalPolicy(...)`, `buffers=TransportBufferLimits(...)` и `runtime_limits=RuntimeLimits(...)`. Ранний пример `journal_limits=...` был иллюстрацией, не вторым обязательным alias несуществующего релиза.
+This revision's official API accepts `journal=JournalPolicy(...)`, `buffers=TransportBufferLimits(...)`, and `runtime_limits=RuntimeLimits(...)`. The earlier `journal_limits=...` example was illustrative, rather than a second mandatory alias from a nonexistent release.
 
 <a id="s20"></a>
-## 20. Каталог ошибок
+## 20. Error catalog
 
-### 20.1. Иерархия и различие failure/assertion
+### 20.1. Hierarchy and the failure/assertion distinction
 
-`EventObserverError` — базовая operational/configuration ошибка. `EventAssertionError(AssertionError)` — неуспешное проверяемое утверждение при достаточных данных. Operational failure не маскируется под отсутствие нужного сообщения.
+`EventObserverError` is the base operational/configuration error. `EventAssertionError(AssertionError)` represents an unsuccessful checked assertion with sufficient data. Operational failures are not disguised as the absence of the desired message.
 
-`EventTimeoutError` наследует `EventAssertionError`; совпадение имени с builtin `TimeoutError` не означает обязательного наследования от него. Bridge Future timeout — внутренний механизм, не публичный domain result.
+`EventTimeoutError` inherits from `EventAssertionError`; sharing a name with the built-in `TimeoutError` does not require inheriting from it. A bridge Future timeout is an internal mechanism, not a public domain result.
 
-| Класс | Смысл и область |
+| Class | Meaning and scope |
 |---|---|
-| `ConfigurationError` | Неверные/конфликтующие настройки до I/O |
-| `MissingOptionalDependencyError` | Запрошена возможность без нужной зависимости |
-| `UnsupportedCapabilityError` | Адаптер не поддерживает запрошенную semantics |
-| `TransportError` | Базовый класс нормализованных клиентских ошибок |
-| `TransportConnectionError` | Не удалось установить/обслужить соединение |
-| `TransportAuthenticationError` | Неверная аутентификация |
-| `TransportAuthorizationError` | Недостаточно прав |
-| `TransportReadinessError` | Подготовка reader не подтверждена |
-| `TransportSubscriptionError` | Ошибка подписки/назначения |
-| `StartPositionUnavailableError` | Нельзя использовать requested position |
-| `TopologyChangedError` | Обнаружено изменение зафиксированной топологии |
-| `TransportInterruptedError` | Выявлен разрыв требуемого наблюдения |
-| `TransportBackpressureError` | Нельзя безопасно передать/сохранить transport record |
-| `UnexpectedStreamEndError` | Неожиданно завершился бесконечный receive stream |
-| `ObserverStartupTimeoutError` | Истёк общий startup deadline |
-| `ObserverFailedError` | Background terminal failure; содержит исходную typed cause |
-| `ObserverClosedError` | Ожидание вызвано/оборвано закрытием |
-| `ObserverCleanupError` | Неполная/неудачная очистка |
-| `ObserverCleanupTimeoutError` | Cleanup budget исчерпан |
-| `JournalOverflowError` | Aggregate overflow при FAIL |
-| `EventTooLargeError` | Hard single-event budget превышен |
-| `IncompleteObservationError` | Требуемый диапазон неполон/его полнота неизвестна |
-| `ExpectationResourceLimitError` | Waiter/result/candidate budget превышен |
-| `ScopeResourceLimitError` | Превышен лимит определений scopes |
-| `EventDecodingError` | Базовая decode error |
-| `NullPayloadError` | Null нельзя обработать выбранным decoder |
-| `InvalidPayloadError` | Повреждённое/неинициализированное сообщение |
+| `ConfigurationError` | Invalid/conflicting settings before I/O |
+| `MissingOptionalDependencyError` | A feature was requested without its required dependency |
+| `UnsupportedCapabilityError` | The adapter does not support the requested semantics |
+| `TransportError` | Base class for normalized client errors |
+| `TransportConnectionError` | Failed to establish/maintain a connection |
+| `TransportAuthenticationError` | Invalid authentication |
+| `TransportAuthorizationError` | Insufficient permissions |
+| `TransportReadinessError` | Reader readiness was not confirmed |
+| `TransportSubscriptionError` | Subscription/assignment error |
+| `StartPositionUnavailableError` | The requested position cannot be used |
+| `TopologyChangedError` | A change to the fixed topology was detected |
+| `TransportInterruptedError` | An interruption of the required observation was detected |
+| `TransportBackpressureError` | The transport record cannot be transferred/retained safely |
+| `UnexpectedStreamEndError` | An infinite receive stream ended unexpectedly |
+| `ObserverStartupTimeoutError` | The shared startup deadline expired |
+| `ObserverFailedError` | Background terminal failure; contains the original typed cause |
+| `ObserverClosedError` | An expectation was invoked/interrupted by closing |
+| `ObserverCleanupError` | Incomplete/failed cleanup |
+| `ObserverCleanupTimeoutError` | The cleanup budget was exhausted |
+| `JournalOverflowError` | Aggregate overflow under FAIL |
+| `EventTooLargeError` | The hard single-event budget was exceeded |
+| `IncompleteObservationError` | The required range is incomplete/its completeness is unknown |
+| `ExpectationResourceLimitError` | A waiter/result/candidate budget was exceeded |
+| `ScopeResourceLimitError` | The scope definition limit was exceeded |
+| `EventDecodingError` | Base decode error |
+| `NullPayloadError` | The selected decoder cannot handle null |
+| `InvalidPayloadError` | Corrupt/uninitialized message |
 | `UnknownMessageTypeError` | Missing/unregistered discriminator |
-| `AmbiguousMessageTypeError` | Неоднозначный discriminator |
-| `TypeResolverError` | Ошибка выбора типа |
-| `UnsupportedMessageTypeError` | Resolver вернул недопустимый class |
-| `PayloadIsolationError` | Нельзя безопасно отделить публичный mutable payload |
-| `MatcherConfigurationError` | Ошибка field path/type binding/композиции |
-| `UnsupportedFieldPresenceError` | Presence отсутствует у выбранного Protobuf field |
-| `InvalidMatcherResultError` | Не bool / не MatchResult / coroutine вместо результата |
-| `MatcherEvaluationError` | Исключение пользовательского predicate или matcher |
-| `EventTimeoutError` | Ожидаемое событие/count не найдено за budget |
-| `EventLoopMismatchError` | Async object используется из другого loop |
-| `ThreadAffinityError` | Sync handle используется не из owner thread |
-| `ProcessAffinityError` | Активный object использован в другом process |
-| `SyncAPIInAsyncContextError` | Blocking facade вызван при active loop в caller thread |
-| `ReentrantSyncCallError` | Callback пытается блокирующе вызвать свой runtime |
-| `SyncRuntimeUnresponsiveError` | Portal не получил корректный ответ/отмену в control budget |
-| `DiagnosticConfigurationError` | Небезопасная/невалидная disclosure configuration |
-| `DiagnosticExportError` | Явный export не удался |
+| `AmbiguousMessageTypeError` | Ambiguous discriminator |
+| `TypeResolverError` | Type selection error |
+| `UnsupportedMessageTypeError` | The resolver returned an invalid class |
+| `PayloadIsolationError` | The public mutable payload cannot be safely detached |
+| `MatcherConfigurationError` | Field path/type binding/composition error |
+| `UnsupportedFieldPresenceError` | The selected Protobuf field has no presence semantics |
+| `InvalidMatcherResultError` | A non-bool / non-MatchResult / coroutine was returned instead of a result |
+| `MatcherEvaluationError` | An exception from a user predicate or matcher |
+| `EventTimeoutError` | The expected event/count was not found within the budget |
+| `EventLoopMismatchError` | An async object is used from another loop |
+| `ThreadAffinityError` | A sync handle is used outside its owner thread |
+| `ProcessAffinityError` | An active object was used in another process |
+| `SyncAPIInAsyncContextError` | The blocking facade was called with an active loop in the caller thread |
+| `ReentrantSyncCallError` | A callback attempts a blocking call to its own runtime |
+| `SyncRuntimeUnresponsiveError` | The portal received no valid response/cancellation within the control budget |
+| `DiagnosticConfigurationError` | Unsafe/invalid disclosure configuration |
+| `DiagnosticExportError` | Explicit export failed |
 
-После MVP: `UnexpectedEventError`, `EventSequenceTimeoutError`, `TemporalConstraintError` наследуют `EventAssertionError`; `IncomparableEventOrderError` — operational ошибка недостаточной сопоставимости, не обычный timeout.
+After the MVP: `UnexpectedEventError`, `EventSequenceTimeoutError`, and `TemporalConstraintError` inherit from `EventAssertionError`; `IncomparableEventOrderError` is an operational error for insufficient comparability, not an ordinary timeout.
 
-### 20.2. Нормализация выдачи
+### 20.2. Error normalization
 
-Startup ошибки поднимаются входом в контекст с конкретным typed классом. Background decoder/transport/Journal failure фиксируется один раз и выдаётся waiters/normal context exit как `ObserverFailedError` с причиной соответствующего класса.
+Startup errors are raised by context entry as their specific typed class. A background decoder/transport/Journal failure is recorded once and delivered to waiters/normal context exit as `ObserverFailedError` with a cause of the appropriate class.
 
-`MatcherEvaluationError`, `EventTimeoutError` и resource error конкретного waiter не переводят исправный observer в FAILED. Incomplete interval не обязательно уничтожает reader при DROP policy, но запрещает строгий результат данного expectation.
+`MatcherEvaluationError`, `EventTimeoutError`, and a particular waiter's resource error do not put a healthy observer into FAILED. An incomplete interval does not necessarily terminate the reader under a DROP policy, but it prohibits a strict result for that expectation.
 
-Каждая ошибка MUST иметь стабильный `code`, safe summary, observer/expectation IDs при наличии и detached diagnostic reference. Полный `str(cause)` не копируется в safe summary. Exception chaining сохраняется для локальной отладки.
+Every error MUST have a stable `code`, a safe summary, observer/expectation IDs when available, and a detached diagnostic reference. The complete `str(cause)` is not copied into the safe summary. Exception chaining is retained for local debugging.
 
 <a id="s21"></a>
-## 21. Тестирование и contract testing framework
+## 21. Testing and the contract testing framework
 
-### 21.1. Уровни
+### 21.1. Levels
 
-| Уровень | Содержание | Запуск |
+| Level | Coverage | Run |
 |---|---|---|
-| Unit | Bounds, scopes, codecs, matchers, tri-state logic, errors, redaction | Каждый PR |
-| Core integration | FakeTransport + deterministic scheduler/clock, lifecycle и notification races | Каждый PR |
-| Transport contract | Единые обязательные гарантии на реальном брокере | Каждый PR для primary Kafka |
-| Reliability | Network faults, topology/retention, cancellation, backpressure, xdist | Критические в PR; полный main/release |
-| Benchmarks | Core overhead и real-broker throughput/latency/RSS | Закреплённый runner, scheduled/release |
-| Packaging | Clean wheel/sdist installs, optional dependency isolation, typing, docs | Каждый PR/release |
+| Unit | Bounds, scopes, codecs, matchers, tri-state logic, errors, redaction | Every PR |
+| Core integration | FakeTransport + deterministic scheduler/clock, lifecycle and notification races | Every PR |
+| Transport contract | Shared mandatory guarantees on a real broker | Every PR for primary Kafka |
+| Reliability | Network faults, topology/retention, cancellation, backpressure, xdist | Critical cases in PRs; full suite on main/release |
+| Benchmarks | Core overhead and real-broker throughput/latency/RSS | Pinned runner, scheduled/release |
+| Packaging | Clean wheel/sdist installs, optional dependency isolation, typing, docs | Every PR/release |
 
-Hypothesis/property tests MAY использоваться для чистых алгоритмов Journal/matchers; это не требование построить полноценную chaos platform. Для time-sensitive unit tests используется Clock injection, а не реальный `sleep(5)`.
+Hypothesis/property tests MAY be used for pure Journal/matcher algorithms; this does not require building a complete chaos platform. Time-sensitive unit tests use Clock injection rather than a real `sleep(5)`.
 
 ### 21.2. FakeTransport
 
-FakeTransport MUST поддерживать controlled READY, immediate delivery, pause/failure barriers, empty source, внезапный end, invalid metadata, oversized event, stalled close и cancellation races. Он не должен скрывать ошибки real adapters; его задача — доказуемо воспроизводить Core interleavings.
+FakeTransport MUST support controlled READY, immediate delivery, pause/failure barriers, an empty source, unexpected end, invalid metadata, an oversized event, stalled close, and cancellation races. It must not hide real adapter errors; its purpose is to reproduce Core interleavings demonstrably.
 
-Failing сценарии получают seed/event script и regression test. «Стало зелёным после retry» не является доказательством устранения гонки.
+Failing scenarios receive a seed/event script and a regression test. "It passed after a retry" is not evidence that a race was fixed.
 
 ### 21.3. Reusable contract suites
 
-Testing utilities поставляются в `event_observer.testing`, без import при работе core. Они подключаются явно. Каждая контрактная проверка — отдельный pytest node, не один mega-test.
+Testing utilities are shipped in `event_observer.testing`, without being imported during core operation. They are enabled explicitly. Each contract check is a separate pytest node, rather than one mega-test.
 
 ```python
 from event_observer.testing.contracts import (
@@ -1509,7 +1509,7 @@ class TestCustomAdapter(
     pass
 ```
 
-Проект адаптера предоставляет fixture `adapter_harness`. В base classes методы используют fixture аргументы; они не создают глобальное состояние или соединения на collection.
+The adapter project provides the `adapter_harness` fixture. Base-class methods use fixture arguments; they do not create global state or connections during collection.
 
 ### 21.4. Harness
 
@@ -1532,108 +1532,108 @@ class AdapterTestHarness(Protocol):
     async def cleanup(self) -> None: ...
 ```
 
-Publisher использует независимый code path. Receipt подтверждает, что публикация принята соответствующим test broker API, а не только помещена в локальную очередь producer.
+The publisher uses an independent code path. A receipt confirms that publication was accepted by the corresponding test broker API, rather than merely placed in the producer's local queue.
 
-Fault/position/topology controls — отдельные harness extension protocols, а не methods, которые молча ничего не делают на неподдерживаемом брокере. Test applicability задаётся declarative preconditions. `NOT_APPLICABLE` сохраняется в contract report, а не прячет непроверенную заявленную capability.
+Fault/position/topology controls are separate harness extension protocols, rather than methods that silently do nothing on an unsupported broker. Test applicability is specified through declarative preconditions. `NOT_APPLICABLE` is recorded in the contract report rather than hiding an unverified claimed capability.
 
-Минимальные безопасность/independent observation/cleanup требования нельзя обойти, объявив их optional.
+Minimum security/independent observation/cleanup requirements cannot be bypassed by declaring them optional.
 
-### 21.5. Реальные брокеры и Testcontainers
+### 21.5. Real brokers and Testcontainers
 
-Для Kafka используется Testcontainers Python с pinned container image и документированным supported KRaft profile. Официальный KafkaContainer API и пример KRaft существуют, но конкретную комбинацию image/class/version необходимо проверить: нельзя подставить произвольный Apache image в рассчитанный на другой image entrypoint. [S13]
+Kafka uses Testcontainers Python with a pinned container image and a documented supported KRaft profile. An official KafkaContainer API and KRaft example exist, but the specific image/class/version combination must be verified: an arbitrary Apache image cannot be substituted into an entrypoint designed for another image. [S13]
 
-В MVP обязательна реальная Kafka. RabbitMQ/Redis/NATS получают такие же suites при добавлении. Docker не нужен для импорта библиотеки, unit tests или конечного пользователя, подключающегося к существующему broker.
+A real Kafka broker is required for the MVP. RabbitMQ/Redis/NATS receive the same suites when added. Docker is not required to import the library, run unit tests, or serve an end user connecting to an existing broker.
 
-Правила: dynamic mapped ports; уникальные source names; readiness по API/health condition; pinned image digest; cleanup при partially failed fixture; контейнерные логи при ошибке; отключён reuse между независимыми CI runs; bounded startup budgets.
+Rules: dynamic mapped ports; unique source names; readiness through an API/health condition; pinned image digest; cleanup after a partially failed fixture; container logs on failure; no reuse between independent CI runs; and bounded startup budgets.
 
 ### 21.6. xdist infrastructure
 
-Обычные transport tests могут использовать один job-level broker и уникальные resources на case/worker. Координация общей инфраструктуры находится в test harness/CI, не в production Core.
+Ordinary transport tests may use one job-level broker and unique resources per case/worker. Shared infrastructure is coordinated in the test harness/CI, not production Core.
 
-Fault tests используют отдельный контейнер либо изолированный path через proxy. Остановка shared broker не должна ломать unrelated тесты. Session fixtures xdist создаются per worker; нельзя считать их общим singleton. [S12]
+Fault tests use a separate container or an isolated path through a proxy. Stopping a shared broker must not break unrelated tests. xdist session fixtures are created per worker; they cannot be treated as a shared singleton. [S12]
 
 ### 21.7. Fault injection
 
-Toxiproxy предоставляет управляемые TCP faults; конкретный контейнер/клиент может подключаться через generic Testcontainers container, если специального модуля нет в закреплённой версии. [S15]
+Toxiproxy provides controllable TCP faults; a specific container/client may be connected through a generic Testcontainers container if the pinned version has no dedicated module. [S15]
 
-Для Kafka проксируются **advertised broker endpoints**, а не только bootstrap address. Harness MUST доказать, что consumer не обошёл proxy после получения metadata.
+Kafka proxies cover **advertised broker endpoints**, rather than only the bootstrap address. The harness MUST prove that the consumer did not bypass the proxy after receiving metadata.
 
-| Fault | Проверяемый outcome |
+| Fault | Checked outcome |
 |---|---|
-| Broker недоступен при startup | Typed error/timeout + rollback |
-| Ошибочные credentials / ACL | Auth/authz, не EventTimeout |
-| Disconnect после READY | Известное нарушение наблюдения fail-closed, без reset |
-| Latency / blackhole | Документированный detection budget; deadlines не перезапускаются |
-| Broker restart | Нет притворного uninterrupted latest reader |
-| Retention удалил позицию | Position/continuity error без fallback |
-| Compaction / control gaps | Нет ложного «gap по offset+1» |
-| Добавление partition | Topology failure после обнаружения |
-| Bridge overload | Bounded рост, flow control или явная ошибка |
-| Journal overflow | Точная политика и completeness |
+| Broker unavailable during startup | Typed error/timeout + rollback |
+| Invalid credentials / ACL | Auth/authz, not EventTimeout |
+| Disconnect after READY | Known observation interruption fails closed, without reset |
+| Latency / blackhole | Documented detection budget; deadlines are not restarted |
+| Broker restart | No pretended uninterrupted latest reader |
+| Retention removed a position | Position/continuity error without fallback |
+| Compaction / control gaps | No false "gap from offset+1" |
+| Partition added | Topology failure after detection |
+| Bridge overload | Bounded growth, flow control, or an explicit error |
+| Journal overflow | Exact policy and completeness |
 | Invalid Protobuf / discriminator | Decode-policy semantics |
-| Callback exception | Только waiter failure |
-| Callback завис | Документированная невозможность preemption; subprocess guard |
-| Cancel/KeyboardInterrupt | Controlled cleanup, исходное исключение |
-| Failed/stalled close | Cleanup failure, не ложный CLOSED |
-| Reporter/redactor failure | Нет утечки raw fallback и нет изменения match result |
+| Callback exception | Waiter failure only |
+| Hung callback | Documented inability to preempt; subprocess guard |
+| Cancel/KeyboardInterrupt | Controlled cleanup, original exception |
+| Failed/stalled close | Cleanup failure, rather than a false CLOSED |
+| Reporter/redactor failure | No raw fallback leak and no change to the match result |
 
-Не используются случайные sleeps как единственный способ попасть в race. Fault запускается после определённого barrier: READY, admitted sequence, ожидание bridge capacity, registered waiter и т.п. Детектору сети даётся конечный budget; мгновенное обнаружение физического отключения не обещается.
+Random sleeps are not used as the sole way to hit a race. A fault starts after a specific barrier: READY, an admitted sequence, waiting for bridge capacity, a registered waiter, and so on. The network detector has a finite budget; instantaneous detection of a physical disconnection is not promised.
 
 ### 21.8. Concurrency suites
 
-Обязательные сценарии: 100 async waiters в пределах лимитов; overlapping count; вложенные scopes; mutation isolation; half-waiter cancellation; snapshot во время записи; append между scan и wait; error между match и commit; close при full bridge; scope FROM_NOW boundary; DROP policies с pinned batch; metadata failure без активного waiter.
+Required scenarios: 100 async waiters within the limits; overlapping count; nested scopes; mutation isolation; cancellation of half the waiters; snapshots while writing; append between scan and wait; error between match and commit; close with a full bridge; a scope FROM_NOW boundary; DROP policies with a pinned batch; and metadata failure without an active waiter.
 
-Для sync дополнительно: service call блокирует caller, а события продолжают записываться; slow caller не останавливает reader; foreign-thread misuse немедленно отвергается; pytest run содержит sync и async cases; сотни циклов enter/exit не накапливают runtime threads.
+Additional sync checks: a service call blocks the caller while events continue to be recorded; a slow caller does not stop the reader; foreign-thread misuse is immediately rejected; a pytest run contains sync and async cases; and hundreds of enter/exit cycles do not accumulate runtime threads.
 
-Sync/async parity проверяется одинаковыми event scripts в раздельных тестовых режимах. Нельзя запускать sync facade прямо из async test loop ради удобства harness: это нарушает контракт, который тестируется.
+Sync/async parity is checked with identical event scripts in separate test modes. Running the sync facade directly from an async test loop for harness convenience is prohibited: it violates the contract being tested.
 
-### 21.9. Golden reports и секреты
+### 21.9. Golden reports and secrets
 
-Synthetic fixtures MUST содержать известные тестовые secret markers в payload, headers, key, matcher expected values, descriptions, filenames и exception strings. Safe reports проверяются на отсутствие markers и корректное поведение redactor failure.
+Synthetic fixtures MUST contain known test secret markers in payload, headers, key, matcher expected values, descriptions, filenames, and exception strings. Safe reports are checked for the absence of markers and correct behavior when a redactor fails.
 
-Отдельные tests подтверждают отсутствие ложного обещания: локальный raw traceback может содержать пользовательскую cause, но встроенный safe export — нет. Непреднамеренные payload snapshots не включаются в публичные CI artifacts.
+Separate tests verify the limits of the guarantee: a local raw traceback may contain a user-provided cause, but the built-in safe export must not. Unintended payload snapshots are not included in public CI artifacts.
 
 <a id="s22"></a>
-## 22. Совместимость, benchmarks, CI/CD и release gates
+## 22. Compatibility, benchmarks, CI/CD, and release gates
 
 ### 22.1. Compatibility policy
 
-Целевая матрица первого выпуска — CPython 3.11–3.14. Это выбранный диапазон проекта, а не утверждение, что других актуальных версий Python нет. Поддержка объявляется только после прохождения матрицы.
+The target matrix for the first release is CPython 3.11–3.14. This is the project's chosen range, rather than a claim that no other current Python versions exist. Support is declared only after the matrix passes.
 
-Linux — обязательная платформа Kafka integration gates. macOS/Windows получают Core, sync runtime, packaging и по возможности transport smoke; Kafka production support на платформе объявляется только после соответствующей проверки. Free-threaded Python, PyPy и альтернативные event loops не обещаются в 0.1 без отдельных tests.
+Linux is the required platform for Kafka integration gates. macOS/Windows receive Core, sync runtime, packaging, and transport smoke tests where possible; production Kafka support on a platform is declared only after the corresponding verification. Free-threaded Python, PyPy, and alternative event loops are not promised in 0.1 without separate tests.
 
-| Измерение | PR | Release / scheduled |
+| Dimension | PR | Release / scheduled |
 |---|---|---|
-| CPython 3.11–3.14 | Core + sync/async parity на всех | Все поддерживаемые комбинации |
-| Kafka | Основной pinned broker profile | Основной и минимум один заявленный старый profile |
-| `confluent-kafka` | Lock profile и нижняя заявленная граница | Заявленный диапазон с representative combinations |
-| `protobuf` | Selected runtime + generated-code fixtures | Min/max заявленных runtime, несколько допустимых protoc generations |
-| pytest / pytest-asyncio / xdist | Основной profile | Нижние/верхние заявленные версии |
-| Allure | Safe report smoke и concurrency cases | Golden-output compatibility |
-| OS | Linux всё, macOS/Windows Core | Полная заявленная platform matrix |
-| Images | Pinned tags + digest | Те же проверенные digest, не плавающий latest |
+| CPython 3.11–3.14 | Core + sync/async parity on all versions | All supported combinations |
+| Kafka | Primary pinned broker profile | Primary profile and at least one claimed older profile |
+| `confluent-kafka` | Lock profile and claimed lower bound | Claimed range with representative combinations |
+| `protobuf` | Selected runtime + generated-code fixtures | Min/max claimed runtimes, multiple compatible protoc generations |
+| pytest / pytest-asyncio / xdist | Primary profile | Claimed lower/upper versions |
+| Allure | Safe report smoke and concurrency cases | Golden-output compatibility |
+| OS | Everything on Linux, Core on macOS/Windows | Complete claimed platform matrix |
+| Images | Pinned tags + digest | The same verified digests, not a floating latest |
 
-Результаты публикуются как tested matrix с точными версиями. «Не проверено» нельзя подписывать как «поддерживается». Lockfile фиксирует development environment, но не заменяет lower-bound tests публичных dependency ranges.
+Results are published as a tested matrix with exact versions. "Untested" cannot be labeled "supported". A lockfile fixes the development environment but does not replace lower-bound tests for public dependency ranges.
 
 ### 22.2. Benchmarks
 
-Core и real-broker benchmarks разделены. Предлагаемые profiles: payload 256 B / 4 KiB / 256 KiB, burst 10 000 events, 1/10/100 waiters, несколько scopes, Protobuf copy on/off только в отдельных внутренних experiments, sync и async facade.
+Core and real-broker benchmarks are separate. Suggested profiles: payloads of 256 B / 4 KiB / 256 KiB, a burst of 10 000 events, 1/10/100 waiters, multiple scopes, Protobuf copy on/off only in separate internal experiments, and sync and async facades.
 
-Метрики: decode throughput, Journal admission latency, matcher cost, event-to-result latency, readiness/shutdown latency, CPU, peak RSS, accounted bytes, bridge occupancy, pending tasks, live threads, iterations cleanup, sync portal overhead.
+Metrics: decode throughput, Journal admission latency, matcher cost, event-to-result latency, readiness/shutdown latency, CPU, peak RSS, accounted bytes, bridge occupancy, pending tasks, live threads, cleanup iterations, and sync portal overhead.
 
-Числа workload — тестовые настройки, не рекламные результаты. До baseline нельзя объявлять абсолютные throughput SLA или произвольный «порог +20%» обязательным gate. После воспроизводимого baseline пороги вводятся отдельной versioned benchmark policy.
+Workload numbers are test settings, not advertised results. Before a baseline exists, absolute throughput SLAs or an arbitrary "+20% threshold" cannot be declared mandatory gates. After a reproducible baseline is established, thresholds are introduced through a separate versioned benchmark policy.
 
-Memory/boundedness gates обязательны сразу: фиксированные event/byte/command limits соблюдаются; не возникает неограниченного списка callbacks, Futures, diagnostics или retained failed results.
+Memory/boundedness gates are mandatory from the outset: fixed event/byte/command limits are respected, and no unbounded list of callbacks, Futures, diagnostics, or retained failed results appears.
 
-Измерения выполняются с warm-up и повторениями на стабильном runner. Публикуются commit, hardware/OS, Python/client/broker versions, payload profile и raw JSON. Сравнение результатов разных CI host types без нормализации не является доказательством регрессии.
+Measurements use warm-up and repetitions on a stable runner. The commit, hardware/OS, Python/client/broker versions, payload profile, and raw JSON are published. Comparing results from different CI host types without normalization is not evidence of a regression.
 
 ### 22.3. Pipeline
 
 PR: lint/format/type checks → unit/core/parity → primary Kafka contracts → critical reliability → clean package build/install checks → docs examples.
 
-Main/scheduled: расширенные dependencies/brokers, xdist, faults, repeated readiness, benchmarks. Release: полный обязательный набор на конкретном candidate commit и дистрибутивах.
+Main/scheduled: extended dependencies/brokers, xdist, faults, repeated readiness, benchmarks. Release: the complete mandatory suite on the specific candidate commit and distributions.
 
-Концептуальные команды проекта:
+Conceptual project commands:
 
 ```bash
 uv sync --locked --all-groups --all-extras
@@ -1648,44 +1648,44 @@ uv build --no-sources
 uv run twine check dist/*
 ```
 
-Группы/директории должны быть реализованы в репозитории; это не свидетельство уже выполненных прогонов. Separate minimal-dependency jobs не используют `--all-extras`, иначе они не проверяют isolation импортов.
+The groups/directories must be implemented in the repository; this is not evidence of completed runs. Separate minimal-dependency jobs do not use `--all-extras`, because that would not test import isolation.
 
 ### 22.4. CI artifacts
 
-JUnit, coverage, sanitized diagnostics, container logs после redaction, fault script/seed, compatibility manifest, benchmark JSON и distribution checksums сохраняются с ограничением retention и размера.
+JUnit, coverage, sanitized diagnostics, redacted container logs, fault scripts/seeds, the compatibility manifest, benchmark JSON, and distribution checksums are retained with size and retention limits.
 
-Контейнерные/network logs также считаются потенциально содержащими credentials. Binary payload не включается автоматически. Сведения из закрытых тестовых стендов не попадают в публичный CI.
+Container/network logs are also considered potentially credential-bearing. Binary payload is not included automatically. Information from private test environments does not enter public CI.
 
 ### 22.5. Release gates
 
-| Gate | Обязательный результат |
+| Gate | Required result |
 |---|---|
-| RG-01 | Все MUST requirements MVP имеют тест/проверку в traceability matrix |
-| RG-02 | Core и sync/async parity проходят на заявленном Python range |
-| RG-03 | Kafka проходит base и заявленные capability contract tests на реальном брокере |
-| RG-04 | Readiness, concurrent waiters, loss accounting и cleanup reliability tests зелёные |
-| RG-05 | Sync runtime получает события во время blocking action; нет leak в штатных сценариях |
-| RG-06 | Credentials/payload redaction fixtures не протекают в built-in artifacts |
-| RG-07 | Allure explicit opt-in не меняет outcome и не смешивает тестовые контексты |
-| RG-08 | Wheel и sdist устанавливаются в чистой среде; core import без extras работает |
-| RG-09 | `py.typed`, публичные signatures и documentation examples проверены |
-| RG-10 | Dependency minima и actual tested matrix зафиксированы; untested claims отсутствуют |
-| RG-11 | Нет unbounded queues; memory/resource caps протестированы |
-| RG-12 | Tag/version/changelog совпадают; source archive не содержит secrets/закрытых артефактов |
-| RG-13 | Имя, license и права публикации разрешены; publisher/environment настроены |
-| RG-14 | Publish job использует проверенный artifact того же run/commit; hash manifest совпадает |
-| RG-15 | Нет игнорируемых обязательных flaky failures и релизных заглушек |
+| RG-01 | Every MVP MUST requirement has a test/check in the traceability matrix |
+| RG-02 | Core and sync/async parity pass across the claimed Python range |
+| RG-03 | Kafka passes base and claimed capability contract tests on a real broker |
+| RG-04 | Readiness, concurrent waiters, loss accounting, and cleanup reliability tests pass |
+| RG-05 | The sync runtime receives events during a blocking action; no leaks in normal scenarios |
+| RG-06 | Credentials/payload redaction fixtures do not leak into built-in artifacts |
+| RG-07 | Explicit Allure opt-in does not change the outcome or mix test contexts |
+| RG-08 | Wheel and sdist install in a clean environment; core import works without extras |
+| RG-09 | `py.typed`, public signatures, and documentation examples are verified |
+| RG-10 | Dependency minima and the actual tested matrix are recorded; there are no untested claims |
+| RG-11 | No unbounded queues; memory/resource caps are tested |
+| RG-12 | Tag/version/changelog agree; the source archive contains no secrets/private artifacts |
+| RG-13 | Name, license, and publishing rights are resolved; publisher/environment are configured |
+| RG-14 | The publish job uses a verified artifact from the same run/commit; the hash manifest matches |
+| RG-15 | No ignored mandatory flaky failures or release stubs |
 
-Автоматический retry может помочь диагностике, но не переписывает первый обязательный failure в успешное свидетельство gate. Quarantine обязательного контракта требует изменения заявляемых гарантий/поддержки; нельзя просто скрыть тест и выпустить тот же обещанный продукт.
+An automatic retry may aid diagnosis, but it does not rewrite the first mandatory failure into successful gate evidence. Quarantining a mandatory contract requires changing the claimed guarantees/support; simply hiding the test and releasing the same promised product is prohibited.
 
-Все gates — требования будущего выпуска. Эта спецификация не утверждает, что они уже пройдены.
+All gates are requirements for a future release. This specification does not claim that they have already passed.
 
 <a id="s23"></a>
-## 23. Packaging, pyproject.toml и публикация
+## 23. Packaging, pyproject.toml, and publishing
 
-### 23.1. Один дистрибутив
+### 23.1. One distribution
 
-Один repository, version и wheel/sdist; runtime extras устанавливают зависимости только реализованных возможностей. Пустые будущие adapters не публикуются. Сторонний adapter может быть отдельным дистрибутивом с зависимостью на документированный Core API; automatic plugin discovery нет.
+One repository, version, and wheel/sdist; runtime extras install dependencies only for implemented features. Empty future adapters are not published. A third-party adapter may be a separate distribution depending on the documented Core API; there is no automatic plugin discovery.
 
 ```text
 event-observer/
@@ -1696,7 +1696,7 @@ event-observer/
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
-├── LICENSE                       # появляется после выбора лицензии
+├── LICENSE                       # added after the license is selected
 ├── src/event_observer/
 │   ├── __init__.py
 │   ├── py.typed
@@ -1756,28 +1756,28 @@ event-observer/
     └── release.yml
 ```
 
-Internal modules с `_` не являются стабильными extension points. Документированные Protocols в `transports.base`, `codecs.base`, `matchers` и diagnostics — публичные.
+Internal modules prefixed with `_` are not stable extension points. The documented Protocols in `transports.base`, `codecs.base`, `matchers`, and diagnostics are public.
 
 ### 23.2. Extras
 
-| Extra | Состав 0.1 | Включает поведение автоматически? |
+| Extra | 0.1 contents | Enables behavior automatically? |
 |---|---|---|
-| Без extra | stdlib Core + sync facade + raw | Нет |
-| `kafka` | `confluent-kafka` | Нет подключения |
-| `protobuf` | `protobuf` | Нет automatic schema loading |
-| `pytest` | `pytest` | Только пассивный plugin entry point при pytest startup |
-| `pytest-asyncio` | `pytest`, `pytest-asyncio` | Не меняет loop mode проекта |
-| `allure` | `allure-pytest` и его транзитивные зависимости | Reporter включается только явно |
-| `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Контейнеры только при запуске harness |
-| `all` | Реализованные end-user runtime/testing integrations, без contract benchmark infrastructure | Нет |
+| No extra | stdlib Core + sync facade + raw | No |
+| `kafka` | `confluent-kafka` | No connection |
+| `protobuf` | `protobuf` | No automatic schema loading |
+| `pytest` | `pytest` | Only a passive plugin entry point during pytest startup |
+| `pytest-asyncio` | `pytest`, `pytest-asyncio` | Does not change the project's loop mode |
+| `allure` | `allure-pytest` and its transitive dependencies | Reporter is enabled only explicitly |
+| `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Containers only when the harness runs |
+| `all` | Implemented end-user runtime/testing integrations, excluding contract benchmark infrastructure | No |
 
-Будущие `rabbitmq`, `redis`, `nats` объявляются только вместе с адаптерами. Sync extra не нужен: sync facade использует stdlib threading/asyncio. Наличие `allure-pytest` естественно влечёт pytest; независимость Core от pytest сохраняется при базовой установке.
+Future `rabbitmq`, `redis`, and `nats` extras are declared only with their adapters. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
 
-Optional dependencies и development dependency groups различаются: вторые не включаются в published runtime metadata. [S16, S17]
+Optional dependencies differ from development dependency groups: the latter are not included in published runtime metadata. [S16, S17]
 
-### 23.3. pyproject.toml — структурный шаблон
+### 23.3. pyproject.toml: structural template
 
-Шаблон ниже синтаксически полный, но dependency floors намеренно не выдуманы. Перед первым релизом широкие зависимости MUST заменить на диапазоны с проверенными нижними границами; release gate это контролирует. Имя, description и classifiers также проходят publication review.
+The template below is syntactically complete, but dependency floors are deliberately not invented. Before the first release, broad dependencies MUST be replaced by ranges with verified lower bounds; a release gate enforces this. The name, description, and classifiers also undergo publication review.
 
 ```toml
 [build-system]
@@ -1801,8 +1801,8 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# license и license-files добавляются после отдельного выбора лицензии.
-# Apache-2.0 ранее было предложением, не подтверждённым выбором владельца.
+# license and license-files are added after a separate license decision.
+# Apache-2.0 was previously a proposal, not a choice confirmed by the owner.
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
@@ -1867,15 +1867,15 @@ markers = [
 ]
 ```
 
-Этот pytest config относится к **разработке библиотеки**, а не навязывается тестовым проектам пользователя. Наличие `grpcio-tools` нужно для synthetic Protobuf fixtures/examples и не добавляет gRPC runtime dependency в Core.
+This pytest config applies to **library development**, rather than being imposed on users' test projects. `grpcio-tools` is needed for synthetic Protobuf fixtures/examples and does not add a gRPC runtime dependency to Core.
 
-Hatchling выбран build backend; uv — development/build frontend, не runtime dependency. `uv build --no-sources` проверяет сборку без локальных source overrides. [S18, S19]
+Hatchling is the chosen build backend; uv is the development/build frontend, not a runtime dependency. `uv build --no-sources` verifies the build without local source overrides. [S18, S19]
 
-`py.typed` MUST присутствовать в wheel. Wheel содержит только package files; sdist может включать публичные synthetic tests/docs, но не закрытые fixtures, reports, keys или `.env`.
+`py.typed` MUST be present in the wheel. The wheel contains only package files; the sdist may include public synthetic tests/docs but no private fixtures, reports, keys, or `.env`.
 
 ### 23.4. Build/release workflow
 
-Нормативная схема вместо YAML с непроверенными action SHA:
+A normative outline instead of YAML with unverified action SHAs:
 
 ```text
 protected release tag vX.Y.Z
@@ -1891,278 +1891,278 @@ protected release tag vX.Y.Z
     -> smoke-install published version + publish release notes
 ```
 
-Все сторонние GitHub Actions фиксируются полным проверенным commit SHA; pin обновляется отдельным reviewed PR. Минимальные permissions задаются по jobs. GitHub рекомендует least privilege и immutable SHA pinning как меры защиты workflow. [S20]
+All third-party GitHub Actions are pinned to a complete verified commit SHA; a pin is updated through a separate reviewed PR. Minimum permissions are specified per job. GitHub recommends least privilege and immutable SHA pinning as workflow safeguards. [S20]
 
-Build/test jobs не имеют PyPI publishing privileges. Publish job не запускает произвольный код пакета, не получает артефакт по принципу «последний успешный run» и не делает повторную сборку после проверки.
+Build/test jobs have no PyPI publishing privileges. The publish job does not execute arbitrary package code, select artifacts using "the latest successful run", or rebuild after verification.
 
-Tag/version mismatch, неизвестное имя дистрибутива, изменённый checksum, отсутствующий gate или unresolved placeholder MUST блокировать публикацию. Публикация из непроверенного fork PR запрещена. `pull_request_target` с checkout недоверенного кода не используется для сборки с привилегиями.
+A tag/version mismatch, unknown distribution name, changed checksum, missing gate, or unresolved placeholder MUST block publication. Publishing from an unverified fork PR is prohibited. `pull_request_target` with an untrusted-code checkout is not used for a privileged build.
 
 ### 23.5. Trusted Publishing
 
-Используется PyPI Trusted Publisher: короткоживущая OIDC identity GitHub Actions вместо сохранённого PyPI API token. [S21]
+PyPI Trusted Publisher is used: a short-lived GitHub Actions OIDC identity instead of a stored PyPI API token. [S21]
 
-Настройки publisher связывают owner/repository, точное имя release workflow и environment. Для production — защищённый environment `pypi`; TestPyPI — отдельный publisher/environment. Pending publisher не резервирует имя проекта до первой публикации. [S22]
+Publisher settings bind the owner/repository, the exact release workflow name, and the environment. Production uses the protected `pypi` environment; TestPyPI uses a separate publisher/environment. A pending publisher does not reserve a project name before its first publication. [S22]
 
-Только publish job имеет `id-token: write`; на уровне workflow default — read-only/минимальные права. Используется официальный `pypa/gh-action-pypi-publish` с проверенным SHA и без username/password token settings.
+Only the publish job has `id-token: write`; workflow defaults are read-only/minimal permissions. The official `pypa/gh-action-pypi-publish` is used with a verified SHA and without username/password token settings.
 
-PyPA publishing action поддерживает автоматические publish attestations при Trusted Publishing. В release artifacts и документации сохраняется provenance; attestation не объявляется доказательством отсутствия уязвимостей исходного кода. [S23]
+The PyPA publishing action supports automatic publish attestations with Trusted Publishing. Provenance is retained in release artifacts and documentation; an attestation is not claimed to prove the absence of source-code vulnerabilities. [S23]
 
-### 23.6. Административные release blockers
+### 23.6. Administrative release blockers
 
-До публикации владелец выбирает окончательное имя, лицензию и repository. Maintainer фиксирует проверенные dependency ranges, image digests и action SHAs. Это обязательные publication inputs, а не оставленные на усмотрение агента архитектурные решения.
+Before publication, the owner chooses the final name, license, and repository. The maintainer records verified dependency ranges, image digests, and action SHAs. These are mandatory publication inputs, rather than architectural decisions left to the agent's discretion.
 
-Агент реализации MUST NOT сам публиковать пакет, регистрировать имя, выбирать лицензию от имени владельца или добавлять закрытый код. Реализация и локальные проверки могут выполняться до этих административных решений.
+The implementation agent MUST NOT publish the package, register a name, choose a license on the owner's behalf, or add private code. Implementation and local checks may proceed before these administrative decisions.
 
 <a id="s24"></a>
-## 24. Стабильность API, документация и deprecation
+## 24. API stability, documentation, and deprecation
 
 ### 24.1. Public surface
 
-Стабильность распространяется на документированные exports: factories, watcher/scope methods, configs, models, matchers, transport/decoder extension Protocols, error codes и diagnostic schema. Internal underscore modules не обещают совместимости.
+Stability applies to documented exports: factories, watcher/scope methods, configs, models, matchers, transport/decoder extension Protocols, error codes, and diagnostic schema. Internal underscore modules promise no compatibility.
 
-Изменение semantics readiness, latest/replay, копирования payload, completeness, predicate threading, ordering, default overflow или exception classification является изменением API даже без изменения сигнатуры.
+Changes to the semantics of readiness, latest/replay, payload copying, completeness, predicate threading, ordering, default overflow, or exception classification are API changes even without a signature change.
 
-### 24.2. Версионирование
+### 24.2. Versioning
 
-До 1.0: `0.1.x` — исправления без намеренного breaking change; новый minor может содержать несовместимые изменения только с явным changelog и migration guide. Нельзя скрывать удаление метода под видом patch.
+Before 1.0: `0.1.x` means fixes without intentional breaking changes; a new minor may contain incompatible changes only with an explicit changelog and migration guide. Removing a method cannot be disguised as a patch.
 
-После 1.0: patch — совместимые исправления; minor — добавления; major — несовместимые изменения. Экспериментальные интерфейсы явно помечены отдельно.
+After 1.0: patch means compatible fixes; minor means additions; major means incompatible changes. Experimental interfaces are explicitly marked separately.
 
-Сторонние адаптеры SHOULD ограничивать supported Core API range и прогонять contract suite при его расширении. Добавление обязательного method в Transport Protocol — breaking change. Optional extensions и capability negotiation предпочтительнее изменения базового протокола.
+Third-party adapters SHOULD constrain the supported Core API range and run the contract suite when expanding it. Adding a mandatory method to the Transport Protocol is a breaking change. Optional extensions and capability negotiation are preferred to changing the base protocol.
 
-Diagnostic export содержит `schema_version`. Additive optional fields MAY добавляться совместимо; переименование/изменение значения существующих полей требует migration/version change. Enum expansion требует документировать unknown-value handling потребителей.
+Diagnostic export contains `schema_version`. Additive optional fields MAY be added compatibly; renaming/changing the meaning of existing fields requires a migration/version change. Enum expansion requires documenting consumers' unknown-value handling.
 
 ### 24.3. Deprecation
 
-После 1.0 deprecated API выдаёт `DeprecationWarning` с корректным caller stacklevel, имеет замену и migration example. Оно сохраняется минимум один minor release; для широко используемого API SHOULD два. Удаление — только в последующем major release, не раньше опубликованного срока.
+After 1.0, deprecated API emits `DeprecationWarning` with the correct caller stacklevel, has a replacement and a migration example. It is retained for at least one minor release; widely used API SHOULD be retained for two. Removal is allowed only in a subsequent major release, no earlier than the published deadline.
 
-До 1.0 SHOULD сохраняться warning/migration period, если это не мешает исправлению критической ошибки корректности. Причина исключения из обычного периода публично документируется.
+Before 1.0, a warning/migration period SHOULD be retained unless it prevents fixing a critical correctness defect. The reason for an exception to the normal period is publicly documented.
 
-В tests проекта предупреждения собственной deprecated surface проверяются. Нельзя спамить warning на каждое событие: warning привязан к использованию deprecated API, а не к receive loop.
+Project tests check warnings from the project's own deprecated surface. A warning must not be spammed for every event: it is tied to use of the deprecated API, rather than the receive loop.
 
-### 24.4. Документация
+### 24.4. Documentation
 
-Документация публикуется из Markdown через MkDocs и обязана включать:
+Documentation is published from Markdown through MkDocs and must include:
 
-| Раздел | Обязательное содержание |
+| Section | Required content |
 |---|---|
-| Quickstart | Полные sync и async примеры с одинаковым контрактом |
+| Quickstart | Complete sync and async examples with the same contract |
 | Concepts | Factory, session, watcher, Journal, scope, matcher, expectation |
 | Readiness/replay | Boundary vector, timestamp selector, empty source, transaction caveats |
 | Sync runtime | Thread model, callbacks, owner affinity, blocked action, cleanup limits |
 | Protobuf | Generated types, null/empty, presence, mixed resolver, runtime compatibility |
 | Reliability | Loss ranges, overflow, fail-closed, backpressure, limitations |
 | Diagnostics | Safe defaults, redaction, Allure concurrency, trace context |
-| Extension guide | Custom adapter/decoder/matcher и reusable contract tests |
+| Extension guide | Custom adapter/decoder/matcher and reusable contract tests |
 | Compatibility | Tested Python/client/broker/OS matrix |
 | Security | Credentials, artifact policy, reporting failures |
-| Migration | Из ручных consumers и между версиями публичного API |
+| Migration | From manual consumers and between public API versions |
 | Releases | Changelog, deprecation, known issues, constraints |
 
-Примеры MUST проверяться в CI: syntax/type smoke, generated synthetic proto, функциональные runs на fake/real broker по месту. Документация явно отделяет поддержанные функции от roadmap и не ссылается на закрытые business services.
+Examples MUST be checked in CI: syntax/type smoke, generated synthetic proto, and functional runs with fake/real brokers as appropriate. Documentation explicitly separates supported features from the roadmap and does not refer to private business services.
 
 <a id="s25"></a>
-## 25. План реализации и критерии приёмки
+## 25. Implementation plan and acceptance criteria
 
-### 25.1. Последовательность реализации
+### 25.1. Implementation sequence
 
-| Этап | Результат | Условие перехода |
+| Stage | Result | Progression condition |
 |---|---|---|
-| M0 | Repository, build metadata, публичные модели/errors/Protocols, synthetic proto | Core import без extras, type checks, сборка |
-| M1 | Clock, bounded Journal, gap accounting, lifecycle и FakeTransport | Deterministic race/resource tests |
-| M2 | Payload/event matchers, Expectation Engine, copies и scopes | History/concurrency/count/completeness tests |
-| M3 | Sync portal и отдельный facade над тем же Core | Sync/async parity, blocked-action collection, cleanup/thread-affinity |
-| M4 | Kafka Adapter, positions/readiness/native bridge | Реальные Kafka contract tests и faults |
+| M0 | Repository, build metadata, public models/errors/Protocols, synthetic proto | Core import without extras, type checks, build |
+| M1 | Clock, bounded Journal, gap accounting, lifecycle, and FakeTransport | Deterministic race/resource tests |
+| M2 | Payload/event matchers, Expectation Engine, copies, and scopes | History/concurrency/count/completeness tests |
+| M3 | Sync portal and separate facade over the same Core | Sync/async parity, blocked-action collection, cleanup/thread-affinity |
+| M4 | Kafka Adapter, positions/readiness/native bridge | Real Kafka contract tests and faults |
 | M5 | Protobuf single/mixed, typed resolver validation | Schema/presence/null/unknown-type/copy tests |
-| M6 | Diagnostics, redaction, trace extractor, Allure | Safe-output golden tests и reporting-context isolation |
-| M7 | Full compatibility, reliability, packaging, docs и release gates | Candidate 0.1.0 готов к разрешённой владельцем публикации |
-| M8 | Temporal Assertions | Отдельные temporal acceptance tests для обоих facade |
-| M9 | RabbitMQ / Redis Streams, затем ephemeral transports | Контракт каждого брокера подтверждён независимо |
+| M6 | Diagnostics, redaction, trace extractor, Allure | Safe-output golden tests and reporting-context isolation |
+| M7 | Full compatibility, reliability, packaging, docs, and release gates | Candidate 0.1.0 ready for owner-authorized publication |
+| M8 | Temporal Assertions | Separate temporal acceptance tests for both facades |
+| M9 | RabbitMQ / Redis Streams, then ephemeral transports | Each broker's contract verified independently |
 
-Реализация отдельных Protobuf utilities может идти параллельно M2; последовательность выражает зависимости гарантии, а не запрет локального прототипирования. Один этап не считается завершённым только по наличию API stub.
+Individual Protobuf utilities may be implemented in parallel with M2; the sequence expresses dependencies between guarantees, rather than prohibiting local prototyping. A stage is not complete merely because an API stub exists.
 
 ### 25.2. MVP acceptance matrix
 
-В репозитории MUST существовать machine-readable mapping `requirement_id → tests/checks`. Таблица ниже — обязательный минимум; ссылки на конкретные test nodeids заполняются реализацией, не выдумываются в документе.
+The repository MUST contain a machine-readable mapping `requirement_id → tests/checks`. The table below is the mandatory minimum; the implementation fills in specific test nodeids rather than inventing them in this document.
 
-| ID | Сценарий | Критерий |
+| ID | Scenario | Criterion |
 |---|---|---|
-| AC-01 | Импорт Core без extras | Не импортируются pytest, Kafka, Protobuf и Allure |
-| AC-02 | Создание factory/watch object | Нет сети, tasks, consumer или runtime thread |
-| AC-03 | Sync enter | Возвращает READY watcher до выполнения body |
-| AC-04 | Async enter | Та же readiness semantics |
-| AC-05 | Empty topic | READY без искусственной публикации |
-| AC-06 | Событие сразу после READY | Обнаруживается без startup race |
-| AC-07 | Событие между boundary и READY | Не отбрасывается |
-| AC-08 | Latest на нескольких partitions | Явный vector start positions |
-| AC-09 | Сохранённые committed offsets | Не меняют выбранную start policy |
-| AC-10 | Earliest | Читается доступная история, не обещается удалённая |
-| AC-11 | Offset == high | Допустимая live стартовая граница |
-| AC-12 | Offset вне допустимого диапазона | Typed failure, без auto reset |
-| AC-13 | Timestamp отсутствует | Документированный fallback/require_existing по partition |
-| AC-14 | Timestamp будущий | Не выдаётся обещание постоянного фильтра timestamp |
-| AC-15 | Compacted/control gaps | Нет ложной потери по offset arithmetic |
-| AC-16 | Transactional stream | Проверены isolation и latest boundary |
-| AC-17 | Topology change | После обнаружения fail-closed, не молчаливое расширение |
-| AC-18 | Две sessions одного adapter | Независимые connections/journals/cleanup |
-| AC-19 | Два workers один topic | Независимо получают опубликованный record |
-| AC-20 | Raw payload None и b"" | Различаются без повреждения данных |
-| AC-21 | Duplicate/null headers | Сохраняются RawEvent без потерь |
-| AC-22 | Protobuf parse | Generated class восстанавливается автоматически |
-| AC-23 | Empty Protobuf bytes | Допустимы для подходящего message schema |
-| AC-24 | Required proto2 fields | Документированный initialization failure |
-| AC-25 | Wrong-type успешный parse | Не рекламируется как auto type detection |
-| AC-26 | Unknown type | FAIL_FAST / SKIP_UNKNOWN_TYPE строго по политике |
-| AC-27 | Ambiguous/invalid discriminator | Не скрывается unknown-type skip |
-| AC-28 | Mutable predicate argument | Не меняет Journal или другой waiter |
-| AC-29 | Mutable returned payload | Не меняет каноническое сообщение |
-| AC-30 | Aggregate Journal FAIL | Typed terminal failure, все waiters уведомлены |
-| AC-31 | DROP_OLDEST | Правильные loss ranges и scoped completeness |
-| AC-32 | DROP_NEWEST | Нет незарегистрированных дыр |
-| AC-33 | Hard oversized event | Ошибка до decode, без безлимитного парсинга |
-| AC-34 | Loss ledger overflow | Conservative incomplete, не восстановленная полнота |
-| AC-35 | Waiter/result/scope limits | Resource error без неограниченного состояния |
-| AC-36 | История до вызова wait_for | Первое подходящее событие находится |
-| AC-37 | Два ожидания одного matcher | Допускается один и тот же record |
-| AC-38 | wait_for_count | N разных records, единый deadline, нет повторного счёта |
-| AC-39 | Broker duplicate | Считается отдельной записью; нет скрытой dedup |
-| AC-40 | Lost-wakeup interleaving | Append между scan и sleep не теряется |
-| AC-41 | Matcher exception/non-bool | Явная ошибка waiter, не timeout |
-| AC-42 | Descriptor typo/presence | Ранняя configuration error |
-| AC-43 | Mixed-type guard | on_type не вызывает неподходящий predicate |
-| AC-44 | MATCH/MISMATCH/NA | Все композиции проверены таблицей истинности |
-| AC-45 | Nested scopes | Не расширяют parent interval/filter |
-| AC-46 | FROM_NOW sync/async | Атомарная runtime boundary, не publisher time |
-| AC-47 | Новый strict waiter после eviction | Не теряет сведения о неполноте |
-| AC-48 | Поздний новый scope | Может явно выбрать полный post-gap диапазон |
-| AC-49 | Scope snapshot | Не вызывает predicate повторно и не дублирует Journal |
-| AC-50 | Событие до/on/after deadline | Правильная eligibility и final scan |
-| AC-51 | Error перед result commit | Known failure не проигрывает success |
-| AC-52 | Error после result commit | Нет retroactive result rewrite; normal exit видит failure |
-| AC-53 | Callback блокирует loop | Нет ложного hard-timeout promise; диагностируемый overrun |
-| AC-54 | Transport failure без waiter | Context exit не остаётся успешным |
-| AC-55 | Startup cancellation на каждом шаге | Rollback без забытых resources |
-| AC-56 | Normal/failed cleanup | Основная ошибка сохраняется, secondary diagnostic |
-| AC-57 | Repeated/concurrent close | Одна очистка без double-free |
-| AC-58 | Cancel одного waiter | Другие продолжают работу |
-| AC-59 | Full data bridge + close | Control path не заблокирован data capacity |
-| AC-60 | Sync blocking service action | Reader продолжает принимать сообщения |
-| AC-61 | Sync result | Значение T, не coroutine/Future |
-| AC-62 | Sync callback thread | Документированное runtime execution, безопасные copies |
-| AC-63 | Sync inside async context | Явный отказ, без nested loop/deadlock |
-| AC-64 | Foreign thread/process/loop | Affinity error, не повреждение состояния |
-| AC-65 | Sync Ctrl-C/timeout | Controlled cancel; нет забытой coroutine при compliant callbacks |
-| AC-66 | Многократный sync lifecycle | Нет накопления контролируемых tasks/threads |
-| AC-67 | Sync/async event-script parity | Одинаковые domain results и errors |
-| AC-68 | Callback использует sync handle рекурсивно | Немедленный ReentrantSyncCallError |
-| AC-69 | Diagnostics limits | Валидные bounded JSON и явные truncation flags |
-| AC-70 | Metadata-only reporting | Payload/key/headers/expected secrets не выводятся |
-| AC-71 | Redactor failure | Нет fallback к raw содержимому |
-| AC-72 | Allure concurrent waiters | Нет смешения parent/steps или потери outcome |
-| AC-73 | Reporter failure | Не меняет match result, bounded safe error |
-| AC-74 | Trace context invalid/duplicate/missing | Safe status, Protobuf продолжает работать |
-| AC-75 | Valid traceparent | Корректные IDs; экспорт только по opt-in |
-| AC-76 | Reusable contract suite | Custom adapter подключается без правки Core |
-| AC-77 | Fault proxy для Kafka | Трафик не обходит proxy через advertised endpoints |
-| AC-78 | Contract test applicability | Нельзя скрыть заявленную capability через skip |
-| AC-79 | Clean wheel/sdist installs | Публичные импорты и py.typed работают |
-| AC-80 | Неустановленные optional deps | Понятная MissingOptionalDependencyError |
-| AC-81 | pytest plugin autoload | Пассивный, без скрытой fixture/connection |
-| AC-82 | Pure sync pytest environment | Работает без pytest-asyncio |
-| AC-83 | xdist logs/resources | Уникальные IDs, нет общего mutable runtime |
-| AC-84 | Runtime memory/load | Собственные очереди и pending work ограничены |
-| AC-85 | Artifact/release integrity | Проверенные файлы, version/tag/hash согласованы |
-| AC-86 | Trusted Publishing | Нет long-lived PyPI token; protected workflow/environment |
-| AC-87 | Public docs | Реализованные и отложенные возможности не смешаны |
-| AC-88 | NDA-independent package | Нет внутренних имён/схем/credentials/исходников |
+| AC-01 | Core import without extras | pytest, Kafka, Protobuf, and Allure are not imported |
+| AC-02 | Factory/watch object creation | No network, tasks, consumer, or runtime thread |
+| AC-03 | Sync enter | Returns a READY watcher before the body executes |
+| AC-04 | Async enter | The same readiness semantics |
+| AC-05 | Empty topic | READY without artificial publication |
+| AC-06 | Event immediately after READY | Found without a startup race |
+| AC-07 | Event between boundary and READY | Not discarded |
+| AC-08 | Latest on multiple partitions | Explicit vector of start positions |
+| AC-09 | Retained committed offsets | Do not change the selected start policy |
+| AC-10 | Earliest | Available history is read; deleted history is not promised |
+| AC-11 | Offset == high | Valid live start boundary |
+| AC-12 | Offset outside the allowed range | Typed failure, without auto reset |
+| AC-13 | Timestamp absent | Documented fallback/require_existing per partition |
+| AC-14 | Future timestamp | No promise of a permanent timestamp filter |
+| AC-15 | Compacted/control gaps | No false loss inferred through offset arithmetic |
+| AC-16 | Transactional stream | Isolation and latest boundary verified |
+| AC-17 | Topology change | Fail-closed after detection, rather than silent expansion |
+| AC-18 | Two sessions of one adapter | Independent connections/journals/cleanup |
+| AC-19 | Two workers, one topic | Independently receive the published record |
+| AC-20 | Raw payload None and b"" | Distinguished without data corruption |
+| AC-21 | Duplicate/null headers | Preserved in RawEvent without loss |
+| AC-22 | Protobuf parse | Generated class is restored automatically |
+| AC-23 | Empty Protobuf bytes | Allowed for a compatible message schema |
+| AC-24 | Required proto2 fields | Documented initialization failure |
+| AC-25 | Successful wrong-type parse | Not advertised as automatic type detection |
+| AC-26 | Unknown type | FAIL_FAST / SKIP_UNKNOWN_TYPE strictly according to policy |
+| AC-27 | Ambiguous/invalid discriminator | Not hidden by unknown-type skip |
+| AC-28 | Mutable predicate argument | Does not change the Journal or another waiter |
+| AC-29 | Mutable returned payload | Does not change the canonical message |
+| AC-30 | Aggregate Journal FAIL | Typed terminal failure, all waiters notified |
+| AC-31 | DROP_OLDEST | Correct loss ranges and scoped completeness |
+| AC-32 | DROP_NEWEST | No unrecorded gaps |
+| AC-33 | Hard oversized event | Error before decode, without unlimited parsing |
+| AC-34 | Loss ledger overflow | Conservatively incomplete, rather than restored completeness |
+| AC-35 | Waiter/result/scope limits | Resource error without unbounded state |
+| AC-36 | History before wait_for is called | First matching event is found |
+| AC-37 | Two expectations with the same matcher | The same record is allowed |
+| AC-38 | wait_for_count | N distinct records, one deadline, no repeated counting |
+| AC-39 | Broker duplicate | Counted as a separate record; no hidden deduplication |
+| AC-40 | Lost-wakeup interleaving | Append between scan and sleep is not lost |
+| AC-41 | Matcher exception/non-bool | Explicit waiter error, not timeout |
+| AC-42 | Descriptor typo/presence | Early configuration error |
+| AC-43 | Mixed-type guard | on_type does not call an inapplicable predicate |
+| AC-44 | MATCH/MISMATCH/NA | All compositions verified by a truth table |
+| AC-45 | Nested scopes | Do not expand the parent interval/filter |
+| AC-46 | FROM_NOW sync/async | Atomic runtime boundary, not publisher time |
+| AC-47 | New strict waiter after eviction | Does not lose incompleteness information |
+| AC-48 | Late new scope | Can explicitly select a complete post-gap range |
+| AC-49 | Scope snapshot | Does not invoke the predicate again or duplicate the Journal |
+| AC-50 | Event before/on/after deadline | Correct eligibility and final scan |
+| AC-51 | Error before result commit | Known failure does not lose to success |
+| AC-52 | Error after result commit | No retroactive result rewrite; normal exit observes failure |
+| AC-53 | Callback blocks the loop | No false hard-timeout promise; diagnosable overrun |
+| AC-54 | Transport failure without a waiter | Context exit does not remain successful |
+| AC-55 | Startup cancellation at each step | Rollback without forgotten resources |
+| AC-56 | Normal/failed cleanup | Primary error preserved, secondary diagnostic |
+| AC-57 | Repeated/concurrent close | One cleanup without double-free |
+| AC-58 | One waiter cancelled | Others continue working |
+| AC-59 | Full data bridge + close | Control path is not blocked by data capacity |
+| AC-60 | Sync blocking service action | Reader continues receiving messages |
+| AC-61 | Sync result | Value T, not a coroutine/Future |
+| AC-62 | Sync callback thread | Documented runtime execution, safe copies |
+| AC-63 | Sync inside async context | Explicit rejection, without nested loop/deadlock |
+| AC-64 | Foreign thread/process/loop | Affinity error, rather than state corruption |
+| AC-65 | Sync Ctrl-C/timeout | Controlled cancel; no forgotten coroutine with compliant callbacks |
+| AC-66 | Repeated sync lifecycle | No accumulation of controlled tasks/threads |
+| AC-67 | Sync/async event-script parity | Same domain results and errors |
+| AC-68 | Callback uses its sync handle recursively | Immediate ReentrantSyncCallError |
+| AC-69 | Diagnostics limits | Valid bounded JSON and explicit truncation flags |
+| AC-70 | Metadata-only reporting | Payload/key/headers/expected secrets are not disclosed |
+| AC-71 | Redactor failure | No fallback to raw content |
+| AC-72 | Allure concurrent waiters | No mixing of parents/steps or lost outcome |
+| AC-73 | Reporter failure | Does not change the match result; bounded safe error |
+| AC-74 | Trace context invalid/duplicate/missing | Safe status; Protobuf continues working |
+| AC-75 | Valid traceparent | Correct IDs; export only through opt-in |
+| AC-76 | Reusable contract suite | Custom adapter integrates without modifying Core |
+| AC-77 | Kafka fault proxy | Traffic does not bypass the proxy through advertised endpoints |
+| AC-78 | Contract test applicability | A claimed capability cannot be hidden through skip |
+| AC-79 | Clean wheel/sdist installs | Public imports and py.typed work |
+| AC-80 | Missing optional dependencies | Clear MissingOptionalDependencyError |
+| AC-81 | pytest plugin autoload | Passive, without a hidden fixture/connection |
+| AC-82 | Pure sync pytest environment | Works without pytest-asyncio |
+| AC-83 | xdist logs/resources | Unique IDs, no shared mutable runtime |
+| AC-84 | Runtime memory/load | The library's own queues and pending work are bounded |
+| AC-85 | Artifact/release integrity | Verified files, consistent version/tag/hash |
+| AC-86 | Trusted Publishing | No long-lived PyPI token; protected workflow/environment |
+| AC-87 | Public docs | Implemented and deferred features are not mixed |
+| AC-88 | NDA-independent package | No internal names/schemas/credentials/source code |
 
 ### 25.3. Definition of Done 0.1.0
 
-0.1.0 готова, когда обязательные требования и AC-01–AC-88 имеют воспроизводимое доказательство, release gates RG-01–RG-15 пройдены для candidate artifacts, документация соответствует коду и нет неразрешённых критических reliability/security defects.
+0.1.0 is ready when the mandatory requirements and AC-01–AC-88 have reproducible evidence, release gates RG-01–RG-15 pass for the candidate artifacts, documentation matches the code, and no critical reliability/security defects remain unresolved.
 
-API stub, mock-only Kafka test, untested dependency range, скрытое отключение flaky contract или benchmark без описания окружения не являются доказательством выполнения требования.
+An API stub, a mock-only Kafka test, an untested dependency range, silently disabling a flaky contract, or a benchmark without an environment description are not evidence that a requirement has been fulfilled.
 
-### 25.4. Что не блокирует начало реализации
+### 25.4. What does not block starting implementation
 
-Окончательное публичное имя, лицензия, точные compatibility floors и publishing identity не препятствуют созданию Core и тестов. Они блокируют **публикацию**, а не дают основание откладывать реализацию всей архитектуры. Никакие закрытые исходники для старта не требуются.
+The final public name, license, exact compatibility floors, and publishing identity do not prevent building Core and tests. They block **publication**, rather than justify deferring implementation of the entire architecture. No private source code is required to start.
 
 <a id="s26"></a>
-## 26. Уточнения при консолидации ADR
+## 26. Clarifications from ADR consolidation
 
-Это явный журнал согласования ранних примеров. Он не добавляет скрытых функций: устраняет противоречия и фиксирует недостающие точки расширения.
+This is an explicit reconciliation log for earlier examples. It does not add hidden features: it removes contradictions and records missing extension points.
 
-| Область ранних ADR | Нормативное уточнение этой редакции |
+| Area in earlier ADRs | Normative clarification in this revision |
 |---|---|
-| Async-only примеры | Добавлен SyncEventObserver в MVP, одно ядро, отдельный непрерывный runtime |
-| Неопределённый «sync bridge» | Owner-thread facade, bounded portal, общий deadline, no nested asyncio.run |
-| Raw headers как Mapping | Tuple pairs с повторениями и `bytes | None` values |
-| Raw payload | `bytes | None`; пустая строка не tombstone |
-| EmptyPayloadError для Protobuf | NullPayloadError; b"" может быть валидным default message |
-| `received_monotonic` разного происхождения | Authoritative `recorded_monotonic` на admission; transport time отдельно |
-| Codec encode+decode | Для observer обязателен только Decoder; publisher не входит в MVP |
-| Два Protocol с одинаковым `match` | Payload `.match`, event `.match_event`, явная adaptation |
-| Binary MatchResult | Три состояния с полной таблицей composition |
-| `is_message_type` как неявный guard all_of | Введён `on_type`; all_of не обещает short-circuit для защиты callback |
-| ALL_RETAINED сдвигается на retained head | Логическая lower bound сохраняется; known gaps не исчезают |
-| Только global DEGRADED | Range-aware completeness и bounded conservative loss ledger |
-| «Лимит bytes равен лимиту RAM» | Accounted budget, отдельно native/transient/user-owned память |
-| Неограниченные waiters/scopes/results | Явные настраиваемые пределы состояния |
-| Oversize при DROP policy | Hard single-event limit фатален; DROP относится к aggregate retention |
-| Ack после Journal без API | Optional SettlementSession и непрозрачный delivery ID |
-| Только receive errors | Отдельный failure signal/monitor даже при backpressure |
-| «Offset gap доказывает потерю» | Compaction/control/transaction visibility не считаются потерей арифметически |
-| Timestamp replay как фильтр будущего | Только выбор начальной позиции; live records не фильтруются автоматически |
-| Metadata+assign гарантируют Read ACL | Требуется подтверждение reader/fetch path либо startup failure |
-| READ_COMMITTED latest неоднозначен | Numeric high-watermark boundary, не момент позднего commit старой транзакции |
-| Идеальный hard timeout Python callback | Deadline eligibility + bounded cooperative execution; нет unsafe preemption |
-| Успешный body скрывает умерший reader | Known terminal failure поднимается при normal context exit |
-| «Shield гарантирует отсутствие tasks» | Tracked, bounded cleanup и честный incomplete/abandoned outcome |
-| Allure context автоматически task-local | Safe completed summary steps; background code только собирает данные |
-| Scope diagnostics суммируют сообщения | Отдельные per-expectation evaluations, без ложного unique count |
-| Extras будущих брокеров заранее | Публикуются только реально реализованные extras |
-| Версии зависимостей в примере приняты за tested | Dependency floors и matrix подтверждаются перед релизом |
-| pytest extra включает entry point только по запросу | Entry point — metadata дистрибутива; plugin обязан быть пассивным |
-| Apache-2.0 в черновике | Было предложением; лицензия требует отдельного решения владельца |
-| Temporal API помещён в 0.1 в ранних разделах | Финальная граница: temporal после 0.1; оба facade при поставке |
-| Sync поддерживает все пользовательские threading modes | В MVP owner-thread handle; parallel assertions доступны через async API |
+| Async-only examples | SyncEventObserver added to the MVP, one core, separate continuously running runtime |
+| Undefined "sync bridge" | Owner-thread facade, bounded portal, shared deadline, no nested asyncio.run |
+| Raw headers as Mapping | Tuple pairs preserving duplicates and `bytes | None` values |
+| Raw payload | `bytes | None`; an empty string is not a tombstone |
+| EmptyPayloadError for Protobuf | NullPayloadError; b"" may be a valid default message |
+| `received_monotonic` from different origins | Authoritative `recorded_monotonic` at admission; transport time kept separately |
+| Codec encode+decode | Only Decoder is mandatory for an observer; publishing is outside the MVP |
+| Two Protocols with the same `match` | Payload `.match`, event `.match_event`, explicit adaptation |
+| Binary MatchResult | Three states with a complete composition table |
+| `is_message_type` as an implicit all_of guard | `on_type` introduced; all_of does not promise short-circuiting to protect a callback |
+| ALL_RETAINED moves to the retained head | Logical lower bound is preserved; known gaps do not disappear |
+| Only global DEGRADED | Range-aware completeness and a bounded conservative loss ledger |
+| "Byte limit equals RAM limit" | Accounted budget, with native/transient/user-owned memory separate |
+| Unbounded waiters/scopes/results | Explicit configurable state limits |
+| Oversize under a DROP policy | Hard single-event limit is fatal; DROP applies to aggregate retention |
+| Ack after Journal without an API | Optional SettlementSession and opaque delivery ID |
+| Receive errors only | Separate failure signal/monitor even under backpressure |
+| "An offset gap proves loss" | Compaction/control/transaction visibility is not treated as loss through arithmetic |
+| Timestamp replay as a future filter | Initial position selection only; live records are not filtered automatically |
+| Metadata+assign guarantees Read ACL | Reader/fetch path confirmation or startup failure is required |
+| Ambiguous READ_COMMITTED latest | Numeric high-watermark boundary, not the time an old transaction commits later |
+| Perfect hard timeout for a Python callback | Deadline eligibility + bounded cooperative execution; no unsafe preemption |
+| Successful body hides a dead reader | Known terminal failure is raised at normal context exit |
+| "Shield guarantees no tasks remain" | Tracked, bounded cleanup and an honest incomplete/abandoned outcome |
+| Automatically task-local Allure context | Safe completed summary steps; background code only collects data |
+| Scope diagnostics add up messages | Separate per-expectation evaluations, without a false unique count |
+| Future broker extras declared in advance | Only actually implemented extras are published |
+| Example dependency versions treated as tested | Dependency floors and the matrix are verified before release |
+| pytest extra enables an entry point only on request | The entry point is distribution metadata; the plugin must be passive |
+| Apache-2.0 in a draft | It was a proposal; the license requires a separate owner decision |
+| Temporal API placed in 0.1 in earlier sections | Final boundary: temporal after 0.1; both facades when shipped |
+| Sync supports every user threading mode | Owner-thread handle in the MVP; parallel assertions through the async API |
 
-### 26.1. Принцип изменения спецификации
+### 26.1. Principle for changing the specification
 
-Если реализация выявляет невозможность соблюдения обязательного контракта конкретного клиента/брокера, разработчик MUST остановить продвижение соответствующего release claim, описать воспроизводимый случай и предложить изменение SPEC/ADR. Он MUST NOT молча ослабить readiness, полноту, копирование, безопасность отчётов или cleanup.
+If implementation reveals that a specific client's/broker's mandatory contract cannot be satisfied, the developer MUST stop advancing the corresponding release claim, describe a reproducible case, and propose a SPEC/ADR change. The developer MUST NOT silently weaken readiness, completeness, copying, report safety, or cleanup.
 
-### 26.2. Итоговый статус
+### 26.2. Final status
 
-Архитектура ADR-001–012 консолидирована. Поддержка синхронных тестов включена дополнительным ADR-013. Границы 0.1, последующих temporal/transport этапов и административные publication blockers разделены.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
-Спецификация готова к реализации. Это не означает, что библиотека написана, нагрузочные показатели измерены, совместимость подтверждена или выпуск опубликован.
+The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 
 <a id="s27"></a>
-## 27. Внешние технические основания
+## 27. External technical foundations
 
-Источники проверены при подготовке редакции 1.0. Они подтверждают свойства используемых платформ, но не являются доказательством работоспособности ещё не реализованной библиотеки. Точные версии зависимостей и container images фиксируются в compatibility manifest реализации.
+Sources were checked while preparing revision 1.0. They substantiate properties of the platforms used, but are not evidence that the as-yet unimplemented library works. Exact dependency versions and container images are recorded in the implementation's compatibility manifest.
 
-| ID | Первичный источник | Использование |
+| ID | Primary source | Usage |
 |---|---|---|
 | S01 | [Python: Developing with asyncio](https://docs.python.org/3.14/library/asyncio-dev.html) | Loop/thread ownership, thread-safe scheduling, blocking callbacks |
 | S02 | [Python: Runners](https://docs.python.org/3.14/library/asyncio-runner.html) | Lifecycle asyncio.run/Runner, nested loop restrictions |
-| S03 | [Python: Coroutines and Tasks](https://docs.python.org/3.14/library/asyncio-task.html) | run_coroutine_threadsafe, cancellation и timeouts |
+| S03 | [Python: Coroutines and Tasks](https://docs.python.org/3.14/library/asyncio-task.html) | run_coroutine_threadsafe, cancellation and timeouts |
 | S04 | [Protobuf: Python Generated Code Guide](https://protobuf.dev/reference/python/python-generated/) | Parse/CopyFrom, generated classes, field presence |
 | S05 | [Confluent Kafka Python API](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html) | Assignment, polling, watermark offsets, offsets_for_times |
 | S06 | [librdkafka: Configuration Properties](https://docs.confluent.io/platform/current/clients/librdkafka/html/md_CONFIGURATION.html) | auto.offset.reset, read_committed, native consumer buffers |
-| S07 | [RabbitMQ: Consumer Prefetch](https://www.rabbitmq.com/docs/consumer-prefetch) | Ограничение unacknowledged deliveries |
-| S08 | [Redis: XREAD](https://redis.io/docs/latest/commands/xread/) | Stream cursor и использование `$` |
-| S09 | [Allure: Pytest Reference](https://allurereport.org/docs/pytest-reference/) | Steps и attachments публичного API |
-| S10 | [W3C Trace Context](https://www.w3.org/TR/trace-context/) | Формат traceparent/tracestate и validation |
-| S11 | [pytest: Writing Plugins](https://docs.pytest.org/en/stable/how-to/writing_plugins.html) | pytest11 discovery и plugin lifecycle |
-| S12 | [pytest-xdist: How-tos](https://pytest-xdist.readthedocs.io/en/stable/how-to.html) | Worker identity, session fixtures и per-process execution |
-| S13 | [Testcontainers Python: Kafka](https://testcontainers-python.readthedocs.io/en/latest/modules/kafka/README.html) | KafkaContainer и KRaft test infrastructure |
+| S07 | [RabbitMQ: Consumer Prefetch](https://www.rabbitmq.com/docs/consumer-prefetch) | Limiting unacknowledged deliveries |
+| S08 | [Redis: XREAD](https://redis.io/docs/latest/commands/xread/) | Stream cursor and use of `$` |
+| S09 | [Allure: Pytest Reference](https://allurereport.org/docs/pytest-reference/) | Public API steps and attachments |
+| S10 | [W3C Trace Context](https://www.w3.org/TR/trace-context/) | traceparent/tracestate format and validation |
+| S11 | [pytest: Writing Plugins](https://docs.pytest.org/en/stable/how-to/writing_plugins.html) | pytest11 discovery and plugin lifecycle |
+| S12 | [pytest-xdist: How-tos](https://pytest-xdist.readthedocs.io/en/stable/how-to.html) | Worker identity, session fixtures, and per-process execution |
+| S13 | [Testcontainers Python: Kafka](https://testcontainers-python.readthedocs.io/en/latest/modules/kafka/README.html) | KafkaContainer and KRaft test infrastructure |
 | S14 | [Protobuf: Cross-Version Runtime Guarantee](https://protobuf.dev/support/cross-version-runtime-guarantee/) | Generated-code/runtime compatibility |
-| S15 | [Toxiproxy — официальный репозиторий](https://github.com/Shopify/toxiproxy) | TCP fault injection |
-| S16 | [PyPA: pyproject.toml Specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/) | Project metadata и optional dependencies |
-| S17 | [PyPA: Dependency Groups](https://packaging.python.org/en/latest/specifications/dependency-groups/) | Dev groups вне runtime metadata |
-| S18 | [Hatch: Build Configuration](https://hatch.pypa.io/latest/config/build/) | Wheel/sdist selection и src layout |
-| S19 | [uv: Building and Publishing a Package](https://docs.astral.sh/uv/guides/package/) | build frontend и --no-sources |
-| S20 | [GitHub Actions: Secure Use Reference](https://docs.github.com/en/actions/reference/security/secure-use) | Permissions, untrusted code и action pinning |
-| S21 | [PyPI: Publishing with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/using-a-publisher/) | GitHub OIDC и publication workflow |
-| S22 | [PyPI: Creating a Project through OIDC](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) | Pending publisher и незарезервированное имя |
+| S15 | [Toxiproxy — official repository](https://github.com/Shopify/toxiproxy) | TCP fault injection |
+| S16 | [PyPA: pyproject.toml Specification](https://packaging.python.org/en/latest/specifications/pyproject-toml/) | Project metadata and optional dependencies |
+| S17 | [PyPA: Dependency Groups](https://packaging.python.org/en/latest/specifications/dependency-groups/) | Dev groups outside runtime metadata |
+| S18 | [Hatch: Build Configuration](https://hatch.pypa.io/latest/config/build/) | Wheel/sdist selection and src layout |
+| S19 | [uv: Building and Publishing a Package](https://docs.astral.sh/uv/guides/package/) | Build frontend and --no-sources |
+| S20 | [GitHub Actions: Secure Use Reference](https://docs.github.com/en/actions/reference/security/secure-use) | Permissions, untrusted code, and action pinning |
+| S21 | [PyPI: Publishing with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/using-a-publisher/) | GitHub OIDC and publication workflow |
+| S22 | [PyPI: Creating a Project through OIDC](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) | Pending publisher and an unreserved name |
 | S23 | [PyPI: Producing Attestations](https://docs.pypi.org/attestations/producing-attestations/) | Publish attestations |

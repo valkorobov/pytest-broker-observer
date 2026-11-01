@@ -1,33 +1,39 @@
-# Разработка
+# Contributing
 
-Исходный контракт — [SPEC.md](SPEC.md). Проверенный статус реализации и
-ограничения находятся в [docs/status.md](docs/status.md). Команды ниже
-выполняются из корня проекта.
+The original contract is [SPEC.md](SPEC.md). Verified implementation status and
+limitations are documented in [docs/status.md](docs/status.md). Run the commands
+below from the repository root.
 
-## Подготовка
+## Project language
 
-Используйте Python 3.11–3.14 и установите окружение:
+Use English for project documentation, code comments, docstrings, examples, test
+descriptions, and report labels. Unicode test data may contain non-ASCII characters
+when needed to verify encoding and byte limits; explain its purpose in English.
+Generate Allure reports with `--report-language en`.
+
+## Setup
+
+Use Python 3.11–3.14 and install the environment:
 
 ```shell
 uv sync --all-groups --all-extras
 ```
 
-Внутри Git-репозитория установите хуки перед коммитами:
+Install the hooks inside the Git repository before committing:
 
 ```shell
 uv run --locked pre-commit install
 ```
 
-Хуки проверяют Ruff lint, форматирование Ruff и типы через Pyrefly. Все три
-используют версии инструментов из `uv.lock` и проверяют проект целиком.
-Файлы автоматически не изменяются; ошибки форматирования исправляйте отдельно.
+The hooks check Ruff lint, Ruff formatting, and types through Pyrefly. All three
+use tool versions from `uv.lock` and check the entire project. They do not modify
+files automatically; fix formatting separately.
 
-Базовый Core использует только стандартную библиотеку. Не добавляйте обязательные
-импорты Kafka, Protobuf, pytest, Allure или OpenTelemetry в обычный
-`import event_observer`. Runtime не должен читать credentials или открывать
-подключения до входа в контекст watcher.
+Core uses only the standard library. Do not add mandatory Kafka, Protobuf, pytest,
+Allure, or OpenTelemetry imports to a plain `import event_observer`. The runtime
+must not read credentials or open connections before entering a watcher context.
 
-## Проверки
+## Checks
 
 ```shell
 uv run --locked pre-commit run --all-files
@@ -41,9 +47,9 @@ uv build --no-sources
 uv run twine check dist/*
 ```
 
-Для исправления форматирования используйте `uv run ruff format .`.
-Для Kafka integration tests и Kafka pytest-примера можно запустить локальный
-брокер из `compose.yaml` (Docker Compose v2.18+):
+Use `uv run ruff format .` to fix formatting. For Kafka integration tests and the
+Kafka pytest example, start the local broker from `compose.yaml`
+(Docker Compose v2.18+):
 
 ```shell
 docker compose up --detach --wait --wait-timeout 120
@@ -51,29 +57,30 @@ KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/int
 docker compose down
 ```
 
-Эти тесты создают и удаляют topics. Указанный, но недоступный брокер даёт failure;
-отсутствующая переменная окружения означает явный skip. Docker не требуется
-для обычных Core tests или работы с уже существующим брокером.
-Порт и правила хранения данных описаны в [docs/local-kafka.md](docs/local-kafka.md).
+These tests create and delete topics. An explicitly configured but unreachable
+broker causes a failure; a missing environment variable causes an explicit skip.
+Docker is not required for ordinary Core tests or for an existing broker.
+Ports and data retention are covered in [docs/local-kafka.md](docs/local-kafka.md).
 
-Для проверки AllureReporter с настоящим pytest-плагином и просмотра HTML
-используйте [examples/allure](examples/allure/README.md). Обычный прогон зелёный;
-намеренное демонстрационное падение включается только отдельным флагом.
+To check AllureReporter with the real pytest plugin and view HTML, use
+[examples/allure](examples/allure/README.md). The regular run passes; an intentional
+demonstration failure is enabled with a separate flag.
 
-## Изменения Core и adapters
+## Core and adapter changes
 
-Сохраняйте общий код ожиданий для sync и async facade. Predicate получает
-отделённый payload; scope не создаёт consumer; независимые waiters не потребляют
-Journal records друг у друга. Known failure и неполнота не должны превращаться
-в обычный timeout или успешный результат.
+Keep expectation logic shared by the synchronous and asynchronous facades.
+Predicates receive detached payloads; a scope does not create a consumer;
+independent waiters do not consume Journal records from one another. Known
+failures and incomplete observation must not turn into ordinary timeouts or
+successful results.
 
-Для race regression используйте управляемый barrier или Clock, а не случайный
-sleep. Добавляйте проверку наблюдаемого контракта: причина ошибки, полнота,
-независимость readers, освобождение ресурсов или deadline eligibility.
+For race regressions, use a controlled barrier or Clock rather than random sleeps.
+Assert observable contracts: failure reason, completeness, reader independence,
+resource cleanup, or deadline eligibility.
 
-Новый adapter реализует `event_observer.transports.base.TransportAdapter` и
-создаёт loop-bound ресурсы внутри `open`. Укажите реальные capabilities и
-подключите contracts через собственную fixture `adapter_harness`:
+A new adapter implements `event_observer.transports.base.TransportAdapter` and
+creates loop-bound resources inside `open`. Declare actual capabilities and
+connect the contracts through your own `adapter_harness` fixture:
 
 ```python
 from event_observer.testing.contracts import (
@@ -87,16 +94,16 @@ class TestCustomAdapter(LifecycleContract, ReadinessContract, IsolationContract)
     pass
 ```
 
-Publisher harness должен подтверждать принятие публикации брокером. Fault,
-topology и position controls оформляются отдельными extension protocols.
-Не скрывайте непроверенную заявленную capability через skip.
+The publisher harness must confirm broker acceptance. Fault, topology, and
+position controls belong in separate extension protocols. Do not hide unverified
+capability claims behind skips.
 
-## Документация и выпуск
+## Documentation and releases
 
-Документируйте фактическое поведение API, обновляйте changelog и статус проверок.
-Изменение обязательного контракта требует явной корректировки SPEC/ADR, а не
-молчаливого ослабления readiness, копирования или полноты.
+Document actual API behavior and update the changelog and verification status.
+Changing a mandatory contract requires an explicit SPEC/ADR revision rather than
+silently weakening readiness, copying, or completeness.
 
-Перед выпуском нужны воспроизводимые проверки candidate artifacts и release
-gates из SPEC. Публичное имя, лицензия, publishing identity и Trusted Publishing
-требуют отдельного подтверждения владельцем. Локальная сборка не публикует пакет.
+Before release, candidate artifacts and the SPEC release gates need reproducible
+verification. The public name, license, publishing identity, and Trusted Publishing
+require separate owner confirmation. A local build does not publish the package.

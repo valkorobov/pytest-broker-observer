@@ -1,4 +1,4 @@
-"""Fixtures и явное включение намеренно падающего демонстрационного теста."""
+"""Fixtures and explicit opt-in for the intentionally failing demonstration test."""
 
 import pytest
 
@@ -27,7 +27,7 @@ def sync_events(transport: FakeTransport) -> SyncEventObserver:
     return SyncEventObserver(
         transport=transport,
         reporters=[AllureReporter()],
-        # SUMMARY создаёт вложения и для успешных ожиданий.
+        # SUMMARY also creates attachments for successful expectations.
         diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
     )
 

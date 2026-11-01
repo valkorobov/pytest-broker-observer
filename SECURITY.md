@@ -1,48 +1,48 @@
-# Безопасность
+# Security
 
-Этот проект находится на стадии MVP-кандидата. Поддерживаемые и фактически
-проверенные среды указаны в [матрице совместимости](docs/compatibility.md);
-готовность к публикации — в [статусе](docs/status.md).
+This project is an MVP candidate. Supported and actually verified environments
+are listed in the [compatibility matrix](docs/compatibility.md); release readiness
+is described in the [status document](docs/status.md).
 
-## Сообщение о проблеме
+## Report a vulnerability
 
-Для уязвимости используйте private security advisory репозитория, если эта
-возможность включена, или уже известный вам приватный канал связи с
-сопровождающим. Публичный issue подходит для сообщения о проблеме без credentials,
-персональных данных и эксплуатационных подробностей незакрытой уязвимости.
-Включайте версию Python и зависимостей, минимальный synthetic пример и безопасные
-diagnostics. Отдельный адрес для security reports пока не определён.
+Use the repository's private security advisory feature, if enabled, or an existing
+private contact channel with the maintainer. Public issues are suitable for reports
+that omit credentials, personal information, and exploitation details for an
+unresolved vulnerability. Include Python and dependency versions, a minimal
+synthetic example, and safe diagnostics. A dedicated security-reporting address
+has not yet been established.
 
-## Credentials и отчёты
+## Credentials and reports
 
-Передавайте настройки транспорта программно; secrets берите из окружения
-вашего тестового проекта или его secret store. Не включайте credentials,
-production messages или закрытые schema в fixtures, examples и attachments.
+Pass transport configuration programmatically; obtain secrets from your test
+project's environment or secret store. Do not include credentials, production
+messages, or private schemas in fixtures, examples, or attachments.
 
-По умолчанию диагностический export использует `METADATA_ONLY`: payload, key,
-headers, expected/actual значения, произвольные descriptions и trace IDs не
-раскрываются. Для дополнительного раскрытия нужны явные настройки. Redactor
-работает с копией; его ошибка не разрешает fallback к исходному содержимому.
-Подробности — в [руководстве по диагностике](docs/diagnostics.md).
+Diagnostic export uses `METADATA_ONLY` by default: payload, key, headers,
+expected/actual values, arbitrary descriptions, and trace IDs are not disclosed.
+Additional disclosure requires explicit settings. A redactor works on a copy;
+failure does not permit falling back to the original content. See the
+[diagnostics guide](docs/diagnostics.md).
 
-`watcher.snapshot()` предназначен для работы с событиями и содержит payload
-copies; это не metadata-only export. Python exception chaining и сторонний
-logger также могут содержать исходные клиентские ошибки. Политика библиотеки
-не управляет внешними traceback и logging handlers.
+`watcher.snapshot()` is an event API that contains payload copies; it is not a
+metadata-only export. Python exception chaining and third-party loggers can also
+contain original client errors. The library's policy does not control external
+tracebacks or logging handlers.
 
-## Границы защиты
+## Protection boundaries
 
-Бюджеты Journal, очередей, ожиданий и diagnostics ограничивают собственное
-учитываемое состояние библиотеки. Они не являются лимитом RSS всего процесса
-или native heap клиента. Hard single-event limit проверяется до decode.
+Journal, queue, expectation, and diagnostic budgets bound the library's own
+accounted state. They do not cap process RSS or the client's native heap. The hard
+single-event limit is checked before decoding.
 
-Пользовательские decoders, matchers, predicates и reporters считаются доверенным
-Python-кодом. Payload isolation защищает каноническую историю от обычной мутации,
-но не изолирует hostile code отдельным процессом. Блокирующий callback нельзя
-принудительно остановить по deadline.
+User decoders, matchers, predicates, and reporters are trusted Python code.
+Payload isolation protects canonical history from ordinary mutation; it does not
+sandbox hostile code in a separate process. A blocking callback cannot be forcibly
+stopped at its deadline.
 
-Kafka observer использует независимый reader без commits в consumer group
-приложения. Права доступа, TLS/SASL и изоляция тестового брокера настраиваются
-владельцем инфраструктуры. Real-broker tests создают и удаляют тестовые topics.
-Trace context извлекается пассивно; библиотека не создаёт spans и не переносит
-baggage автоматически.
+The Kafka observer uses an independent reader and does not commit to the
+application's consumer group. Infrastructure owners configure permissions,
+TLS/SASL, and test-broker isolation. Real-broker tests create and delete test topics.
+Trace context is extracted passively; the library does not create spans or
+propagate baggage automatically.

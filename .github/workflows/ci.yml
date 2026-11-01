@@ -58,7 +58,7 @@ jobs:
       - name: Generate standalone Allure report
         id: generate_report
         if: ${{ !cancelled() && (steps.allure_tests.outcome == 'success' || steps.allure_tests.outcome == 'failure') }}
-        run: npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language ru
+        run: npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language en
       - name: Upload Allure report
         if: ${{ !cancelled() && (steps.generate_report.outcome == 'success' || steps.generate_report.outcome == 'failure') }}
         continue-on-error: true
@@ -161,7 +161,7 @@ jobs:
       - name: Generate standalone Kafka Allure report
         id: generate_kafka_report
         if: ${{ !cancelled() && (steps.kafka_allure_tests.outcome == 'success' || steps.kafka_allure_tests.outcome == 'failure') }}
-        run: npx --yes allure@3.22.1 awesome artifacts/allure-kafka-results --single-file --output artifacts/allure-kafka-report --report-language ru
+        run: npx --yes allure@3.22.1 awesome artifacts/allure-kafka-results --single-file --output artifacts/allure-kafka-report --report-language en
       - name: Upload Kafka Allure report
         if: ${{ !cancelled() && (steps.generate_kafka_report.outcome == 'success' || steps.generate_kafka_report.outcome == 'failure') }}
         continue-on-error: true

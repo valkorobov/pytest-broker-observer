@@ -1,4 +1,4 @@
-"""Асинхронные pytest-тесты: fixtures, корреляция и независимые ожидания."""
+"""Asynchronous pytest tests: fixtures, correlation, and independent expectations."""
 
 import asyncio
 from uuid import uuid4
@@ -19,7 +19,7 @@ async def test_wait_for_operation_in_async_test(async_events: EventObserver, tra
     async with async_events.watch(source="operations") as watcher:
         operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
 
-        # Здесь FakeTransport изображает события, опубликованные тестируемым сервисом.
+        # Here FakeTransport represents events published by the service under test.
         transport.publish(b"completed", source="operations", headers=(("operation-id", b"another"),))
         transport.publish(b"started", source="operations", headers=(("operation-id", operation_id),))
         transport.publish(b"completed", source="operations", headers=(("operation-id", operation_id),))
@@ -44,7 +44,7 @@ async def test_parallel_waiters_can_observe_same_event(async_events: EventObserv
         transport.publish(b"completed", source="operations")
         payload, observed = await asyncio.gather(payload_waiter, event_waiter)
 
-        # Ожидания не конкурируют за сообщение и не удаляют его из журнала.
+        # Expectations neither compete for the message nor remove it from the Journal.
         assert payload == observed.payload == b"completed"
 
 
@@ -57,7 +57,7 @@ async def test_count_reads_history_without_consuming_events(
         transport.publish(b"completed", source="operations")
         transport.publish(b"completed", source="operations")
 
-        # Одинаковый payload в двух записях считается двумя событиями; deadline общий.
+        # Identical payloads in two records count as two events; the deadline is shared.
         completed = await watcher.wait_for_count(lambda payload: payload == b"completed", 2, timeout=1)
         started = await watcher.wait_for(lambda payload: payload == b"started", timeout=1)
 

@@ -1,45 +1,47 @@
-# Изменения
+# Changelog
 
-## 0.1.0 — кандидат, не опубликован
+## 0.1.0 — candidate, unpublished
 
-Первый MVP по [SPEC.md](SPEC.md), с именем дистрибутива
-`pytest-broker-observer` и пространством импортов `event_observer`.
+The first MVP based on [SPEC.md](SPEC.md), with distribution name
+`pytest-broker-observer` and import namespace `event_observer`.
 
-Добавлены:
+Added:
 
-- Общее async ядро и sync facade с непрерывно работающим runtime loop.
-- Ленивые factories, readiness, lifecycle, controlled cleanup и typed errors.
-- Независимые Kafka sessions через `confluent-kafka`, явные стартовые границы,
-  timestamp replay и обнаружение изменений topology.
-- Ограниченный Journal с тремя overflow policies и conservative loss ledger.
-- `wait_for`, `wait_for_event`, `wait_for_count`, scoped correlation и вложенность.
-- Raw/Protobuf decoders, явные type resolvers, payload isolation и matchers
-  с трёхзначной логикой.
-- Ограниченная безопасная диагностика, opt-in Allure и пассивный W3C trace context.
-- FakeTransport, AdapterTestHarness и переиспользуемые contract suites.
-- Типизация с `py.typed`, optional extras, пассивный pytest plugin, wheel/sdist
-  packaging, документация и CI workflow.
-- Pre-commit проверки Ruff, форматирования и Pyrefly с версиями из `uv.lock`;
-  тот же набор запускается в CI.
-- Запускаемые pytest-примеры с fixtures, параметризацией, sync/async API,
-  Protobuf и отдельным opt-in Kafka-сценарием; примеры включены в CI.
-- Docker Compose с локальной Kafka в режиме KRaft, readiness health check,
-  настраиваемым портом и постоянным volume; общий профиль для локальных тестов и CI.
-- Pytest-примеры с AllureReporter: sync/async успех, timeout, redaction и opt-in
-  намеренное падение; просмотр самостоятельного HTML-отчёта и артефакт в CI.
-- Интеграционные Kafka-примеры с AllureReporter: корреляция успешного события,
-  диагностика ожидаемого timeout, локальный запуск через Compose и отдельный
-  HTML-отчёт с артефактом в Kafka CI job.
-- JSON-вложения отчёта с `indent=2` и учётом форматирования в лимитах; заголовки
-  Allure summary с транспортом и топиком/стримом, с поддержкой aliases.
-- Текстовое вложение `expectation-result.txt` с объяснением исхода ожидания,
-  временем, счётчиками, полнотой и причинами несовпадений; UTF-8 бюджет и
-  политика экспорта распространяются и на текстовую расшифровку.
-- Устранено повторение результатов в автоматических отчётах: каждый wait
-  отправляется один раз, обычный close не создаёт summary, новые ошибки
-  сохраняют отдельную диагностику. Ручной export остаётся полным.
+- A shared asynchronous core and synchronous facade with a continuously running runtime loop.
+- Lazy factories, readiness, lifecycle, controlled cleanup, and typed errors.
+- Independent Kafka sessions through `confluent-kafka`, explicit start boundaries,
+  timestamp replay, and topology-change detection.
+- A bounded Journal with three overflow policies and a conservative loss ledger.
+- `wait_for`, `wait_for_event`, `wait_for_count`, scoped correlation, and nesting.
+- Raw/Protobuf decoders, explicit type resolvers, payload isolation, and matchers
+  with three-valued logic.
+- Bounded safe diagnostics, opt-in Allure, and passive W3C trace context.
+- FakeTransport, AdapterTestHarness, and reusable transport contract suites.
+- Typing with `py.typed`, optional extras, a passive pytest plugin, wheel/sdist
+  packaging, documentation, and a CI workflow.
+- Pre-commit checks for Ruff lint, formatting, and Pyrefly using versions from
+  `uv.lock`; CI runs the same checks.
+- Runnable pytest examples with fixtures, parametrization, synchronous/asynchronous
+  APIs, Protobuf, and a separate opt-in Kafka scenario; CI includes the examples.
+- Docker Compose with local Kafka in KRaft mode, a readiness health check,
+  a configurable port, and a persistent volume; local tests and CI share the profile.
+- Pytest examples with AllureReporter: synchronous/asynchronous success, timeout,
+  redaction, and an opt-in intentional failure; standalone HTML viewing and a CI artifact.
+- Kafka integration examples with AllureReporter: successful event correlation,
+  expected-timeout diagnostics, local Compose setup, and a separate HTML report
+  uploaded by the Kafka CI job.
+- Report JSON attachments with `indent=2`, with formatting included in byte limits;
+  Allure summary titles include the transport and topic/stream and support aliases.
+- An `expectation-result.txt` attachment explaining wait outcomes, timing, counters,
+  completeness, and mismatch reasons; UTF-8 budgets and export policy also apply
+  to the text summary.
+- Automatic reports without repeated results: each wait is sent once, ordinary
+  close creates no summary, and new errors retain separate diagnostics. Manual
+  export remains complete.
+- English project documentation, specification, examples, comments, and Allure
+  labels; local and CI report generation defaults to English.
 
-Temporal assertions, дополнительные брокеры, Schema Registry и checkpoint
-reconnect отложены. Подтверждённые результаты и незакрытые release gates —
-в [docs/status.md](docs/status.md); проверенные комбинации зависимостей —
-в [docs/compatibility.md](docs/compatibility.md).
+Temporal assertions, additional brokers, Schema Registry, and checkpoint reconnect
+are deferred. Verified results and remaining release gates are in
+[docs/status.md](docs/status.md); verified dependency combinations are in
+[docs/compatibility.md](docs/compatibility.md).

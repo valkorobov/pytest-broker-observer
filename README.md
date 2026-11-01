@@ -1,39 +1,37 @@
 # pytest-broker-observer
 
-Библиотека для black-box проверок событий из брокера в обычных и асинхронных
-Python-тестах. Observer подключается **до тестового действия**, сохраняет
-сообщения в ограниченном Journal и позволяет ожидать нужный результат без
-собственного consumer loop.
+A library for black-box assertions on broker events in synchronous and asynchronous
+Python tests. The observer connects **before the test action**, retains messages
+in a bounded Journal, and lets tests wait for a result without writing a consumer loop.
 
-Дистрибутив называется `pytest-broker-observer`; импорт — `event_observer`,
-согласно [SPEC.md](SPEC.md). Текущая версия — локальный MVP-кандидат 0.1.0.
-Подтверждённые проверки и оставшиеся release gates описаны в
-[статусе реализации](docs/status.md) и [матрице совместимости](docs/compatibility.md).
+The distribution is named `pytest-broker-observer`; its import namespace is
+`event_observer`, as specified in [SPEC.md](SPEC.md). The current version is a
+local MVP candidate, 0.1.0. Verified checks and remaining release gates are listed
+in the [implementation status](docs/status.md) and [compatibility matrix](docs/compatibility.md).
 
-## Установка из этого проекта
+## Install from this repository
 
-Требуется Python 3.11–3.14. Для Kafka, Protobuf и обычного pytest:
+Python 3.11–3.14 is required. For Kafka, Protobuf, and synchronous pytest:
 
 ```shell
 python -m pip install -e '.[kafka,protobuf,pytest]'
 ```
 
-Для разработки со всеми optional dependencies и инструментами:
+For development with all optional dependencies and tools:
 
 ```shell
 uv sync --all-groups --all-extras
 ```
 
-Core не имеет runtime dependencies и работает вне pytest. Extras подключают
-реализованные возможности: `kafka`, `protobuf`, `pytest`, `pytest-asyncio`,
-`allure`, `contract-tests` и `all`. Pytest plugin пассивен: не создаёт fixtures,
-подключений или фоновых потоков при autoload. Синхронным тестам не нужен
+Core has no runtime dependencies and works outside pytest. Extras enable the
+implemented features: `kafka`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
+`contract-tests`, and `all`. The pytest plugin is passive: autoloading it creates
+no fixtures, connections, or background threads. Synchronous tests do not need
 `pytest-asyncio`.
 
-## Синхронный пример без брокера
+## Synchronous example without a broker
 
-Этот пример запускается после локальной установки и показывает обычный
-блокирующий API:
+After installing the local package, this example demonstrates the blocking API:
 
 ```python
 from event_observer import SyncEventObserver
@@ -51,11 +49,10 @@ with events.watch(source="events") as watcher:
     assert result == b"operation-completed"
 ```
 
-`FakeTransport.publish()` — вспомогательный инструмент тестов. Production API
-библиотеки наблюдает события; публикацию выполняет ваша система или отдельный
-тестовый producer.
+`FakeTransport.publish()` is a test helper. The library's production API observes
+events; your system or a separate test producer publishes them.
 
-## Асинхронный пример
+## Asynchronous example
 
 ```python
 import asyncio
@@ -80,21 +77,22 @@ async def main():
 asyncio.run(main())
 ```
 
-Оба facade используют одно ядро. В sync режиме отдельный event loop непрерывно
-читает сообщения, пока тест выполняет блокирующее действие сервиса.
+Both facades share the same core. In synchronous mode, a dedicated event loop
+keeps reading messages while the test performs a blocking service action.
 
-## Kafka, Protobuf и корреляция
+## Kafka, Protobuf, and correlation
 
-Готовые запускаемые pytest-примеры с обычными и yield fixtures, параметризацией,
-sync/async ожиданиями и Protobuf находятся в [examples/pytest](examples/pytest/README.md).
-Для запуска без брокера из корня проекта:
+Runnable pytest examples with regular and yield fixtures, parametrization,
+synchronous/asynchronous waits, and Protobuf are in
+[examples/pytest](examples/pytest/README.md). Run them without a broker from the
+repository root:
 
 ```shell
 uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 ```
 
-Создавайте watcher до вызова тестируемой системы. Вход в контекст дожидается
-readiness; по умолчанию чтение начинается с зафиксированных `latest` границ.
+Create the watcher before calling the system under test. Entering the context
+waits for readiness; by default, reading starts at captured `latest` boundaries.
 
 ```python
 from uuid import uuid4
@@ -126,81 +124,80 @@ def test_operation(service_client):
         assert completed.operation_id == operation_id
 ```
 
-`service_client` — fixture вашего проекта. `example_pb2` генерируется вашим
-Protobuf toolchain; открытая схема примера находится в
+`service_client` is a fixture from your project. Your Protobuf toolchain generates
+`example_pb2`; the public example schema is in
 [examples/proto/example.proto](examples/proto/example.proto).
-Observer не угадывает тип по wire format. Для mixed-type потока доступны явные
-header/source/callable resolvers и `on_type(T, matcher)`.
+The observer does not infer a message type from its wire format. Mixed-type
+streams use explicit header/source/callable resolvers and `on_type(T, matcher)`.
 
-## Pytest и Allure
+## Pytest and Allure
 
-В [examples/allure](examples/allure/README.md) есть запускаемые примеры с
-`AllureReporter`: успешные sync/async ожидания, timeout и redaction JSON payload.
-После `uv sync --all-groups --all-extras`:
+[examples/allure](examples/allure/README.md) contains runnable examples with
+`AllureReporter`: successful synchronous/asynchronous waits, timeouts, and JSON
+payload redaction. After `uv sync --all-groups --all-extras`:
 
 ```shell
 uv run pytest -c pyproject.toml examples/allure -m 'not integration' -v --alluredir=artifacts/allure-results --clean-alluredir
-npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language ru
+npx --yes allure@3.22.1 awesome artifacts/allure-results --single-file --output artifacts/allure-report --report-language en
 npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 5050
 ```
 
-Для генерации и просмотра нужен Node.js с npm; проверен Node.js 24.
-Обычный прогон даёт **4 passed, 1 skipped**. Отдельный `--allure-demo-failure`
-включает настоящую демонстрационную ошибку; команды и ожидаемый код выхода
-описаны в [руководстве](examples/allure/README.md). Отчёт можно открыть и как
-самостоятельный `artifacts/allure-report/index.html`.
+Generating and viewing reports requires Node.js with npm; Node.js 24 has been
+verified. The regular run produces **4 passed, 1 skipped**. The optional
+`--allure-demo-failure` flag enables an intentional failure; commands and its
+expected exit code are in the [guide](examples/allure/README.md). You can also
+open `artifacts/allure-report/index.html` as a standalone file.
 
-Для настоящего брокера есть [Kafka-примеры с AllureReporter](examples/allure/README.md#kafka-и-allurereporter):
-запуск Kafka через Compose, успешное ожидание с корреляцией и диагностика timeout.
-Руководство содержит полный прогон и просмотр отдельного HTML-отчёта.
+For a real broker, see the [Kafka examples with AllureReporter](examples/allure/README.md#kafka-and-allurereporter):
+start Kafka through Compose, wait for a correlated event, and inspect timeout
+diagnostics. The guide covers the full run and viewing a separate HTML report.
 
-## Что входит в MVP
+## MVP features
 
-- Async и sync API: `wait_for`, `wait_for_event`, `wait_for_count`, вложенные scopes.
-- Kafka через `confluent-kafka`: независимые sessions, ручное назначение partitions,
-  `latest`, `earliest`, явные offsets и timestamp start.
-- Raw bytes и null payload, обычный Protobuf, явное разрешение смешанных типов.
-- Ограниченный Journal с `FAIL`, `DROP_OLDEST`, `DROP_NEWEST` и учётом неполноты.
-- Структурированные matchers, predicates и независимые копии mutable payload.
-- Ограниченная диагностика, opt-in Allure и пассивное извлечение W3C trace context.
-- Fake adapter и переиспользуемые contract suites для пользовательских adapters.
+- Asynchronous and synchronous APIs: `wait_for`, `wait_for_event`, `wait_for_count`, and nested scopes.
+- Kafka through `confluent-kafka`: independent sessions, manual partition assignment,
+  `latest`, `earliest`, explicit offsets, and timestamp start.
+- Raw bytes and null payloads, ordinary Protobuf, and explicit mixed-type resolution.
+- A bounded Journal with `FAIL`, `DROP_OLDEST`, `DROP_NEWEST`, and incomplete-history tracking.
+- Structured matchers, predicates, and independent copies of mutable payloads.
+- Bounded diagnostics, opt-in Allure, and passive W3C trace-context extraction.
+- A fake adapter and reusable contract suites for custom adapters.
 
-Каждое ожидание читает историю самостоятельно и не потребляет события.
-`wait_for_count(..., N)` возвращает первые N различных Journal records с одним
-общим deadline; брокерные дубликаты остаются отдельными записями.
+Each wait reads history independently and does not consume events.
+`wait_for_count(..., N)` returns the first N distinct Journal records under one
+shared deadline; broker duplicates remain separate records.
 
-По умолчанию ожидания требуют полного диапазона. Известная потеря при DROP
-даёт `IncompleteObservationError`, а terminal background failure —
-`ObserverFailedError`, в том числе при нормальном выходе из контекста.
-`ScopeStart.from_now()` явно выбирает новый диапазон после старой потери.
+Waits require a complete range by default. Known loss under a DROP policy raises
+`IncompleteObservationError`; a terminal background failure raises
+`ObserverFailedError`, including on normal context exit.
+`ScopeStart.from_now()` explicitly selects a new range after earlier loss.
 
-Timeout определяет допустимое время admission события в Journal. Финальная
-обработка уже принятых сообщений может закончиться позже. Пользовательские
-callbacks должны быть короткими и без I/O; в sync режиме они выполняются в
-runtime thread. Активный sync handle принадлежит создавшему его потоку и не
-используется внутри работающего async loop.
+A timeout limits when an event can be admitted to the Journal. Final processing
+of already admitted messages may finish later. User callbacks must be short and
+perform no I/O; in synchronous mode, they run in the runtime thread. An active
+synchronous handle belongs to the thread that created it and cannot be used
+inside a running asynchronous event loop.
 
-Бюджет Journal учитывает память по опубликованной модели, но не ограничивает
-RSS всего процесса. Kafka partitions не имеют общего порядка. Последовательные
-`wait_for` не доказывают порядок событий; temporal assertions, другие брокеры,
-Schema Registry и reconnect с восстановлением checkpoints отложены за пределы
-этого MVP.
+The Journal budget accounts for memory using the documented model; it does not
+limit process RSS. Kafka partitions have no global order. Sequential `wait_for`
+calls do not prove event order. Temporal assertions, other brokers, Schema Registry,
+and reconnect with checkpoint recovery are deferred beyond this MVP.
 
-## Руководства
+## Guides
 
-- [Локальная Kafka: Docker Compose, запуск тестов, порты и данные](docs/local-kafka.md)
-- [Kafka: конфигурация, readiness и стартовые позиции](docs/kafka.md)
-- [Matchers и правила Protobuf](docs/matchers.md)
-- [Scopes, корреляция и полнота](docs/scopes.md)
-- [Диагностика, redaction, Allure и trace context](docs/diagnostics.md)
-- [Запуск pytest с AllureReporter и просмотр HTML-отчёта](examples/allure/README.md)
-- [Совместимость](docs/compatibility.md) и [проверенный статус](docs/status.md)
-- [Техническая спецификация](SPEC.md), [изменения](CHANGELOG.md),
-  [разработка](CONTRIBUTING.md), [безопасность](SECURITY.md)
+- [Local Kafka: Docker Compose, tests, ports, and data](docs/local-kafka.md)
+- [Kafka: configuration, readiness, and start positions](docs/kafka.md)
+- [Matchers and Protobuf rules](docs/matchers.md)
+- [Scopes, correlation, and completeness](docs/scopes.md)
+- [Diagnostics, redaction, Allure, and trace context](docs/diagnostics.md)
+- [Run pytest with AllureReporter and view HTML reports](examples/allure/README.md)
+- [Compatibility](docs/compatibility.md) and [verified status](docs/status.md)
+- [Technical specification](SPEC.md), [changelog](CHANGELOG.md),
+  [contributing](CONTRIBUTING.md), and [security](SECURITY.md)
 
-## Проверки и сборка
+## Checks and builds
 
-После подготовки окружения:
+After preparing the environment:
 
 ```shell
 uv run pytest -m 'not integration'
@@ -213,21 +210,20 @@ uv build --no-sources
 uv run twine check dist/*
 ```
 
-Для локальной Kafka требуется Docker Compose v2.18+. Запустите брокер и
-дождитесь health check:
+Local Kafka requires Docker Compose v2.18+. Start the broker and wait for its
+health check:
 
 ```shell
 docker compose up --detach --wait --wait-timeout 120
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
 ```
 
-Compose поднимает Kafka 3.9.2 в режиме KRaft на `127.0.0.1:9092`.
-Интеграционные тесты и pytest-пример создают и удаляют свои уникальные topics.
-Остановить локальный брокер с сохранением данных можно командой `docker compose down`.
-Выбор порта, сброс данных и запуск отдельных наборов описаны в
-[руководстве локальной Kafka](docs/local-kafka.md).
+Compose starts Kafka 3.9.2 in KRaft mode at `127.0.0.1:9092`. Integration tests and
+the pytest example create and delete their own unique topics. Stop the broker
+while retaining its data with `docker compose down`. Port selection, data reset,
+and individual test suites are covered in the [local Kafka guide](docs/local-kafka.md).
 
-При отсутствии этой переменной integration tests пропускаются. Если брокер
-указан, ошибка подключения считается failure. Наличие команды или CI workflow
-не означает, что соответствующая среда уже проверена: результаты фиксируются
-в [статусе](docs/status.md).
+Integration tests are skipped when the environment variable is missing. If a
+broker is configured, connection errors fail the tests. A command or CI workflow
+alone does not establish that an environment has been verified; results are
+recorded in the [status document](docs/status.md).

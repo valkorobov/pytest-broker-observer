@@ -1,4 +1,4 @@
-"""Реальная Kafka: запуск с KAFKA_BOOTSTRAP_SERVERS; marker integration позволяет выбрать пример."""
+"""Real Kafka: set KAFKA_BOOTSTRAP_SERVERS; use the integration marker to select this example."""
 
 import asyncio
 from collections.abc import Iterator
@@ -25,7 +25,7 @@ pytestmark = [
 def kafka_source() -> Iterator[tuple[KafkaAdapterHarness, TransportSource]]:
     harness = KafkaAdapterHarness(os.environ["KAFKA_BOOTSTRAP_SERVERS"])
     try:
-        # Harness создаёт уникальный topic и удаляет только собственные ресурсы.
+        # The harness creates a unique topic and deletes only its own resources.
         source = asyncio.run(harness.create_source(case_id="pytest-example"))
         yield harness, source
     finally:
@@ -40,7 +40,7 @@ def test_kafka_event_after_test_action(kafka_source: tuple[KafkaAdapterHarness, 
     with events.watch(source=source) as watcher:
         operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
 
-        # Независимый producer имитирует действие сервиса; receipt ждёт broker acknowledgement.
+        # An independent producer simulates the service action; the receipt waits for broker acknowledgement.
         receipt = asyncio.run(
             harness.publish(source, b"completed", key=operation_id, headers=(("operation-id", operation_id),))
         )

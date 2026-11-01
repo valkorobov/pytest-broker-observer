@@ -1,4 +1,4 @@
-"""Generated-классы из protobuf доступны без генерации дополнительной схемы."""
+"""Generated Protobuf classes are available without compiling another schema."""
 
 from uuid import uuid4
 
@@ -22,7 +22,7 @@ def test_message_type_decodes_protobuf(sync_events: SyncEventObserver, transport
 
         completed = watcher.wait_for(field_equals("value", "operation-42:completed"), timeout=1)
 
-        # Возвращается generated message, а не bytes или JSON.
+        # The result is a generated message rather than bytes or JSON.
         assert isinstance(completed, StringValue)
         assert completed.value == "operation-42:completed"
 
@@ -51,7 +51,7 @@ def test_explicit_resolver_handles_mixed_protobuf_types(
             headers=(("event-type", b"processed-count"), ("operation-id", operation_id)),
         )
 
-        # on_type защищает вложенную проверку от сообщения другого типа.
+        # on_type protects the nested check from messages of a different type.
         count = operation.wait_for(on_type(Int32Value, field_equals("value", 3)), timeout=1)
         status = operation.wait_for(on_type(StringValue, field_equals("value", "completed")), timeout=1)
 

@@ -185,10 +185,10 @@ def test_text_is_truncated_with_a_notice_and_all_files_respect_attachment_limits
 
 @pytest.mark.parametrize("budget", [128, 129, 256, 257])
 def test_text_truncation_preserves_multibyte_characters_and_complete_lines(budget):
-    body = "Результат ожидания 😀\n" * 100
+    body = "Event observation finished smoothly 😀\n" * 100
     text = truncate_text(body, budget)
     assert len(text.encode("utf-8")) <= budget
-    assert text.startswith("Результат ожидания 😀\n")
+    assert text.startswith("Event observation finished smoothly 😀\n")
     assert text.endswith("[Text truncated: diagnostic byte limit reached.]\n")
     assert "\ufffd" not in text
 

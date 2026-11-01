@@ -1,4 +1,4 @@
-"""Запускаемые Allure-примеры без Kafka; отчёт создаётся флагом --alluredir."""
+"""Runnable Allure examples without Kafka; use --alluredir to create a report."""
 
 import asyncio
 from importlib.util import find_spec
@@ -29,18 +29,18 @@ class JsonDecoder:
 
 
 def redact_operation(payload: dict) -> dict:
-    # Redactor получает отдельную копию; содержимое Journal сохраняется.
+    # The redactor receives a separate copy; the Journal contents are preserved.
     payload.pop("access_token", None)
     return payload
 
 
 @allure.feature("pytest-broker-observer")
 class TestAllureReporterExamples:
-    @allure.story("Синхронный тест")
-    @allure.title("Успешное ожидание: metadata-only summary")
+    @allure.story("Synchronous test")
+    @allure.title("Successful expectation: metadata-only summary")
     def test_sync_success(self, sync_events: SyncEventObserver, transport: FakeTransport):
         with sync_events.watch(source="operations") as watcher:
-            with allure.step("Имитировать завершение операции после READY"):
+            with allure.step("Simulate operation completion after READY"):
                 transport.publish(b"completed", source="operations")
 
             completed = watcher.wait_for_event(lambda payload: payload == b"completed", timeout=1)
@@ -49,8 +49,8 @@ class TestAllureReporterExamples:
             assert completed.raw.source == "operations"
 
     @async_example
-    @allure.story("Асинхронный тест")
-    @allure.title("Два параллельных ожидания получают одно событие")
+    @allure.story("Asynchronous test")
+    @allure.title("Two parallel expectations receive the same event")
     async def test_async_parallel_waiters(self, async_events: EventObserver, transport: FakeTransport):
         async with async_events.watch(source="operations") as watcher:
             first = asyncio.create_task(watcher.wait_for(lambda payload: payload == b"completed", timeout=1))
@@ -58,26 +58,26 @@ class TestAllureReporterExamples:
                 watcher.wait_for_event(lambda payload: payload == b"completed", timeout=1)
             )
 
-            # Allure step завершается до await, поэтому не смешивается с чужими steps.
-            with allure.step("Опубликовать событие для двух waiters"):
+            # The Allure step ends before await, so it cannot overlap with other steps.
+            with allure.step("Publish an event for two waiters"):
                 transport.publish(b"completed", source="operations")
 
             payload, observed = await asyncio.gather(first, second)
             assert payload == observed.payload == b"completed"
 
-    @allure.story("Диагностика ожидания")
-    @allure.title("Ожидаемый timeout: тест проходит, диагностические вложения сохраняются")
+    @allure.story("Expectation diagnostics")
+    @allure.title("Expected timeout: the test passes and diagnostic attachments are retained")
     def test_expected_timeout(self, sync_events: SyncEventObserver, transport: FakeTransport):
         with sync_events.watch(source="operations") as watcher:
             transport.publish(b"started", source="operations")
             assert watcher.wait_for(lambda payload: payload == b"started", timeout=1) == b"started"
 
-            # pytest.raises сохраняет зелёный результат этого сценария.
+            # pytest.raises keeps this scenario passing.
             with pytest.raises(EventTimeoutError):
                 watcher.wait_for(lambda payload: payload == b"completed", timeout=0.05)
 
-    @allure.story("Раскрытие содержимого по явной политике")
-    @allure.title("Несовпавший JSON payload попадает в отчёт после redaction")
+    @allure.story("Content disclosure through an explicit policy")
+    @allure.title("A mismatched JSON payload appears in the report after redaction")
     def test_redacted_payload(self, transport: FakeTransport):
         events = SyncEventObserver(
             transport=transport,
@@ -104,18 +104,18 @@ class TestAllureReporterExamples:
             with pytest.raises(EventTimeoutError):
                 watcher.wait_for(lambda payload: payload["status"] == "completed", timeout=0.05)
 
-            # Token отсутствует во вложении message-content.json, но данные теста не изменены.
+            # The token is absent from message-content.json, while the test data remains unchanged.
             assert original["access_token"] == "demo-private-token"
 
-    @allure.story("Намеренная демонстрационная ошибка")
-    @allure.title("FAILED: ожидаемое completed не пришло — включается отдельным флагом")
+    @allure.story("Intentional demonstration failure")
+    @allure.title("FAILED: completed did not arrive; enabled by a separate flag")
     def test_intentional_timeout_failure(
         self,
         demo_failure_enabled: None,
         sync_events: SyncEventObserver,
         transport: FakeTransport,
     ):
-        # Этот пример намеренно завершает pytest с кодом 1 при --allure-demo-failure.
+        # This example intentionally exits pytest with code 1 when --allure-demo-failure is set.
         with sync_events.watch(source="operations") as watcher:
             transport.publish(b"rejected", source="operations")
             assert watcher.wait_for(lambda payload: payload == b"rejected", timeout=1) == b"rejected"
