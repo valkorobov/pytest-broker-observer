@@ -24,7 +24,7 @@ uv sync --all-groups --all-extras
 ```
 
 Core has no runtime dependencies and works outside pytest. Extras enable the
-implemented features: `kafka`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
+implemented features: `kafka`, `rabbitmq`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
 `contract-tests`, and `all`. The pytest plugin is passive: autoloading it creates
 no fixtures, connections, or background threads. Synchronous tests do not need
 `pytest-asyncio`.
@@ -130,6 +130,40 @@ def test_operation(service_client):
 The observer does not infer a message type from its wire format. Mixed-type
 streams use explicit header/source/callable resolvers and `on_type(T, matcher)`.
 
+## RabbitMQ exchange observation
+
+Install `.[rabbitmq,pytest]` to use `RabbitMQAdapter` through the optional
+`aio-pika` client. Each watcher binds its own exclusive auto-delete queue to an
+existing exchange, leaving the application's queues independent:
+
+```python
+from uuid import uuid4
+
+from event_observer import SyncEventObserver
+from event_observer.matchers import header_equals
+from event_observer.transports.rabbitmq import RabbitMQAdapter, RabbitMQConfig
+
+
+def test_operation(service_client):
+    operation_id = uuid4().hex.encode()
+    events = SyncEventObserver(
+        transport=RabbitMQAdapter(RabbitMQConfig(url="amqp://observer:observer@127.0.0.1:5672/"))
+    )
+    with events.watch(source="application.events") as watcher:
+        operation = watcher.scope(header_equals("operation-id", operation_id))
+        service_client.perform(operation_id=operation_id.decode())
+        assert operation.wait_for(lambda payload: payload == b"completed", timeout=10) == b"completed"
+```
+
+Your application must publish the expected body and header to the existing
+`application.events` exchange. Entering `watch()` confirms the observer queue,
+bindings, and consumer are ready before that action. The default binding is
+`#`; configure `binding_keys` for narrower routing. RabbitMQ supports latest
+observation only, without broker replay or reconnect. Messages are acknowledged
+when admitted to the Journal, independently of matcher outcomes.
+See the [adapter guide](docs/rabbitmq.md), [local Compose guide](docs/local-rabbitmq.md),
+and [sync/async examples](examples/pytest/test_rabbitmq.py).
+
 ## Pytest and Allure
 
 [examples/allure](examples/allure/README.md) contains runnable examples with
@@ -152,13 +186,19 @@ For a real broker, see the [Kafka examples with AllureReporter](examples/allure/
 start Kafka through Compose, wait for a correlated event, and inspect received
 JSON bodies after redaction alongside timeout diagnostics. The guide covers the
 full run and viewing a separate HTML report.
+The [RabbitMQ examples with AllureReporter](examples/allure/README.md#rabbitmq-and-allurereporter)
+show the same successful correlation and expected-timeout diagnostics through
+dedicated observer queues, including redacted JSON bodies and a separate report.
 
 ## MVP features
 
 - Asynchronous and synchronous APIs: `wait_for`, `wait_for_event`, `wait_for_count`, and nested scopes.
 - Kafka through `confluent-kafka`: independent sessions, manual partition assignment,
   `latest`, `earliest`, explicit offsets, and timestamp start.
-- Raw bytes and null payloads, ordinary Protobuf, and explicit mixed-type resolution.
+- RabbitMQ through `aio-pika`: independent dedicated exchange subscriptions,
+  exclusive queues, latest-only observation, and admission-time acknowledgement.
+- Raw bytes, null payloads where supported by the transport, ordinary Protobuf,
+  and explicit mixed-type resolution.
 - A bounded Journal with `FAIL`, `DROP_OLDEST`, `DROP_NEWEST`, and incomplete-history tracking.
 - Structured matchers, predicates, and independent copies of mutable payloads.
 - Bounded diagnostics, opt-in Allure, and passive W3C trace-context extraction.
@@ -181,13 +221,15 @@ inside a running asynchronous event loop.
 
 The Journal budget accounts for memory using the documented model; it does not
 limit process RSS. Kafka partitions have no global order. Sequential `wait_for`
-calls do not prove event order. Temporal assertions, other brokers, Schema Registry,
+calls do not prove event order. Temporal assertions, further brokers, Schema Registry,
 and reconnect with checkpoint recovery are deferred beyond this MVP.
 
 ## Guides
 
 - [Local Kafka: Docker Compose, tests, ports, and data](docs/local-kafka.md)
 - [Kafka: configuration, readiness, and start positions](docs/kafka.md)
+- [Local RabbitMQ: Docker Compose, tests, management UI, and Allure](docs/local-rabbitmq.md)
+- [RabbitMQ: exchange subscriptions, readiness, capabilities, and settlement](docs/rabbitmq.md)
 - [Matchers and Protobuf rules](docs/matchers.md)
 - [Scopes, correlation, and completeness](docs/scopes.md)
 - [Diagnostics, redaction, Allure, and trace context](docs/diagnostics.md)
@@ -216,13 +258,28 @@ health check:
 
 ```shell
 docker compose up --detach --wait --wait-timeout 120
-KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration/test_kafka*.py examples/pytest/test_kafka.py -v
 ```
 
 Compose starts Kafka 3.9.2 in KRaft mode at `127.0.0.1:9092`. Integration tests and
 the pytest example create and delete their own unique topics. Stop the broker
 while retaining its data with `docker compose down`. Port selection, data reset,
 and individual test suites are covered in the [local Kafka guide](docs/local-kafka.md).
+
+Start the optional RabbitMQ profile separately and run its contracts and examples:
+
+```shell
+docker compose --profile rabbitmq up --detach --wait --wait-timeout 120 rabbitmq
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest -c pyproject.toml tests/integration/test_rabbitmq*.py examples/pytest/test_rabbitmq.py -v
+docker compose stop rabbitmq
+```
+
+The profile pins RabbitMQ 4.4.0 with management UI at `127.0.0.1:15672` and AMQP
+at `127.0.0.1:5672`. The harness creates unique topic exchanges; watchers create
+their own isolated queues. Stopping only RabbitMQ preserves its data and any
+running Kafka service. The `rabbitmq` CI job runs the same broker profile and
+retains a separate Allure report. Details are in the
+[local RabbitMQ guide](docs/local-rabbitmq.md).
 
 Integration tests are skipped when the environment variable is missing. If a
 broker is configured, connection errors fail the tests. A command or CI workflow

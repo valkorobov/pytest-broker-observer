@@ -204,6 +204,8 @@ class TransportCapabilities:
     supports_position_tracking: bool = False
     supports_topology_detection: bool = False
     supports_settlement: bool = False
+    supports_null_payload: bool = True
+    supports_duplicate_headers: bool = True
 
     def __post_init__(self) -> None:
         for name in ("start_modes", "isolation_modes", "flow_control_modes"):

@@ -2,8 +2,8 @@
 
 The `FakeTransport` scenarios in `test_allure_reporter.py` demonstrate sync/async
 expectations, timeout diagnostics, JSON payload redaction, and an intentional
-failure. The two integration tests in `test_kafka.py` use real Kafka through
-Docker Compose. Run all commands from the repository root.
+failure. The integration tests in `test_kafka.py` and `test_rabbitmq.py` use real
+Kafka and RabbitMQ through Docker Compose. Run all commands from the repository root.
 
 ## Setup
 
@@ -13,7 +13,8 @@ Install the development and example dependencies:
 uv sync --all-groups --all-extras
 ```
 
-For your own project, the `allure,pytest-asyncio` extras are sufficient:
+For the broker-free examples in your own project, the `allure,pytest-asyncio`
+extras are sufficient:
 
 ```shell
 python -m pip install -e '.[allure,pytest-asyncio]'
@@ -139,6 +140,76 @@ docker compose down
 
 Viewing an already generated HTML report does not require a running broker.
 
+## RabbitMQ and AllureReporter
+
+The RabbitMQ integration examples require the `rabbitmq,allure,pytest` extras
+and the Allure CLI described in Setup. The full development environment
+includes them:
+
+```shell
+uv sync --all-groups --all-extras
+docker compose --profile rabbitmq up --detach --wait --wait-timeout 120 rabbitmq
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest -c pyproject.toml examples/allure/test_rabbitmq.py -m integration -v --alluredir=artifacts/allure-rabbitmq-results --clean-alluredir
+npx --yes allure@3.22.1 awesome artifacts/allure-rabbitmq-results --single-file --output artifacts/allure-rabbitmq-report --report-language en
+npx --yes allure@3.22.1 open artifacts/allure-rabbitmq-report --host 127.0.0.1 --port 5053
+```
+
+Expected result: **2 passed**. The AMQP URL is
+`amqp://observer:observer@127.0.0.1:5672/`; the optional management interface is
+available at [127.0.0.1:15672](http://127.0.0.1:15672) with the same local
+`observer` credentials. The report opens on port 5053. You can also open or
+share `artifacts/allure-rabbitmq-report/index.html` without a running broker.
+
+| Test in [test_rabbitmq.py](test_rabbitmq.py) | What to inspect |
+| --- | --- |
+| `test_rabbitmq_correlated_success` | A JSON `completed` event published after READY, correlated by the `operation-id` header, and included in the report after redaction. |
+| `test_rabbitmq_expected_timeout` | A real `started` event is matched first, then retained as a mismatch while waiting for `completed`; the expected timeout leaves the test passing. |
+
+Open **Event observation summary [RabbitMQAdapter: <exchange>]**, where
+`<exchange>` is unique to the test. `expectation-result.json` and
+`expectation-result.txt` describe the outcome, `mismatches.json` describes the
+unsatisfied `completed` expectation, and `message-content.json` contains
+readable bodies. Each bounded content sample includes `expectation_id`,
+`event_sequence`, `match_status` (`matched` or `mismatch`), `format`, and
+`payload`. All JSON attachments use `indent=2`.
+
+The fixture explicitly uses `SUMMARY` and `REDACTED_PAYLOAD` with a redactor
+that removes the synthetic `access_token`. Matched and mismatched bodies show
+`operation_id` and `status` without the token; assertions verify that the
+original returned test values still contain it. The redactor receives an
+independent copy. Capture and export budgets still apply. Without explicit
+disclosure, the default `METADATA_ONLY` policy omits message bodies, keys, and
+headers; the text explanation does not include message content under either
+policy. The adapter and exchange appear in summary titles and can be replaced
+through `DiagnosticPolicy.aliases`.
+
+The success scenario creates one summary, and the timeout scenario creates two,
+one for `started` and one for the expected timeout. Normal close does not
+duplicate them. Rechecking `started` uses the retained Journal, rather than
+requesting broker replay.
+
+The source is an exchange, and every watcher creates its own exclusive
+auto-delete queue. It does not compete with application queues. The fixture
+creates and deletes only its unique topic exchange, including on failure;
+watcher closure or failure releases the observer-owned queue. The application
+action belongs after READY; replace `harness.publish(...)` with that action
+when adapting the example. Messages are acknowledged at Journal admission,
+independently of matcher outcomes. RabbitMQ observation supports latest only
+and does not reconnect.
+
+Without `RABBITMQ_URL`, both tests explicitly skip. A specified but unreachable
+broker causes failure. For an external broker, grant exchange binding/read
+access and declaration, consumption, and deletion of observer-owned queues;
+the harness also requires temporary exchange creation/deletion and publishing.
+See [the adapter guide](../../docs/rabbitmq.md) and
+[local RabbitMQ](../../docs/local-rabbitmq.md).
+
+Stop only RabbitMQ while preserving its data and any running Kafka service:
+
+```shell
+docker compose stop rabbitmq
+```
+
 ## A report with an intentional failure
 
 Use separate directories to demonstrate a real `FAILED` result:
@@ -176,12 +247,17 @@ a caught timeout remains `PASSED`.
 
 The reporter completes each summary step before the next `await`. User-created
 `allure.step(...)` blocks in the async example also end before `await`. Payload
-content is disclosed in the redaction example and the Kafka scenarios through
+content is disclosed in the redaction example and the Kafka and RabbitMQ scenarios through
 an explicit `REDACTED_PAYLOAD` policy and redactor. See
 [diagnostics and safe reports](../../docs/diagnostics.md) for export policies
 and limits.
 
 ## CI
+
+The `rabbitmq` job starts the optional local RabbitMQ profile, runs contracts
+and pytest examples, then generates the English report from `test_rabbitmq.py`.
+It retains `allure-rabbitmq-example-report` for seven days, including reports
+from failed test runs, and stops the broker after the job.
 
 The `FakeTransport` scenarios are included in the main Python matrix. The
 `allure-example` job runs them with the real Allure plugin, generates HTML, and

@@ -44,8 +44,20 @@ Added:
   first/last sample limits, shared byte budgets, detached redaction, and explicit
   expectation/status labels. Raw bytes use UTF-8 or base64 under `FULL_PAYLOAD`.
   Kafka Allure examples show redacted JSON bodies for success and expected timeout.
+- RabbitMQ exchange observation through optional, lazily imported `aio-pika`:
+  a dedicated exclusive auto-delete queue per watcher, confirmed readiness,
+  bounded prefetch/handoff, and acknowledgement after committed Journal
+  admission, filtering, or an explicit DROP outcome. Existing application queues
+  remain independent; latest-only sessions fail closed without reconnect.
+- RabbitMQ publisher/admin harness with broker confirmations and owned exchange
+  cleanup, reusable contracts with explicit null/duplicate-header preconditions,
+  sync/async pytest examples, and redacted JSON Allure success/timeout scenarios.
+- An optional RabbitMQ 4.4.0 management Compose profile pinned by image digest,
+  local guides, and a CI job with a separate Allure report artifact.
+- Specification revision 1.2 documenting the RabbitMQ extension while preserving
+  the original Core/Kafka requirements and acceptance identifiers.
 
-Temporal assertions, additional brokers, Schema Registry, and checkpoint reconnect
+Temporal assertions, further brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in
 [docs/status.md](docs/status.md); verified dependency combinations are in
 [docs/compatibility.md](docs/compatibility.md).

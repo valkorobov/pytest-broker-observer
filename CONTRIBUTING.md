@@ -29,8 +29,9 @@ The hooks check Ruff lint, Ruff formatting, and types through Pyrefly. All three
 use tool versions from `uv.lock` and check the entire project. They do not modify
 files automatically; fix formatting separately.
 
-Core uses only the standard library. Do not add mandatory Kafka, Protobuf, pytest,
-Allure, or OpenTelemetry imports to a plain `import event_observer`. The runtime
+Core uses only the standard library. Do not add mandatory Kafka, RabbitMQ,
+Protobuf, pytest, Allure, or OpenTelemetry imports to a plain
+`import event_observer`; `aio_pika` and its AMQP dependencies stay lazy. The runtime
 must not read credentials or open connections before entering a watcher context.
 
 ## Checks
@@ -53,7 +54,7 @@ Kafka pytest example, start the local broker from `compose.yaml`
 
 ```shell
 docker compose up --detach --wait --wait-timeout 120
-KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration/test_kafka*.py examples/pytest/test_kafka.py -v
 docker compose down
 ```
 
@@ -61,6 +62,22 @@ These tests create and delete topics. An explicitly configured but unreachable
 broker causes a failure; a missing environment variable causes an explicit skip.
 Docker is not required for ordinary Core tests or for an existing broker.
 Ports and data retention are covered in [docs/local-kafka.md](docs/local-kafka.md).
+
+For RabbitMQ, start only its optional profile and run the dedicated contracts
+and sync/async examples:
+
+```shell
+docker compose --profile rabbitmq up --detach --wait --wait-timeout 120 rabbitmq
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest -c pyproject.toml tests/integration/test_rabbitmq*.py examples/pytest/test_rabbitmq.py -v
+docker compose stop rabbitmq
+```
+
+The harness creates and deletes only its own topic exchanges. The production
+adapter verifies an existing exchange and binds a dedicated exclusive queue;
+it does not create the application's exchange or consume an application queue.
+Missing `RABBITMQ_URL` explicitly skips real tests; configured connection failures
+must fail. The [RabbitMQ guide](docs/rabbitmq.md) and
+[local Compose guide](docs/local-rabbitmq.md) describe permissions and semantics.
 
 To check AllureReporter with the real pytest plugin and view HTML, use
 [examples/allure](examples/allure/README.md). The regular run passes; an intentional
@@ -97,6 +114,15 @@ class TestCustomAdapter(LifecycleContract, ReadinessContract, IsolationContract)
 The publisher harness must confirm broker acceptance. Fault, topology, and
 position controls belong in separate extension protocols. Do not hide unverified
 capability claims behind skips.
+
+`supports_null_payload` and `supports_duplicate_headers` are explicit transport
+capabilities, alongside replay and key support. Contracts record these optional
+preconditions and `NOT_APPLICABLE` when an adapter does not claim them. Core
+data preservation still applies to accepted values, and a claimed capability
+must be verified. RabbitMQ supports unique byte/null headers and empty byte
+bodies, with neither null bodies nor duplicate header names. Verify dedicated
+queue isolation and admission-time settlement without weakening Kafka contracts
+or introducing reconnect semantics.
 
 ## Documentation and releases
 

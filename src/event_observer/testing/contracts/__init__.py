@@ -209,8 +209,9 @@ class ReadinessContract:
 
     @pytest.mark.asyncio
     async def test_readiness_null_payload_is_distinct_from_empty_bytes(
-        self, adapter_harness: AdapterTestHarness
+        self, adapter_harness: AdapterTestHarness, record_property
     ):
+        _require(adapter_harness, ContractPrecondition("supports_null_payload", True), record_property)
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             stream = sessions[0].receive()
@@ -229,6 +230,7 @@ class ReadinessContract:
         self, adapter_harness: AdapterTestHarness, record_property
     ):
         _require(adapter_harness, ContractPrecondition("supports_headers", True), record_property)
+        _require(adapter_harness, ContractPrecondition("supports_duplicate_headers", True), record_property)
         source = await _source(adapter_harness)
         headers = (("duplicate", b"first"), ("duplicate", None), ("empty", b""))
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:

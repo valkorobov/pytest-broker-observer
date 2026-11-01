@@ -10,8 +10,8 @@ uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 
 Nine scenarios use `FakeTransport` and run without a broker. It simulates events
 from the service under test; your service or a separate producer performs real
-publication. These examples demonstrate the observation API rather than verify
-Kafka integration.
+publication. These examples demonstrate the observation API; separate integration
+examples use real Kafka and RabbitMQ brokers.
 
 See [../allure](../allure/README.md) for examples with `AllureReporter`, diagnostic
 JSON attachments, and commands to generate and view HTML reports.
@@ -23,11 +23,12 @@ JSON attachments, and commands to generate and view HTML reports.
 | [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, parallel waiters, and reading history with `wait_for_count`. |
 | [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, an explicit resolver for mixed types, and the `on_type` guard. |
 | [test_kafka.py](test_kafka.py) | A real broker, a unique topic, an independent producer, and cleanup through a yield fixture. |
+| [test_rabbitmq.py](test_rabbitmq.py) | Sync and async observation of an exchange through dedicated observer queues, header correlation, and publisher confirmation. |
 
 ## Ordinary synchronous tests
 
 Only pytest and the base library are needed to run the synchronous raw examples;
-`pytest-asyncio`, Kafka, and Protobuf are optional:
+`pytest-asyncio`, Kafka, RabbitMQ, and Protobuf are optional:
 
 ```shell
 python -m pip install -e '.[pytest]'
@@ -111,6 +112,44 @@ acknowledgement. An ordinary black-box test calls the application instead of
 `harness.publish(...)` and explicitly passes a `KafkaAdapter` with `KafkaConfig`
 to `SyncEventObserver`. See the [Kafka guide](../../docs/kafka.md) for TLS/SASL
 configuration and replay policy.
+
+## Examples with real RabbitMQ
+
+For redacted message bodies, diagnostic attachments, and HTML viewing commands,
+see [RabbitMQ and AllureReporter](../allure/README.md#rabbitmq-and-allurereporter).
+
+Start the optional RabbitMQ Compose service and run the sync and async examples:
+
+```shell
+uv sync --all-groups --all-extras
+docker compose --profile rabbitmq up --detach --wait --wait-timeout 120 rabbitmq
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest -c pyproject.toml examples/pytest/test_rabbitmq.py -m integration -v
+docker compose stop rabbitmq
+```
+
+Expect **2 passed** with the full development environment. For a separate test
+project, install `.[rabbitmq,pytest-asyncio]`; the async example explicitly skips
+without pytest-asyncio. The fixture creates a unique topic exchange and cleans
+up only that exchange. The harness opens independent connections per call, so
+the sync example can use `asyncio.run(...)`; the async example awaits publication
+directly without reusing a client tied to an earlier loop.
+
+The source is an exchange. Each watcher binds a dedicated exclusive auto-delete
+queue and never consumes an application's queue. Entering `watch()` confirms
+this queue is ready before the action. The examples inspect the routing key in
+`event.raw.metadata["rabbitmq.routing_key"]`; `event.raw.key` is `None`.
+Messages are acknowledged at Journal admission, independently of matching.
+Only latest observation is supported, with no broker replay or reconnect.
+
+For an existing broker, set `RABBITMQ_URL` explicitly and allow exchange
+binding/read access plus declaration, consumption, and deletion of observer-owned
+queues. The harness also needs to create/delete its temporary exchanges and
+publish to them. Without the variable, the examples skip; a specified but
+unreachable broker fails. The library does not read this variable itself.
+Use `RabbitMQAdapter(RabbitMQConfig(url=...))` in your own factory and replace
+`harness.publish(...)` with the application's action.
+See the [adapter guide](../../docs/rabbitmq.md) and
+[local broker guide](../../docs/local-rabbitmq.md) for details.
 
 Create the scope before the action. `ScopeStart.from_now()` captures the next
 admission position in the runtime rather than the broker publication time.

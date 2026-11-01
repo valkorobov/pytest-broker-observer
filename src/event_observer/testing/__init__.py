@@ -3,11 +3,13 @@
 from .fake import FakeAdapterHarness, FakeTransport
 from .harness import AdapterTestHarness, FailureHarness, PositionHarness, PublishReceipt, TopologyHarness
 from .kafka import KafkaAdapterHarness
+from .rabbitmq import RabbitMQAdapterHarness
 
 __all__ = [
     "FakeTransport",
     "FakeAdapterHarness",
     "KafkaAdapterHarness",
+    "RabbitMQAdapterHarness",
     "AdapterTestHarness",
     "PublishReceipt",
     "FailureHarness",

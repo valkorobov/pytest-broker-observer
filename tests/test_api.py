@@ -216,7 +216,7 @@ import threading
 from types import SimpleNamespace
 
 sys.path.insert(0, sys.argv[1])
-blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "google.protobuf", "allure", "opentelemetry")
+blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "google.protobuf", "allure", "opentelemetry")
 class NoOptionalDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if any(fullname == name or fullname.startswith(name + ".") for name in blocked):
@@ -230,6 +230,10 @@ socket.create_connection = forbidden
 import event_observer
 import event_observer.integrations.pytest_plugin as plugin
 from event_observer.models import TransportCapabilities
+from event_observer.transports.rabbitmq import RabbitMQAdapter, RabbitMQConfig
+from event_observer.testing import RabbitMQAdapterHarness
+RabbitMQAdapter(RabbitMQConfig(url="amqp://observer:observer@127.0.0.1:5672/"))
+RabbitMQAdapterHarness("amqp://observer:observer@127.0.0.1:5672/")
 async def not_opened(*args, **kwargs):
     raise AssertionError("factory unexpectedly opened a transport")
 adapter = SimpleNamespace(open=not_opened, capabilities=TransportCapabilities())

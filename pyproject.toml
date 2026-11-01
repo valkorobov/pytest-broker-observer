@@ -13,12 +13,13 @@ classifiers = ["Programming Language :: Python :: 3", "Framework :: Pytest", "Ty
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka>=2.6,<3"]
+rabbitmq = ["aio-pika>=9.5,<10"]
 protobuf = ["protobuf>=5.29,<8"]
 pytest = ["pytest>=8.3,<10"]
 pytest-asyncio = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2"]
 allure = ["allure-pytest>=2.13,<3"]
 contract-tests = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "testcontainers[kafka]>=4.9,<5"]
-all = ["confluent-kafka>=2.6,<3", "protobuf>=5.29,<8", "pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "allure-pytest>=2.13,<3"]
+all = ["confluent-kafka>=2.6,<3", "aio-pika>=9.5,<10", "protobuf>=5.29,<8", "pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "allure-pytest>=2.13,<3"]
 
 [project.entry-points.pytest11]
 event_observer = "event_observer.integrations.pytest_plugin"
@@ -32,7 +33,7 @@ dev = [
     "pre-commit>=4.7.0",
     "pyrefly>=1.4.0",
 ]
-test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "protobuf>=5.29,<8", "confluent-kafka>=2.6,<3"]
+test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "protobuf>=5.29,<8", "confluent-kafka>=2.6,<3", "aio-pika>=9.5,<10"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/event_observer"]

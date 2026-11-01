@@ -33,5 +33,30 @@
     "executed_local_manifest_digest": "sha256:55462afb3063696dfa1f6ce6f2c05b16e5b51e94ac4bcc73692c8087733c207d",
     "upstream_config_digest": "sha256:5b8b0495077ca724c06b253f7d94ed27a36a3211c6c6e84ff54a758f109d3d0f",
     "provenance_record": "kafka-validation.json"
+  },
+  "rabbitmq_profile": {
+    "verification_date": "2026-11-02",
+    "broker": "RabbitMQ",
+    "version": "4.4.0",
+    "protocol": "AMQP 0-9-1",
+    "platform": "Linux arm64",
+    "client": {
+      "aio-pika": "9.6.2",
+      "aiormq": "6.9.4",
+      "pamqp": "3.3.0"
+    },
+    "image": "rabbitmq:4.4.0-management",
+    "image_manifest_digest": "sha256:af6f50d38098d8bd52fef7f3fa85015dd8b2bf6def58e995bf584ae9ba0f6407",
+    "isolation": "server-named exclusive classic queue per watcher",
+    "start_modes": [
+      "latest"
+    ],
+    "full_fault_profile_verified": false,
+    "contract_and_observer_tests_passed": 15,
+    "pytest_examples_passed": 2,
+    "allure_examples_passed": 2,
+    "not_applicable_contract_tests": 4,
+    "healthcheck_verified": true,
+    "owned_test_queues_remaining": 0
   }
 }

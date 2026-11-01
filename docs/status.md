@@ -2,12 +2,12 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.1 adds policy-controlled
-matched message samples to diagnostics while preserving metadata-only defaults.
+The specification is maintained in English. Revision 1.2 adds RabbitMQ exchange
+subscriptions alongside policy-controlled matched message diagnostics.
 
 Implemented features include a shared async core and sync facade, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
-decoders/resolvers, three-valued matchers, a Kafka adapter, safe diagnostics
+decoders/resolvers, three-valued matchers, Kafka and RabbitMQ adapters, safe diagnostics
 and an explicit Allure reporter, a passive pytest plugin, reusable transport
 contracts, packaging, and CI.
 
@@ -58,6 +58,25 @@ startup with `TransportConnectionError` (`code=None`). Its isolated recheck
 passed, but the original failure's cause remains unconfirmed. The two updated
 Allure examples do not replace validation of that broader integration suite.
 
+RabbitMQ support was checked on November 2, 2026 with RabbitMQ 4.4.0,
+aio-pika 9.6.2, aiormq 6.9.4, and pamqp 3.3.0. The pinned Compose profile
+passed its health check. Contracts, observer integration tests, and sync/async
+pytest examples returned 17 passed and 4 explicit `NOT_APPLICABLE` skips
+(earliest replay, null bodies, duplicate headers, and message keys). Both
+RabbitMQ Allure examples passed with redacted bodies and unique expectation
+summaries. Broker inspection after teardown found no remaining test queues.
+
+The first integration run exposed pamqp's binary-header requirement; the
+harness now encodes bytes as native bytearrays, and the adapter detaches them
+back to bytes. A real codec roundtrip covers binary, UTF-8, empty, and null
+header values. Flow control was checked with 50 confirmed publications,
+prefetch=1, and a one-event handoff. The full non-integration run returned
+449 passed, 1 skipped, and 48 deselected; the core xdist run passed 436 tests.
+Controlled native adapter and harness checks cover startup failure/cancellation,
+acknowledgement order, decode/overflow failures, consumer/connection loss,
+independent monitors, deadlines, and owned-resource cleanup. Production ACL/TLS,
+network fault, restart, and multi-version broker coverage remain release gates.
+
 The first real-broker run revealed a difference in `get_watermark_offsets`
 under `read_committed`: the client returned LSO instead of the physical high
 watermark. The fix uses worker-owned AdminClient ListOffsets with
@@ -77,15 +96,16 @@ uv run ruff format --check .
 uv run pyright
 uv build --no-sources
 uv run twine check dist/*
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest tests/integration -v
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest tests/integration/test_kafka*.py -v
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ uv run pytest tests/integration/test_rabbitmq*.py -v
 ```
 
 Running the Allure examples, the separate demonstration failure, and viewing HTML:
 [examples/allure](../examples/allure/README.md).
 
-Without `KAFKA_BOOTSTRAP_SERVERS`, real Kafka tests have an explicit skip.
-A specified but unreachable broker causes a failure. These skips do not prove
-Kafka compatibility. Native-client unit tests use a controlled implementation
+Without `KAFKA_BOOTSTRAP_SERVERS` or `RABBITMQ_URL`, the corresponding real
+broker tests explicitly skip. A specified but unreachable broker causes a failure.
+These skips do not prove broker compatibility. Native-client unit tests use a controlled implementation
 of its interface and are identified separately from real-broker tests.
 
 ## Remaining work before publication

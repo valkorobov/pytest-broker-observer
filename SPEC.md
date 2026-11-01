@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.1\
+**Revision:** 1.2\
 **Date:** November 2, 2026\
-**Basis:** ADR-001–012 decisions and the additional requirement to support synchronous tests.\
+**Basis:** ADR-001–012 decisions, synchronous test support, and the authorized RabbitMQ extension.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -40,6 +40,7 @@ This document describes a standalone library. It contains no source code, messag
 25. [Implementation plan and acceptance criteria](#s25)
 26. [Clarifications made while consolidating ADRs](#s26)
 27. [External technical references](#s27)
+28. [RabbitMQ extension: dedicated exchange subscriptions](#s28)
 
 ---
 
@@ -88,8 +89,8 @@ It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Cor
 | Area | Included in 0.1.0 |
 |---|---|
 | Runtime | `EventObserver` for async and `SyncEventObserver` for sync; a shared core |
-| Transport | Kafka through `confluent-kafka`; independent sessions and manual partition assignment |
-| Start | `latest`, `earliest`, explicit Kafka offsets, and timestamp resolution |
+| Transport | Kafka through `confluent-kafka`; independent sessions and manual partition assignment; RabbitMQ through `aio-pika` as defined in section 28 |
+| Start | `latest`, `earliest`, explicit Kafka offsets, and timestamp resolution; RabbitMQ latest-only exchange subscription |
 | Formats | Raw bytes / null payload; ordinary Protobuf through `*_pb2.py` |
 | Mixed types | Explicit header/source/callable resolvers; `FAIL_FAST`, `SKIP_UNKNOWN_TYPE` |
 | Journal | Bounded in-memory journal, FAIL / DROP_OLDEST / DROP_NEWEST, and loss tracking |
@@ -98,12 +99,12 @@ It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Cor
 | Correlation | Scopes, nested scopes, history / from-now / sequence, payload, and metadata |
 | Diagnostics | Bounded snapshots, mismatch reasons, and errors; opt-in Allure |
 | Tracing | W3C trace context extraction without creating spans |
-| Testing | Fake adapter, reusable contract tests, real Kafka, basic faults, xdist, and sync/async parity |
+| Testing | Fake adapter, reusable contract tests, real Kafka and RabbitMQ according to declared capabilities, basic faults, xdist, and sync/async parity |
 | Delivery | Wheel + sdist, typing, extras, documentation, and a protected release pipeline |
 
 ### 2.3. After the MVP
 
-Temporal assertions, RabbitMQ, Redis Streams, followed by Redis Pub/Sub and NATS, will be implemented in separate stages. Their architectural contracts are defined now, but the presence of these sections does not authorize advertising a nonexistent adapter or publishing empty extras.
+Revision 1.2 adds RabbitMQ as an authorized extension to the original Kafka-first MVP; its contract is in section 28. Temporal assertions, Redis Streams, followed by Redis Pub/Sub and NATS, remain separate stages. Their architectural contracts are defined now, but the presence of these sections does not authorize advertising a nonexistent adapter or publishing empty extras.
 
 Outside the immediate MVP: Schema Registry, automatic schema guessing, message publication, HTTP/gRPC clients, an on-disk Journal, reconnect with checkpoint recovery, dynamic partition assignment expansion, a distributed journal, a scenario DSL, and OpenTelemetry span generation.
 
@@ -278,7 +279,7 @@ flowchart TB
 
 ### 4.1. Dependency rules
 
-Core MUST NOT import `confluent_kafka`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
+Core MUST NOT import `confluent_kafka`, `aio_pika`, `aiormq`, `pamqp`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
 
 Transport has no knowledge of business predicates, Protobuf classes, or Allure. Decoder has no knowledge of consumer lifecycle. Journal does not perform commits/acks. Expectation Engine reads the Journal, not the broker. Reporter does not participate in delivery acknowledgment.
 
@@ -294,6 +295,7 @@ Transport has no knowledge of business predicates, Protobuf classes, or Allure. 
 | Expectation | One wait call; deadline, scan position, and bounded state |
 | Sync runtime loop | One active sync watcher; runs continuously until cleanup |
 | Kafka polling worker | One Kafka session; serializes blocking client operations |
+| RabbitMQ connection/channel/subscription | One RabbitMQ session; created and used in its runtime loop |
 | Reporter binding | One watcher/test reporting context; not a global singleton |
 
 An adapter supporting both facades MUST create loop-bound resources inside `open`, not in its constructor. The implementation MUST NOT share a transport session, task, lock, or Journal between pytest-xdist processes.
@@ -629,8 +631,10 @@ Static capabilities describe the adapter's potential capabilities; resolved capa
 | `start_modes` | LATEST, EARLIEST, OFFSET, TIMESTAMP, NATIVE_POSITION |
 | `isolation_modes` | INDEPENDENT_READER, DEDICATED_SUBSCRIPTION |
 | `flow_control_modes` | FETCH_LIMIT, PAUSE_RESUME, PREFETCH, NONE |
-| `ordering_scope` | NONE, SOURCE, PARTITION, NATIVE_DOMAIN |
+| `ordering_scope` | NONE, SOURCE, PARTITION, NATIVE_DOMAIN, QUEUE |
 | `supports_headers` | Availability of normalized headers |
+| `supports_null_payload` | Availability of a distinct null body, rather than empty bytes |
+| `supports_duplicate_headers` | Ability to preserve repeated header names |
 | `supports_key` | Availability of the message key |
 | `supports_source_timestamps` | Timestamp and its origin |
 | `supports_position_tracking` | Native position for diagnostics |
@@ -639,7 +643,9 @@ Static capabilities describe the adapter's potential capabilities; resolved capa
 
 Flow control does not guarantee fixed native RSS. A capability MUST NOT imply 'unbounded replay': retention, compaction, and permissions are described separately.
 
-Competing consumption from an ordinary application queue is not a safe official adapter mode. Future RabbitMQ support uses a separate queue with its own bindings; Redis Streams uses independent XREAD, not another consumer group. RabbitMQ Streams has separate transport semantics, not AMQP queue replay.
+Competing consumption from an ordinary application queue is not a safe official adapter mode. RabbitMQ uses a separate queue with its own bindings as specified in section 28; Redis Streams uses independent XREAD, not another consumer group. RabbitMQ Streams has separate transport semantics, not AMQP queue replay.
+
+Null body and duplicate-header capabilities are explicit boolean preconditions for transport contract tests. They default to supported for existing Core/Kafka adapters. A transport that cannot represent those inputs MUST declare the corresponding capability false rather than coerce, lose, or fabricate values. DATA-01 and DATA-02 continue to govern accepted normalized events; Kafka and Core preservation requirements are unchanged. A claimed capability MUST NOT be hidden behind a not-applicable result.
 
 ### 9.4. Settlement extension
 
@@ -680,7 +686,7 @@ Default transport handoff: 256 records and 16 MiB of accounted bytes. The byte b
 
 **FLOW-05.** If an accepted record cannot be retained and safe flow control is unavailable, `TransportBackpressureError` is raised. Silent transport drops are forbidden.
 
-For future RabbitMQ support, prefetch limits unacknowledged deliveries; a value of 0 means no such limit. [S07] For Redis Streams, the cursor advances using received IDs; repeating `$` on every XREAD is forbidden. [S08]
+RabbitMQ prefetch limits unacknowledged deliveries; at the protocol level a value of 0 means no such limit. [S07] The adapter in section 28 requires a positive bounded prefetch and does not expose the unlimited setting. For Redis Streams, the cursor advances using received IDs; repeating `$` on every XREAD is forbidden. [S08]
 
 <a id="s10"></a>
 ## 10. Kafka Adapter for the first release
@@ -1548,7 +1554,7 @@ Minimum security/independent observation/cleanup requirements cannot be bypassed
 
 Kafka uses Testcontainers Python with a pinned container image and a documented supported KRaft profile. An official KafkaContainer API and KRaft example exist, but the specific image/class/version combination must be verified: an arbitrary Apache image cannot be substituted into an entrypoint designed for another image. [S13]
 
-A real Kafka broker is required for the MVP. RabbitMQ/Redis/NATS receive the same suites when added. Docker is not required to import the library, run unit tests, or serve an end user connecting to an existing broker.
+A real Kafka broker is required for the original MVP. The RabbitMQ extension runs the same applicable suites on a real broker, with explicit optional capability preconditions; Redis/NATS receive them when added. Docker is not required to import the library, run unit tests, or serve an end user connecting to an existing broker.
 
 Rules: dynamic mapped ports; unique source names; readiness through an API/health condition; pinned image digest; cleanup after a partially failed fixture; container logs on failure; no reuse between independent CI runs; and bounded startup budgets.
 
@@ -1722,7 +1728,8 @@ event-observer/
 │   ├── sync.py
 │   ├── transports/
 │   │   ├── base.py
-│   │   └── kafka.py
+│   │   ├── kafka.py
+│   │   └── rabbitmq.py
 │   ├── codecs/
 │   │   ├── base.py
 │   │   ├── raw.py
@@ -1770,6 +1777,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 |---|---|---|
 | No extra | stdlib Core + sync facade + raw | No |
 | `kafka` | `confluent-kafka` | No connection |
+| `rabbitmq` | `aio-pika` | No connection; dedicated subscription only when a watcher opens |
 | `protobuf` | `protobuf` | No automatic schema loading |
 | `pytest` | `pytest` | Only a passive plugin entry point during pytest startup |
 | `pytest-asyncio` | `pytest`, `pytest-asyncio` | Does not change the project's loop mode |
@@ -1777,7 +1785,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 | `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Containers only when the harness runs |
 | `all` | Implemented end-user runtime/testing integrations, excluding contract benchmark infrastructure | No |
 
-Future `rabbitmq`, `redis`, and `nats` extras are declared only with their adapters. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
+The `rabbitmq` extra is included with the implemented section 28 extension. Future `redis` and `nats` extras are declared only with their adapters. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
 
 Optional dependencies differ from development dependency groups: the latter are not included in published runtime metadata. [S16, S17]
 
@@ -1812,6 +1820,7 @@ classifiers = [
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
+rabbitmq = ["aio-pika"]
 protobuf = ["protobuf"]
 pytest = ["pytest"]
 pytest-asyncio = ["pytest", "pytest-asyncio"]
@@ -1819,6 +1828,7 @@ allure = ["allure-pytest"]
 contract-tests = ["pytest", "pytest-asyncio", "testcontainers[kafka]"]
 all = [
     "confluent-kafka",
+    "aio-pika",
     "protobuf",
     "pytest",
     "pytest-asyncio",
@@ -1954,7 +1964,7 @@ Documentation is published from Markdown through MkDocs and must include:
 |---|---|
 | Quickstart | Complete sync and async examples with the same contract |
 | Concepts | Factory, session, watcher, Journal, scope, matcher, expectation |
-| Readiness/replay | Boundary vector, timestamp selector, empty source, transaction caveats |
+| Readiness/replay | Boundary vector, timestamp selector, empty source, transaction caveats, and RabbitMQ dedicated latest-only subscriptions |
 | Sync runtime | Thread model, callbacks, owner affinity, blocked action, cleanup limits |
 | Protobuf | Generated types, null/empty, presence, mixed resolver, runtime compatibility |
 | Reliability | Loss ranges, overflow, fail-closed, backpressure, limitations |
@@ -1985,7 +1995,7 @@ Examples MUST be checked in CI: syntax/type smoke, generated synthetic proto, an
 | M8 | Temporal Assertions | Separate temporal acceptance tests for both facades |
 | M9 | RabbitMQ / Redis Streams, then ephemeral transports | Each broker's contract verified independently |
 
-Individual Protobuf utilities may be implemented in parallel with M2; the sequence expresses dependencies between guarantees, rather than prohibiting local prototyping. A stage is not complete merely because an API stub exists.
+Individual Protobuf utilities may be implemented in parallel with M2; the sequence expresses dependencies between guarantees, rather than prohibiting local prototyping. A stage is not complete merely because an API stub exists. Revision 1.2 implements the RabbitMQ portion as the section 28 extension; the Redis Streams and ephemeral-transport portions of M9 remain deferred.
 
 ### 25.2. MVP acceptance matrix
 
@@ -2138,7 +2148,7 @@ If implementation reveals that a specific client's/broker's mandatory contract c
 
 ### 26.2. Final status
 
-The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013, and revision 1.2 adds the authorized RabbitMQ extension in section 28. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
 The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 
@@ -2172,3 +2182,86 @@ Sources were checked while preparing revision 1.0. They substantiate properties 
 | S21 | [PyPI: Publishing with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/using-a-publisher/) | GitHub OIDC and publication workflow |
 | S22 | [PyPI: Creating a Project through OIDC](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) | Pending publisher and an unreserved name |
 | S23 | [PyPI: Producing Attestations](https://docs.pypi.org/attestations/producing-attestations/) | Publish attestations |
+
+
+<a id="s28"></a>
+## 28. RabbitMQ extension: dedicated exchange subscriptions
+
+### 28.1. Scope and optional dependency
+
+Revision 1.2 adds an official RabbitMQ AMQP adapter to the current candidate. This extends the original Kafka-first MVP without changing the existing Core/Kafka guarantees or renumbering AC-01–AC-88, RG-01–RG-15, or existing section anchors. Redis Streams, Redis Pub/Sub, NATS, temporal assertions, and reconnect with checkpoint recovery remain deferred.
+
+The public types are `event_observer.transports.rabbitmq.RabbitMQConfig` and `RabbitMQAdapter`. The `rabbitmq` extra installs `aio-pika`; the native import MUST be deferred until a session opens. Constructing the config, adapter, factory, or watch object MUST NOT connect, create loop-bound resources, or import the optional client. `import event_observer` MUST remain stdlib-only, including without RabbitMQ dependencies installed.
+
+`RabbitMQConfig` has a required `url`, `binding_keys=("#",)`, and `prefetch_count=100`. The URL MUST be a valid nonempty `amqp` or `amqps` URL and MUST be excluded from the configuration's `repr`. Binding keys MUST be a nonempty tuple of strings, each fitting the 255-byte UTF-8 AMQP short-string limit. Prefetch MUST be an integer from 1 through 65535; bool and zero are invalid. The library MUST NOT discover connection URLs or credentials from environment variables automatically.
+
+The current implementation declares `aio-pika>=9.5,<10`. This dependency floor remains a candidate until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove the minimum.
+
+### 28.2. Exchange source, isolation, and readiness
+
+`watch(source=...)` identifies an existing exchange, not an application queue. Opening a watcher MUST verify that exchange exists rather than create or reconfigure it. Each session MUST create its own server-named, non-durable, exclusive, auto-delete classic queue, bind it using every configured binding key, and start its own consumer with explicit acknowledgement. Sharing an application queue, competing with application consumers, reusing another watcher's queue, or mutating an application exchange is prohibited.
+
+All connection, channel, consumer, delivery, and monitor objects MUST belong to the watcher's runtime event loop. Both sync and async facades use the same adapter. A factory MAY be reused, but active sessions MUST remain independent.
+
+READY MUST confirm successful exchange verification, bounded QoS, queue creation, bindings, and consumer acknowledgement before context entry returns. An empty exchange MUST reach READY without publishing a probe message. The caller's application action belongs after context entry. The latest boundary is the private subscription's binding, not a Kafka offset or an atomic broker-wide publication timestamp. Publications that predate the relevant binding are not replayed; eligible messages received during startup remain observable.
+
+The connection account needs exchange read/bind access plus permission to declare, consume, and delete the observer's own queues. Authentication, authorization, missing exchange, and subscription failures MUST remain visible failures rather than being reported as unsupported optional capabilities.
+
+### 28.3. Declared capabilities and normalized data
+
+| Capability | RabbitMQ value |
+|---|---|
+| `start_modes` | `{"latest"}` |
+| `isolation_modes` | `{"dedicated_subscription"}` |
+| `flow_control_modes` | `{"prefetch"}` |
+| `ordering_scope` | `"queue"` |
+| `supports_headers` | `True` |
+| `supports_settlement` | `True` |
+| `supports_key` | `False` |
+| `supports_null_payload` | `False` |
+| `supports_duplicate_headers` | `False` |
+| `supports_source_timestamps` | `False` |
+| `supports_position_tracking` | `False` |
+| `supports_topology_detection` | `False` |
+
+Only `StartPosition.latest()` without partitions is supported. Earliest, offsets, timestamps, native positions, application queue replay, and RabbitMQ Streams semantics MUST NOT be advertised. Queue-local ordering metadata does not establish global ordering or add temporal assertions.
+
+An accepted body is bytes, including empty bytes; a distinct null body is unsupported and MUST NOT be silently converted to an empty body. `RawEvent.source` is the exchange, and `RawEvent.key` is `None`. Routing keys are exposed as `rabbitmq.routing_key`; native delivery tags MAY be retained as `rabbitmq.delivery_tag`, but are not replay positions or cross-session identifiers.
+
+AMQP headers use a unique-key field table. The supported flat domain is native strings, bytes, and null values; strings normalize to UTF-8 bytes, and normalized headers remain detached tuple pairs. Unsupported numeric, boolean, nested, or other native values MUST fail explicitly rather than be stringified or silently discarded. Duplicate header names cannot be represented by this transport and MUST NOT be claimed as supported. Existing normalized model preservation rules remain in force for all accepted values.
+
+The new boolean null-body and duplicate-header capabilities default to supported for the existing transport model. Shared contracts MUST use explicit typed preconditions for these optional inputs, just as they do for replay and keys. A false declaration records `NOT_APPLICABLE`; it is not a passing result for a claimed capability. Readiness, safe independent observation, failure visibility, and owned-resource cleanup are never optional.
+
+### 28.4. Bounded delivery and settlement
+
+The effective prefetch MUST be no greater than both the configured prefetch and `TransportBufferLimits.max_events`. The accounted byte limit MUST cover every pending native delivery through final settlement, including deliveries already yielded from the handoff. Exceeding the bounded handoff MUST terminate with a visible backpressure error rather than silently drop a transport event. Prefetch and accounted bytes do not claim an exact process RSS bound.
+
+A delivered event carries a private session-local delivery ID. Core invokes `SettlementSession.settle` only after committing `ADMITTED`, `FILTERED`, or `DISCARDED_BY_EXPLICIT_JOURNAL_POLICY`. The adapter MUST acknowledge that one delivery after the committed outcome; it MUST NOT acknowledge ahead of Journal admission, acknowledge multiple unrelated deliveries, or settle the same token twice. Filtering and DROP settlement preserve the existing Core rules for explicit exclusions and observation completeness.
+
+Matcher success is not the acknowledgement boundary. A mismatch is already admitted and may satisfy another expectation from retained Journal history. Test failure, an expected timeout, or report rendering does not retroactively change delivery acknowledgement.
+
+Decode failure, hard oversize, and FAIL overflow MUST NOT receive a successful acknowledgement. The isolated subscription is closed and its exclusive queue removed through connection cleanup; the adapter does not claim replay or preservation of that private queue's pending messages after failure. Application queues and exchanges remain unaffected. A settlement failure is terminal and MUST remain visible independently of whether receive is temporarily backpressured.
+
+### 28.5. Failure and cleanup
+
+The client MUST use an ordinary connection without automatic reconnect. A known unexpected connection/channel closure or broker consumer cancellation MUST terminate the observation and wake pending waiters. A bounded owned monitor MAY detect consumer cancellation when the client lacks a direct cancellation callback; it MUST not depend on an incoming business message or wait indefinitely behind a full data buffer.
+
+Normal close, partial startup rollback, cancellation, and terminal failure MUST release only the watcher's consumer, channel, connection, and exclusive queue within the existing lifecycle budget. Cleanup is idempotent, and incomplete cleanup remains an explicit error. The runtime MUST NOT delete the source exchange or an application queue. Normalized error messages and diagnostic exports MUST NOT expose the connection URL or credentials; the general exception-chaining limits in section 17 still apply.
+
+### 28.6. Harness and reproducible evidence
+
+`event_observer.testing.RabbitMQAdapterHarness(url, timeout=15)` supplies an independent publisher/admin path. It MUST create uniquely named topic exchanges, record ownership before creation can succeed, and delete only owned exchanges during cleanup, including after partial fixture failure. Each operation MUST open and close its own native connection, supporting separate `asyncio.run(...)` calls in synchronous fixtures without retaining a client bound to a closed loop.
+
+A publish receipt MUST require broker publisher confirmation. The harness MAY expose a RabbitMQ-specific routing-key argument in addition to the generic publisher contract. Its publisher MUST explicitly reject null bodies, non-null message keys, and duplicate header names rather than weaken those unsupported semantics. Harness exchange creation/deletion and publishing require separate test-account permissions; those admin actions do not become production adapter behavior.
+
+The extension requires controlled-native unit coverage, all applicable reusable contract nodes on a real RabbitMQ broker, and real sync/async observation with Protobuf, header correlation, custom bindings, bounded prefetch/handoff, and an independent application queue. Optional not-applicable nodes remain visible in reports. Unit doubles and CI configuration alone MUST NOT be presented as successful real-broker evidence. Reproducible results belong in the implementation status and compatibility manifest.
+
+### 28.7. Local profile, examples, and Allure
+
+The repository provides an optional `rabbitmq` Docker Compose profile with a health check, loopback AMQP and management ports, and a named data volume. The current local/CI image is `rabbitmq:4.4.0-management@sha256:af6f50d38098d8bd52fef7f3fa85015dd8b2bf6def58e995bf584ae9ba0f6407`. The profile MUST keep RabbitMQ independently selectable so running or stopping RabbitMQ does not require changing Kafka. Test sources remain unique per scenario.
+
+Runnable examples MUST cover ordinary sync and async pytest use, plus two Allure scenarios: correlated success and an expected timeout after observing a real nonmatching event. Allure examples use explicit `REDACTED_PAYLOAD`, a small JSON decoder, and a redactor removing a synthetic `access_token` from independent report copies. Original test values MUST remain unchanged. Matched and mismatched bodies use the section 17 budgets and `message-content.json`; summary titles identify `RabbitMQAdapter` and the exchange. Normal close MUST NOT duplicate completed expectation summaries.
+
+Fixtures read `RABBITMQ_URL` explicitly. Missing configuration produces an explicit integration skip; an explicitly configured but unavailable broker is a failure. Report generation uses English, a separate result/report directory, and a standalone HTML artifact. The `rabbitmq` CI job MUST run the selected contracts and examples against the pinned profile and retain its separate report; a workflow definition does not itself establish a passing run.
+
+The [adapter guide](docs/rabbitmq.md), [local broker guide](docs/local-rabbitmq.md), [pytest examples](examples/pytest/test_rabbitmq.py), and [Allure guide](examples/allure/README.md#rabbitmq-and-allurereporter) document the supported behavior and commands. The existing dependency-floor, platform, security, artifact, and publication release gates continue to apply to this extension.
