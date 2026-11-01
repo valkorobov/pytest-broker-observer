@@ -33,7 +33,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install "uv==${UV_VERSION}"
       - run: uv sync --locked --all-groups --all-extras
-      - run: uv run pytest -m 'not integration' --junitxml=core-results.xml -o junit_family=xunit1
+      - run: uv run pytest tests examples/pytest -m 'not integration' --junitxml=core-results.xml -o junit_family=xunit1
 
   quality:
     runs-on: ubuntu-latest
@@ -137,4 +137,4 @@ jobs:
           python-version: "3.14"
       - run: python -m pip install "uv==${UV_VERSION}"
       - run: uv sync --locked --all-groups --all-extras
-      - run: uv run pytest tests/integration -v --junitxml=kafka-results.xml -o junit_family=xunit1
+      - run: uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v --junitxml=kafka-results.xml -o junit_family=xunit1

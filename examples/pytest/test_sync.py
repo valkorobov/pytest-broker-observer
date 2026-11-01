@@ -1,0 +1,53 @@
+"""Обычные def test_*: fixtures, параметризация, scopes и raw metadata."""
+
+from collections.abc import Callable
+from uuid import uuid4
+
+import pytest
+
+from event_observer import ScopeStart, SyncEventObserver, SyncEventWatcher
+from event_observer.matchers import header_equals
+
+
+def test_wait_for_operation(sync_events: SyncEventObserver, perform_operation: Callable[[str], None]):
+    operation_id = uuid4().hex
+
+    with sync_events.watch(source="operations") as watcher:
+        operation = watcher.scope(
+            header_equals("operation-id", operation_id.encode()), start=ScopeStart.from_now()
+        )
+
+        # Вход в watch() уже подтвердил READY; действие выполняется после него.
+        perform_operation(operation_id)
+
+        completed = operation.wait_for(lambda payload: payload == b"completed", timeout=1)
+        assert completed == b"completed"
+
+
+def test_observed_event_includes_key_and_headers(
+    sync_events: SyncEventObserver, perform_operation: Callable[[str], None]
+):
+    operation_id = uuid4().hex
+
+    with sync_events.watch(source="operations") as watcher:
+        perform_operation(operation_id)
+
+        completed = watcher.wait_for_event(lambda payload: payload == b"completed", timeout=1)
+
+        assert completed.payload == b"completed"
+        assert completed.raw.source == "operations"
+        assert completed.raw.key == operation_id.encode()
+        assert completed.raw.headers == (("operation-id", operation_id.encode()),)
+
+
+@pytest.mark.parametrize("expected_status", [b"started", b"completed"])
+def test_each_parameter_has_independent_observation(
+    expected_status: bytes,
+    watched_events: SyncEventWatcher[bytes | None],
+    perform_operation: Callable[[str], None],
+):
+    # Контекст уже открыт yield fixture; каждый parameter case получает новый watcher.
+    perform_operation(uuid4().hex)
+
+    observed = watched_events.wait_for(lambda payload: payload == expected_status, timeout=1)
+    assert observed == expected_status

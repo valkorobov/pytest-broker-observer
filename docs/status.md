@@ -25,6 +25,7 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 | Чистая установка wheel без extras | Stdlib-only import, `py.typed` и sync observation прошли |
 | Чистая установка sdist без extras | Импорт и `py.typed` прошли |
 | Обычный pytest без pytest-asyncio/Kafka/Protobuf/Allure | 1 passed |
+| Запускаемые примеры с pytest | 9 passed без брокера; отдельный Kafka-пример — 1 passed; в pytest-only окружении 4 passed, 3 skipped |
 | Реальная Kafka 3.9.2 / KRaft / arm64 | 22 passed: общие contracts, replay, topology, transactions, sync/async + Protobuf |
 
 Первый real-broker прогон выявил отличие `get_watermark_offsets` при

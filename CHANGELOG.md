@@ -21,6 +21,8 @@
   packaging, документация и CI workflow.
 - Pre-commit проверки Ruff, форматирования и Pyrefly с версиями из `uv.lock`;
   тот же набор запускается в CI.
+- Запускаемые pytest-примеры с fixtures, параметризацией, sync/async API,
+  Protobuf и отдельным opt-in Kafka-сценарием; примеры включены в CI.
 
 Temporal assertions, дополнительные брокеры, Schema Registry и checkpoint
 reconnect отложены. Подтверждённые результаты и незакрытые release gates —

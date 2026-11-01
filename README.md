@@ -85,6 +85,14 @@ asyncio.run(main())
 
 ## Kafka, Protobuf и корреляция
 
+Готовые запускаемые pytest-примеры с обычными и yield fixtures, параметризацией,
+sync/async ожиданиями и Protobuf находятся в [examples/pytest](examples/pytest/README.md).
+Для запуска без брокера из корня проекта:
+
+```shell
+uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
+```
+
 Создавайте watcher до вызова тестируемой системы. Вход в контекст дожидается
 readiness; по умолчанию чтение начинается с зафиксированных `latest` границ.
 
