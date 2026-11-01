@@ -1,11 +1,12 @@
 """Asynchronous pytest tests: fixtures, correlation, and independent expectations."""
 
 import asyncio
+from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
 
-from event_observer import EventObserver, ScopeStart
+from event_observer import EventObserver, ObservationMark, ScopeStart
 from event_observer.matchers import header_equals
 from event_observer.testing import FakeTransport
 
@@ -29,6 +30,34 @@ async def test_wait_for_operation_in_async_test(async_events: EventObserver, tra
         assert completed.payload == b"completed"
         assert completed.raw.source == "operations"
         assert completed.raw.headers == (("operation-id", operation_id),)
+
+
+@pytest.mark.asyncio
+async def test_async_mark_excludes_history_and_can_be_used_after_the_event_arrives(
+    async_events: EventObserver,
+    transport: FakeTransport,
+    perform_operation: Callable[[str], None],
+):
+    operation_id = uuid4().hex
+
+    async with async_events.watch(source="operations") as watcher:
+        operation = watcher.scope(header_equals("operation-id", operation_id.encode()))
+        transport.publish(
+            b"completed", source="operations", headers=(("operation-id", operation_id.encode()),)
+        )
+        previous = await operation.wait_for_event(lambda payload: payload == b"completed", timeout=1)
+
+        # mark() is an ordinary atomic call on the runtime loop, without await.
+        mark: ObservationMark = watcher.mark()
+        perform_operation(operation_id)
+        received = await operation.wait_for_event(
+            lambda payload: payload == b"completed", since=mark, timeout=1
+        )
+
+        # The marker remains reusable after the matching record has been admitted.
+        completed = await operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=1)
+        assert completed == b"completed"
+        assert previous.sequence < mark.sequence <= received.sequence
 
 
 @pytest.mark.asyncio

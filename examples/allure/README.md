@@ -63,10 +63,17 @@ In `SUMMARY` mode, one completed wait creates one summary. Normal exit from
 with new results; new watcher failures are reported separately.
 
 The `expectation-result.txt` attachment explains the outcome and reason, elapsed
-time, matched and requested event counts, counters, and observation completeness.
+time, matched and requested event counts, counters, the effective Journal lower
+bound, and observation completeness.
 When an export contains multiple expectations, the latest appears first. In the
 redaction scenario, `message-content.json` contains `operation_id` and `status`
 without the token, while the test's original payload remains unchanged.
+
+The successful Kafka, RabbitMQ, and Redis Streams examples capture
+`mark = operation.mark()` before publishing and pass `since=mark` to the later
+wait. Mark creation adds no report step; the expectation reports the effective
+range. See [observation marks](../../docs/scopes.md#reusable-observation-marks) for reuse,
+retention, and the distinction between Journal admission and broker publication.
 
 ## Kafka and AllureReporter
 

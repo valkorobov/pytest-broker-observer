@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from event_observer import ScopeStart, SyncEventObserver, TransportSource
+from event_observer import SyncEventObserver, TransportSource
 from event_observer.matchers import header_equals
 from event_observer.testing import KafkaAdapterHarness
 
@@ -38,7 +38,8 @@ def test_kafka_event_after_test_action(kafka_source: tuple[KafkaAdapterHarness, 
     events = SyncEventObserver(transport=harness.adapter)
 
     with events.watch(source=source) as watcher:
-        operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
+        operation = watcher.scope(header_equals("operation-id", operation_id))
+        mark = operation.mark()
 
         # An independent producer simulates the service action; the receipt waits for broker acknowledgement.
         receipt = asyncio.run(
@@ -46,7 +47,7 @@ def test_kafka_event_after_test_action(kafka_source: tuple[KafkaAdapterHarness, 
         )
         assert receipt.accepted
 
-        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10)
+        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10, since=mark)
         assert completed.raw.source == source.name
         assert completed.raw.key == operation_id
         assert isinstance(completed.raw.metadata["kafka.offset"], int)

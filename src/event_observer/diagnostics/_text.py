@@ -81,6 +81,7 @@ def expectation_text(data: Mapping[str, Any]) -> str:
                 _explanation(summary),
                 f"Expectation ID: {_code(summary.get('expectation_id'))}",
                 f"Scope ID: {_code(summary.get('scope_id'))}",
+                f"Journal lower bound: {_count(summary.get('lower_bound'))}",
                 f"Matching events: {_count(summary.get('matched'))} / {_count(summary.get('requested_count'))} requested",
                 f"Evaluated events: {_count(summary.get('evaluated'))}",
                 f"Elapsed: {_duration(summary.get('elapsed'))}",

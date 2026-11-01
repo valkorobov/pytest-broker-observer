@@ -80,6 +80,39 @@ asyncio.run(main())
 Both facades share the same core. In synchronous mode, a dedicated event loop
 keeps reading messages while the test performs a blocking service action.
 
+## Mark before an action and wait later
+
+An active watcher can capture a reusable Journal boundary before an application
+action. Pass it to a later wait to exclude earlier admitted history, including
+when the new matching event arrived before the wait started:
+
+```python
+from event_observer import ObservationMark
+from event_observer.matchers import header_equals
+
+operation = watcher.scope(header_equals("operation-id", operation_id.encode()))
+mark: ObservationMark = watcher.mark()
+service_client.perform(operation_id=operation_id)
+completed = operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=5.0)
+```
+
+`since` is available on `wait_for`, `wait_for_event`, and `wait_for_count`, for
+watchers and scopes. A scope keeps its filters and uses the later of its own
+lower boundary and the mark's sequence. The mark is immutable and local to one
+watcher; it does not pin history, create a consumer, or change broker positions.
+Async `watcher.mark()` also has no `await`; await only the expectation.
+The timeout begins with the wait call, rather than mark capture.
+
+This boundary uses Journal admission, not UTC or broker publication timestamps.
+An earlier publication buffered outside the Journal may be admitted after the
+mark, so retain correlation. Lost required history still raises
+`IncompleteObservationError` by default; `require_complete=False` is explicit.
+See [observation marks](docs/scopes.md#reusable-observation-marks) and the
+[runnable sync/async examples](examples/pytest/README.md#mark-before-the-action-and-wait-later).
+The Kafka, RabbitMQ, and Redis Streams correlation examples also capture a
+mark on the operation scope before publication and pass it to the expectation;
+their transport start positions and independent readers stay unchanged.
+
 ## Kafka, Protobuf, and correlation
 
 Runnable pytest examples with regular and yield fixtures, parametrization,
@@ -236,6 +269,8 @@ show those outcomes with independent stream reads and redacted message bodies.
 ## MVP features
 
 - Asynchronous and synchronous APIs: `wait_for`, `wait_for_event`, `wait_for_count`, and nested scopes.
+- Reusable `ObservationMark` boundaries with `mark()` and `since` for later
+  expectations over already received events.
 - Kafka through `confluent-kafka`: independent sessions, manual partition assignment,
   `latest`, `earliest`, explicit offsets, and timestamp start.
 - RabbitMQ through `aio-pika`: independent dedicated exchange subscriptions,

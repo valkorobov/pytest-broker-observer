@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.3\
+**Revision:** 1.4\
 **Date:** November 2, 2026\
-**Basis:** ADR-001–012 decisions, synchronous test support, and the authorized RabbitMQ and Redis Streams extensions.\
+**Basis:** ADR-001–012 decisions, synchronous test support, RabbitMQ and Redis Streams extensions, and reusable observation marks.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -42,6 +42,7 @@ This document describes a standalone library. It contains no source code, messag
 27. [External technical references](#s27)
 28. [RabbitMQ extension: dedicated exchange subscriptions](#s28)
 29. [Redis Streams extension: independent native cursors](#s29)
+30. [Reusable observation marks and wait-local boundaries](#s30)
 
 ---
 
@@ -97,7 +98,7 @@ It supports ordinary `def test_*` and asynchronous `async def test_*` tests. Cor
 | Journal | Bounded in-memory journal, FAIL / DROP_OLDEST / DROP_NEWEST, and loss tracking |
 | Expectations | `wait_for`, `wait_for_event`, `wait_for_count` |
 | Matchers | Fields, presence, partial Protobuf, composition, and payload/event predicates |
-| Correlation | Scopes, nested scopes, history / from-now / sequence, payload, and metadata |
+| Correlation | Scopes, nested scopes, history / from-now / sequence, payload, metadata, and reusable `mark()` / `since` boundaries |
 | Diagnostics | Bounded snapshots, mismatch reasons, and errors; opt-in Allure |
 | Tracing | W3C trace context extraction without creating spans |
 | Testing | Fake adapter, reusable contract tests, real Kafka, RabbitMQ, and Redis Streams according to declared capabilities, basic faults, xdist, and sync/async parity |
@@ -419,15 +420,16 @@ Resolving the built-in `KafkaConfig` into `KafkaAdapter` is an isolated convenie
 
 | Method | Async watcher/scope | Sync watcher/scope |
 |---|---|---|
-| `wait_for(matcher, *, timeout, description=None, require_complete=True)` | `await → T` | `→ T` |
-| `wait_for_event(...)` | `await → ObservedEvent[T]` | `→ ObservedEvent[T]` |
-| `wait_for_count(matcher, count, *, timeout, description=None, require_complete=True)` | `await → list[T]` | `→ list[T]` |
+| `wait_for(matcher, *, timeout, description=None, require_complete=True, since=None)` | `await → T` | `→ T` |
+| `wait_for_event(matcher, *, timeout, description=None, require_complete=True, since=None)` | `await → ObservedEvent[T]` | `→ ObservedEvent[T]` |
+| `wait_for_count(matcher, count, *, timeout, description=None, require_complete=True, since=None)` | `await → list[T]` | `→ list[T]` |
+| `mark()` | `→ ObservationMark`, ordinary owner-loop method | `→ ObservationMark`, bounded portal call |
 | `scope(matcher, *, name=None, start=None)` | `→ EventScope[T]`, no I/O | `→ SyncEventScope[T]`, bounded portal call |
 | `snapshot()` | Consistent `JournalSnapshot` / `ScopeSnapshot` in the owner loop | Detached snapshot through the portal |
 | `diagnostics.snapshot()` | Safe `DiagnosticSnapshot` | Detached safe snapshot |
 | `close()` | `await → None`, watcher only | `→ None`, watcher only |
 
-Scopes do not have their own `close()`. Closing the watcher makes new expectations invalid for all scopes. A finished watcher retains detached snapshots for diagnostics but does not provide replay after closing in the MVP.
+Scopes do not have their own `close()`. Closing the watcher makes new expectations and new marks invalid for all scopes. A finished watcher retains detached snapshots for diagnostics but does not provide replay after closing in the MVP. The keyword-only `since: ObservationMark | None = None` is a per-expectation lower boundary; section 30 defines its semantics without changing existing snapshot return types.
 
 ### 6.3. Invocation rules
 
@@ -2159,7 +2161,7 @@ If implementation reveals that a specific client's/broker's mandatory contract c
 
 ### 26.2. Final status
 
-The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. Revision 1.4 adds reusable observation marks in section 30. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
 The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 
@@ -2361,3 +2363,58 @@ Runnable examples cover sync latest observation and async exclusive native-ID ob
 The `redis-streams` CI job runs selected contracts and examples against that profile, generates a separate English Allure report, and retains `allure-redis-example-report`. Report viewing uses a standalone HTML artifact and does not require Redis to remain running. A workflow definition does not itself establish a successful run.
 
 The [adapter guide](docs/redis-streams.md), [local profile guide](docs/local-redis.md), [pytest examples](examples/pytest/test_redis_streams.py), and [Allure guide](examples/allure/README.md#redis-streams-and-allurereporter) document commands, supported field mapping, native boundaries, permissions, and continuity limits. Existing artifact, dependency-floor, security, platform, and publication gates continue to apply.
+
+
+<a id="s30"></a>
+## 30. Reusable observation marks and wait-local boundaries
+
+### 30.1. Public model and capture
+
+Revision 1.4 adds the public `event_observer.ObservationMark` and the `mark()` / `since` API without changing existing Core, Kafka, RabbitMQ, Redis Streams, acceptance identifiers, or snapshot contracts.
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationMark:
+    observer_id: str
+    sequence: int
+    recorded_at: datetime
+    recorded_monotonic: float
+```
+
+`sequence` is the watcher's next Journal admission position, rather than a broker offset or publication timestamp. The mark MUST be immutable, have a nonempty watcher identity, and contain a nonnegative integer sequence rather than bool. `recorded_at` MUST be timezone-aware and normalized to UTC; `recorded_monotonic` MUST be finite. Both times are informational diagnostics and MUST NOT determine event eligibility or start a timeout.
+
+Active watchers and scopes expose ordinary `mark() -> ObservationMark`. In the async facade this is an atomic owner-loop call, without `await`. In the sync facade it is a bounded portal call that captures the runtime boundary before returning to the owner thread. Existing loop/thread/process affinity, lifecycle, and control-timeout rules apply. New marks after closure MUST be rejected.
+
+Capture MUST NOT create a consumer, seek or replay a broker, stop collection, copy the Journal, register a scope, reserve waiter/result quotas, or emit a report. A mark is a caller-owned value reusable by independent expectations of the same watcher. No new mark registry or `max_marks` quota is required.
+
+### 30.2. Wait signatures and range intersection
+
+All watcher and scope wait variants accept keyword-only `since: ObservationMark | None = None`: `wait_for`, `wait_for_event`, and `wait_for_count`. Return types and sync/async invocation rules remain as specified in section 6. With `since=None`, existing behavior is unchanged.
+
+For a valid mark, an expectation MUST use `max(scope.lower_bound, since.sequence)` as its effective lower boundary and preserve the entire parent filter chain. Journal sequences at or above that boundary are eligible, subject to existing decoding, matching, completeness, deadline, and terminal-state rules. Earlier admitted events MUST be excluded, including those with the same payload and correlation as a later event. A later event already admitted before the wait starts MUST remain eligible.
+
+This boundary is local to that expectation. Passing `since` MUST NOT mutate a scope definition, change its identity/name, consume events for another waiter, or allocate another registered scope. Watcher/Scope snapshot return types and stored definition boundaries remain unchanged. Expectation diagnostics MUST use the effective lower boundary for scanning, completeness, and result summaries; text explanations identify it as `Journal lower bound`.
+
+`since` MUST be an `ObservationMark` with this watcher's identity and a sequence no later than its current next admission position. Invalid types, marks from another watcher, and future sequences MUST raise `ConfigurationError` before waiter/result reservations. Mark validation does not bypass known terminal failures or existing owner-affinity checks.
+
+### 30.3. Time, retention, and resources
+
+A mark selects Journal admission order, not UTC, native receive time, source timestamps, or broker publication time. A publication made before capture but buffered outside the Journal can be admitted after the mark and remain eligible. Tests SHOULD retain operation correlation when using marks. This API does not establish temporal ordering beyond the existing Journal semantics.
+
+The expectation timeout starts with the wait invocation under the existing sync/async deadline rules, not when the mark was captured. In sync mode, portal queue time still counts from entry to the blocking wait method. Waiting before invoking an expectation does not spend its timeout or reset the admission time of already retained records.
+
+Marks MUST NOT pin history or hide loss. With `require_complete=True`, known loss in the required effective range MUST raise `IncompleteObservationError`, even when a matching event remains. Loss strictly before that selected lower boundary does not by itself make the new range incomplete. `require_complete=False` explicitly permits searching retained incomplete history, while known terminal failures retain precedence. New expectations after closure remain invalid.
+
+Existing active-waiter, result-event, result-byte, callback, deadline, and diagnostic budgets apply unchanged. Creating or reusing marks MUST NOT consume `max_scopes`; each actual wait still reserves and releases its ordinary bounded resources. Marker timestamps do not override the shared Clock or the event admission deadline checks.
+
+### 30.4. Usage and verification
+
+The supported pattern is capture before the application action, let the existing reader continue, then wait with `since=mark` either immediately or after the event has already arrived. `ScopeStart.from_now()` remains available to fix the same kind of admission boundary when creating a scope; `since` supplies it for individual expectations without changing that scope.
+
+Verification MUST cover ordinary sync and async capture, old matching history exclusion, an event retained before the later wait, mark reuse across all wait variants, parent/mark boundary intersection, preserved scope filters and snapshots, foreign/future mark rejection, closure/affinity, quotas, and strict retention loss. Deterministic admission barriers or injected clocks MUST replace timing-based sleeps. Marks are transport-independent Core behavior and do not require a new broker service or new transport capability.
+
+The [scopes guide](docs/scopes.md#reusable-observation-marks) and [pytest examples](examples/pytest/README.md#mark-before-the-action-and-wait-later) document the pattern. Existing release and compatibility gates still apply; coverage descriptions or commands do not substitute for recorded verification results.

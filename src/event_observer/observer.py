@@ -52,6 +52,7 @@ from .journal import EventJournal, JournalSnapshot
 from .matchers import EventMatcher, MatchStatus, bind_matcher
 from .models import (
     ObservedEvent,
+    ObservationMark,
     OpenContext,
     ScopeStart,
     ScopeStartMode,
@@ -222,6 +223,17 @@ class _EventView(Generic[T]):
         self._watcher._check_affinity()
         return self._watcher._diagnostics
 
+    def mark(self) -> ObservationMark:
+        """Capture the next Journal admission position without changing this view."""
+        watcher = self._watcher
+        watcher._check_open()
+        return ObservationMark(
+            watcher.observer_id,
+            watcher._journal.next_sequence,
+            watcher._clock.utcnow(),
+            watcher._clock.monotonic(),
+        )
+
     def scope(self, matcher, *, name: str | None = None, start: ScopeStart | None = None) -> EventScope[T]:
         watcher = self._watcher
         watcher._check_open()
@@ -244,15 +256,31 @@ class _EventView(Generic[T]):
         return EventScope(watcher, lower=lower, filters=(*self._filters, bound), name=name)
 
     async def wait_for(
-        self, matcher, *, timeout: float, description: str | None = None, require_complete: bool = True
+        self,
+        matcher,
+        *,
+        timeout: float,
+        description: str | None = None,
+        require_complete: bool = True,
+        since: ObservationMark | None = None,
     ) -> T:
-        results = await self._watcher._expect(self, matcher, 1, timeout, description, require_complete)
+        results = await self._watcher._expect(
+            self, matcher, 1, timeout, description, require_complete, since=since
+        )
         return results[0].payload
 
     async def wait_for_event(
-        self, matcher, *, timeout: float, description: str | None = None, require_complete: bool = True
+        self,
+        matcher,
+        *,
+        timeout: float,
+        description: str | None = None,
+        require_complete: bool = True,
+        since: ObservationMark | None = None,
     ) -> ObservedEvent[T]:
-        results = await self._watcher._expect(self, matcher, 1, timeout, description, require_complete)
+        results = await self._watcher._expect(
+            self, matcher, 1, timeout, description, require_complete, since=since
+        )
         return results[0]
 
     async def wait_for_count(
@@ -263,8 +291,11 @@ class _EventView(Generic[T]):
         timeout: float,
         description: str | None = None,
         require_complete: bool = True,
+        since: ObservationMark | None = None,
     ) -> list[T]:
-        results = await self._watcher._expect(self, matcher, count, timeout, description, require_complete)
+        results = await self._watcher._expect(
+            self, matcher, count, timeout, description, require_complete, since=since
+        )
         return [event.payload for event in results]
 
 
@@ -566,8 +597,23 @@ class EventWatcher(_EventView[T]):
         require_complete: bool,
         *,
         absolute_deadline: float | None = None,
+        since: ObservationMark | None = None,
     ) -> list[ObservedEvent[T]]:
         self._check_open()
+        if since is not None:
+            if not isinstance(since, ObservationMark):
+                raise ConfigurationError("since must be an ObservationMark from this watcher")
+            if since.observer_id != self.observer_id or since.sequence > self._journal.next_sequence:
+                raise ConfigurationError("Observation mark belongs to another watcher or a future position")
+            # A wait-local view preserves the immutable scope and its identity.
+            # All scanning, completeness, and diagnostic paths use this bound.
+            scope = _EventView(
+                self,
+                lower=max(scope.lower_bound, since.sequence),
+                filters=scope._filters,
+                scope_id=scope.scope_id,
+                name=scope.name,
+            )
         positive(timeout, "timeout")
         if not isinstance(require_complete, bool):
             raise ConfigurationError("require_complete must be bool")

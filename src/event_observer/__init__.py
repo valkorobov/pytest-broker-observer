@@ -15,6 +15,7 @@ from .diagnostics import DiagnosticLimits, DiagnosticPolicy, DisclosurePolicy, R
 from .models import (
     EpochMilliseconds,
     ObservedEvent,
+    ObservationMark,
     RawEvent,
     ScopeStart,
     StartPosition,
@@ -33,6 +34,7 @@ __all__ = [
     "SyncEventScope",
     "RawEvent",
     "ObservedEvent",
+    "ObservationMark",
     "StartPosition",
     "EpochMilliseconds",
     "ScopeStart",

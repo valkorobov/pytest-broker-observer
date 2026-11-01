@@ -479,3 +479,51 @@ def test_sync_context_error_report_has_budget_priority_over_full_export_cache(al
             assert watcher.wait_for(lambda _: True, timeout=1) == b"completed"
             raise ValueError("SECRET_BODY_ERROR")
     _assert_failure_does_not_repeat_matching_result(allure_capture, "context_failure")
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_observation_mark_is_quiet_and_since_summary_shows_only_the_safe_lower_bound(allure_capture, sync):
+    import time
+
+    transport = FakeTransport()
+    factory = SyncEventObserver if sync else EventObserver
+    events = factory(
+        transport=transport,
+        reporters=[AllureReporter()],
+        diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),
+    )
+
+    async def async_case():
+        async with events.watch(source="events") as watcher:
+            transport.publish(b"old")
+            async with asyncio.timeout(1):
+                while watcher.snapshot().next_sequence < 1:
+                    await asyncio.sleep(0)
+            mark = watcher.mark()
+            assert allure_capture == []
+            transport.publish(b"new")
+            assert await watcher.wait_for(lambda _: True, since=mark, timeout=1) == b"new"
+            return mark
+
+    def sync_case():
+        with events.watch(source="events") as watcher:
+            transport.publish(b"old")
+            deadline = time.monotonic() + 1
+            while watcher.snapshot().next_sequence < 1:
+                assert time.monotonic() < deadline
+            mark = watcher.mark()
+            assert allure_capture == []
+            transport.publish(b"new")
+            assert watcher.wait_for(lambda _: True, since=mark, timeout=1) == b"new"
+            return mark
+
+    mark = sync_case() if sync else asyncio.run(async_case())
+    [step] = allure_capture
+    [summary] = _reported_expectations(step)
+    assert summary["lower_bound"] == mark.sequence == 1
+    assert "since" not in summary
+    assert "recorded_at" not in summary
+    assert "recorded_monotonic" not in summary
+    attachments = dict(step.attachments)
+    assert f"Journal lower bound: {mark.sequence}" in attachments["expectation-result.txt"]
+    assert "ObservationMark" not in "".join(attachments.values())

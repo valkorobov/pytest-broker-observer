@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from event_observer import EventObserver, ScopeStart, StartPosition, SyncEventObserver, TransportSource
+from event_observer import EventObserver, StartPosition, SyncEventObserver, TransportSource
 from event_observer.matchers import header_equals
 from event_observer.testing import RedisStreamsAdapterHarness
 
@@ -48,14 +48,15 @@ def test_redis_stream_event_after_test_action(
     events = SyncEventObserver(transport=harness.adapter)
 
     with events.watch(source=source) as watcher:
-        operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
+        operation = watcher.scope(header_equals("operation-id", operation_id))
+        mark = operation.mark()
         # Replace the independent XADD producer with the action of your application.
         receipt = asyncio.run(
             harness.publish(source, b"completed", headers=(("operation-id", operation_id),))
         )
         assert receipt.accepted
 
-        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10)
+        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10, since=mark)
         assert completed.payload == b"completed"
         assert completed.raw.source == source.name
         assert completed.raw.key is None

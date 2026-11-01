@@ -70,6 +70,13 @@ Added:
   storage, local guides, and a `redis-streams` CI job with a separate Allure artifact.
 - Specification revision 1.3 documenting the Redis Streams extension while
   preserving existing Core, Kafka, RabbitMQ, and acceptance contracts.
+- Reusable `ObservationMark` boundaries: capture `watcher.mark()` or
+  `scope.mark()` before an action and pass `since=mark` to any sync/async wait.
+  Marks preserve parent filters and intersect their lower boundary without
+  changing scopes, broker cursors, retention guarantees, or wait deadlines.
+  Their timestamps are informational; matching uses Journal admission order.
+- Marked pytest/Allure examples for Kafka, RabbitMQ, and Redis Streams, an
+  effective Journal lower bound in text diagnostics, and specification revision 1.4.
 
 Temporal assertions, further brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in

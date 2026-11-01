@@ -1,8 +1,9 @@
 """Transport neutral immutable envelopes and observation boundaries."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+import math
 import re
 from types import MappingProxyType
 from typing import Any, Generic, Mapping, TypeVar
@@ -60,6 +61,33 @@ class ObservedEvent(Generic[T]):
     recorded_monotonic: float
     message_type: str | None = None
     trace_context: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationMark:
+    """A watcher-local Journal boundary; timestamps are informational only."""
+
+    observer_id: str
+    sequence: int
+    recorded_at: datetime
+    recorded_monotonic: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.observer_id, str) or not self.observer_id:
+            raise ConfigurationError("Observation mark requires a watcher identity")
+        if isinstance(self.sequence, bool) or not isinstance(self.sequence, int) or self.sequence < 0:
+            raise ConfigurationError("Observation mark sequence must be a nonnegative integer")
+        if not isinstance(self.recorded_at, datetime) or self.recorded_at.utcoffset() is None:
+            raise ConfigurationError("Observation mark timestamp must be timezone-aware")
+        if isinstance(self.recorded_monotonic, bool) or not isinstance(self.recorded_monotonic, (int, float)):
+            raise ConfigurationError("Observation mark monotonic time must be finite")
+        try:
+            if not math.isfinite(self.recorded_monotonic):
+                raise ConfigurationError("Observation mark monotonic time must be finite")
+            normalized_at = self.recorded_at.astimezone(timezone.utc)
+        except (OverflowError, ValueError) as exc:
+            raise ConfigurationError("Observation mark times must be representable") from exc
+        object.__setattr__(self, "recorded_at", normalized_at)
 
 
 class StartMode(str, Enum):

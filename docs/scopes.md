@@ -52,6 +52,76 @@ For a mixed-type stream, use `on_type(T, matcher)` for type-specific fields.
 A scope filters events already received: irrelevant messages still occupy the
 shared Journal and can cause overflow.
 
+## Reusable observation marks
+
+Capture a mark before an application action when you want to choose a lower
+boundary now and start one or more expectations later:
+
+```python
+from event_observer import ObservationMark
+from event_observer.matchers import header_equals
+
+with events.watch(source="operations") as watcher:
+    operation = watcher.scope(header_equals("operation-id", operation_id.encode()))
+    mark: ObservationMark = watcher.mark()
+    service.perform(operation_id=operation_id)
+
+    completed = operation.wait_for(
+        lambda payload: payload == b"completed",
+        since=mark,
+        timeout=5.0,
+    )
+```
+
+Here `events` is a `SyncEventObserver` and the body is raw bytes. `mark()`
+captures the next Journal admission position before it returns to the calling
+thread. An event admitted before the mark is excluded; an event admitted after
+it remains eligible even if it arrives before `wait_for(...)` is called.
+The mark can be reused for independent expectations on the same watcher.
+
+`watcher.wait_for`, `watcher.wait_for_event`, and `watcher.wait_for_count` all
+accept `since=mark`; the same is true for a scope's three wait methods. A scoped
+expectation uses the maximum of its existing lower boundary and the mark's
+sequence, retaining every parent filter. Passing a mark does not move the scope
+boundary or consume history for other expectations.
+
+`ObservationMark` is frozen and contains:
+
+| Field | Meaning |
+| --- | --- |
+| `observer_id` | The watcher that owns the mark |
+| `sequence` | The next Journal admission position captured by `mark()` |
+| `recorded_at` | Capture time for diagnostics |
+| `recorded_monotonic` | Capture time in the runtime clock domain |
+
+The sequence defines eligibility. The timestamps do not filter broker
+publication time or message timestamps. A message published before the mark
+but still buffered outside the Journal can be admitted afterward and count.
+Keep operation correlation alongside the mark when unrelated or delayed
+messages can exist.
+
+An async watcher also exposes an ordinary `mark()` method, without `await`:
+
+```python
+async with async_events.watch(source="operations") as watcher:
+    operation = watcher.scope(header_equals("operation-id", operation_id.encode()))
+    mark = watcher.mark()
+    await service.perform_async(operation_id=operation_id)
+    completed = await operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=5.0)
+```
+
+Capturing the mark is atomic on the runtime loop. It does not create a new
+consumer, seek a transport cursor, replay from a broker, or copy the Journal.
+`ScopeStart.from_now()` selects the same kind of admission boundary when a
+scope is created; `since` selects it for an individual expectation.
+
+A mark belongs to one watcher, and another watcher rejects it. New marks
+cannot be created after watcher closure. Marks do not pin retained records:
+if the required marked range later loses history, the default strict wait
+raises `IncompleteObservationError`, even when a matching event remains.
+Use `require_complete=False` explicitly to search incomplete retained history;
+known terminal failures still fail the observation.
+
 ## Expectations and completeness
 
 Each expectation scans the scope's logical range again with its own cursor.

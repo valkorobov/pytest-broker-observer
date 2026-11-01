@@ -5,8 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from event_observer import ScopeStart, SyncEventObserver, SyncEventWatcher
+from event_observer import ObservationMark, ScopeStart, SyncEventObserver, SyncEventWatcher
 from event_observer.matchers import header_equals
+from event_observer.testing import FakeTransport
 
 
 def test_wait_for_operation(sync_events: SyncEventObserver, perform_operation: Callable[[str], None]):
@@ -38,6 +39,31 @@ def test_observed_event_includes_key_and_headers(
         assert completed.raw.source == "operations"
         assert completed.raw.key == operation_id.encode()
         assert completed.raw.headers == (("operation-id", operation_id.encode()),)
+
+
+def test_mark_excludes_history_and_can_be_used_after_the_event_arrives(
+    sync_events: SyncEventObserver,
+    transport: FakeTransport,
+    perform_operation: Callable[[str], None],
+):
+    operation_id = uuid4().hex
+
+    with sync_events.watch(source="operations") as watcher:
+        operation = watcher.scope(header_equals("operation-id", operation_id.encode()))
+        transport.publish(
+            b"completed", source="operations", headers=(("operation-id", operation_id.encode()),)
+        )
+        # Waiting for the old event establishes admission without a timing-based sleep.
+        previous = operation.wait_for_event(lambda payload: payload == b"completed", timeout=1)
+
+        mark: ObservationMark = watcher.mark()
+        perform_operation(operation_id)
+        received = operation.wait_for_event(lambda payload: payload == b"completed", since=mark, timeout=1)
+
+        # Reuse the mark later, after the new matching event is already in the Journal.
+        completed = operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=1)
+        assert completed == b"completed"
+        assert previous.sequence < mark.sequence <= received.sequence
 
 
 @pytest.mark.parametrize("expected_status", [b"started", b"completed"])

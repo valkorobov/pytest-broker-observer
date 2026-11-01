@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from event_observer import EventObserver, ScopeStart, SyncEventObserver, TransportSource
+from event_observer import EventObserver, SyncEventObserver, TransportSource
 from event_observer.matchers import header_equals
 from event_observer.testing import RabbitMQAdapterHarness
 
@@ -46,7 +46,8 @@ def test_rabbitmq_event_after_test_action(rabbitmq_source: tuple[RabbitMQAdapter
     events = SyncEventObserver(transport=harness.adapter)
 
     with events.watch(source=source) as watcher:
-        operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
+        operation = watcher.scope(header_equals("operation-id", operation_id))
+        mark = operation.mark()
 
         # Publish only after READY has confirmed this watcher's private queue binding.
         receipt = asyncio.run(
@@ -54,7 +55,7 @@ def test_rabbitmq_event_after_test_action(rabbitmq_source: tuple[RabbitMQAdapter
         )
         assert receipt.accepted
 
-        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10)
+        completed = operation.wait_for_event(lambda payload: payload == b"completed", timeout=10, since=mark)
         assert completed.payload == b"completed"
         assert completed.raw.source == source.name
         assert completed.raw.key is None
@@ -70,11 +71,14 @@ async def test_rabbitmq_async_event_after_test_action(
     events = EventObserver(transport=harness.adapter)
 
     async with events.watch(source=source) as watcher:
-        operation = watcher.scope(header_equals("operation-id", operation_id), start=ScopeStart.from_now())
+        operation = watcher.scope(header_equals("operation-id", operation_id))
+        mark = operation.mark()
         receipt = await harness.publish(source, b"completed", headers=(("operation-id", operation_id),))
         assert receipt.accepted
 
-        completed = await operation.wait_for_event(lambda payload: payload == b"completed", timeout=10)
+        completed = await operation.wait_for_event(
+            lambda payload: payload == b"completed", timeout=10, since=mark
+        )
         assert completed.payload == b"completed"
         assert completed.raw.source == source.name
         assert completed.raw.key is None

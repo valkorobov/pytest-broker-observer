@@ -80,9 +80,8 @@ class TestKafkaAllureReporter:
         }
 
         with events.watch(source=source, decoder=JsonDecoder()) as watcher:
-            operation = watcher.scope(
-                header_equals("operation-id", operation_id), start=ScopeStart.from_now()
-            )
+            operation = watcher.scope(header_equals("operation-id", operation_id))
+            mark = operation.mark()
             with allure.step("Publish completed through an independent producer after READY"):
                 # In an application test, replace this call with the action of the service under test.
                 receipt = asyncio.run(
@@ -95,7 +94,9 @@ class TestKafkaAllureReporter:
                 )
                 assert receipt.accepted
 
-            completed = operation.wait_for_event(lambda payload: payload["status"] == "completed", timeout=10)
+            completed = operation.wait_for_event(
+                lambda payload: payload["status"] == "completed", timeout=10, since=mark
+            )
             with allure.step("Check the event and the broker-confirmed offset"):
                 # Only the report's copy is redacted; returned test data keeps the token.
                 assert completed.payload == published

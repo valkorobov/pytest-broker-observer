@@ -79,9 +79,8 @@ class TestRedisStreamsAllureReporter:
         }
 
         with events.watch(source=source, decoder=JsonDecoder()) as watcher:
-            operation = watcher.scope(
-                header_equals("operation-id", operation_id), start=ScopeStart.from_now()
-            )
+            operation = watcher.scope(header_equals("operation-id", operation_id))
+            mark = operation.mark()
             with allure.step("Publish completed through an independent XADD producer after READY"):
                 receipt = asyncio.run(
                     harness.publish(
@@ -92,7 +91,9 @@ class TestRedisStreamsAllureReporter:
                 )
                 assert receipt.accepted
 
-            completed = operation.wait_for_event(lambda payload: payload["status"] == "completed", timeout=10)
+            completed = operation.wait_for_event(
+                lambda payload: payload["status"] == "completed", timeout=10, since=mark
+            )
             with allure.step("Check the observed body and server-generated stream ID"):
                 assert completed.payload == published
                 assert "access_token" in completed.payload

@@ -2,17 +2,60 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.3 adds Redis Streams
-observation alongside Kafka, RabbitMQ, and policy-controlled message diagnostics.
+The specification is maintained in English. Revision 1.4 adds reusable
+observation marks alongside Kafka, RabbitMQ, Redis Streams, and
+policy-controlled message diagnostics.
 
 Implemented features include a shared async core and sync facade, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
 decoders/resolvers, three-valued matchers, Kafka, RabbitMQ, and Redis Streams adapters, safe diagnostics
 and an explicit Allure reporter, a passive pytest plugin, reusable transport
 contracts, packaging, and CI.
+`ObservationMark` and `since` add per-wait Journal boundaries without changing
+scope definitions or broker positions.
 
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
+
+## Observation marks
+
+Call `watcher.mark()` before an application action and pass the result as
+`since=mark` to any wait method, including scoped waits. Capture is an ordinary
+method in both facades; an async wait is still awaited. The frozen marker
+records watcher identity, next Journal sequence, and informational UTC and
+monotonic times. Timeout begins with the wait call, and a scoped wait uses the
+later of its existing lower boundary and the mark, preserving its filters.
+
+The marker is reusable within one watcher and does not create a scope,
+consumer, seek, replay, or report. Capture consumes no scope/waiter/result
+quota; subsequent expectations retain normal waiter/result limits without
+registering another scope. Snapshots keep
+their existing definitions; expectation diagnostics report the effective
+lower bound, including `Journal lower bound` in the text explanation.
+Markers do not pin history, and strict retention checks remain in force.
+Foreign-watcher markers and creation after closure are rejected.
+
+The runnable sync/async examples establish old-event admission without sleeps,
+capture a mark, perform the action, and reuse that mark after a new matching
+event is already retained. Run the focused usage checks with:
+
+```shell
+uv run pytest -c pyproject.toml examples/pytest/test_sync.py examples/pytest/test_async.py -k mark -v
+```
+
+The regression scope also includes ownership, lifecycle, parent-boundary
+intersection, all wait variants, snapshots, quotas, and retention loss. A mark
+selects Journal admission order, rather than broker publication time; delayed
+earlier publications can still be admitted afterward. Keep correlation in
+place. See [the guide](scopes.md#reusable-observation-marks).
+
+Local marker validation on November 2, 2026 returned 575 passed, 1 skipped,
+and 78 deselected without brokers; the core suite passed 560 tests with two
+xdist workers. All 11 pytest and Allure examples passed against the running
+Compose Kafka, RabbitMQ, and Redis Streams services. Each marked success report
+contained one summary, the effective Journal lower bound, formatted JSON, and
+a redacted received body. Pre-commit, Pyright, wheel/sdist builds, and Twine
+metadata checks passed.
 
 ## Reproducible checks
 

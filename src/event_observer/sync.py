@@ -21,6 +21,7 @@ from .decoders import Decoder, PayloadAccess
 from .diagnostics import DiagnosticPolicy, DiagnosticReporter
 from .errors import (
     ConfigurationError,
+    ObserverClosedError,
     ObserverFailedError,
     ProcessAffinityError,
     ReentrantSyncCallError,
@@ -28,7 +29,7 @@ from .errors import (
     SyncRuntimeUnresponsiveError,
     ThreadAffinityError,
 )
-from .models import ObservedEvent, StartPosition, TransportSource
+from .models import ObservedEvent, ObservationMark, StartPosition, TransportSource
 from .observer import EventObserver, EventScope, EventWatcher
 from .transports.base import TransportAdapter
 from ._runtime.clock import Clock
@@ -247,7 +248,22 @@ class SyncEventScope(Generic[T]):
     def snapshot(self):
         return self._owner._call(self._scope.snapshot, report=False)
 
-    def _expect(self, matcher, count, timeout, description, require_complete) -> list[ObservedEvent[T]]:
+    def mark(self) -> ObservationMark:
+        self._owner._portal.guard()
+        if not self._owner._portal.running:
+            if self._owner._terminal_error is not None:
+                raise ObserverFailedError(
+                    "Observer background operation failed",
+                    observer_id=self._owner.observer_id,
+                    cause=self._owner._terminal_error,
+                    diagnostics=self._owner._cached_diagnostics,
+                ) from self._owner._terminal_error
+            raise ObserverClosedError("Watcher is not open", observer_id=self._owner.observer_id)
+        return self._owner._call(self._scope.mark, report=False)
+
+    def _expect(
+        self, matcher, count, timeout, description, require_complete, since
+    ) -> list[ObservedEvent[T]]:
         self._owner._portal.guard()
         # The admission deadline starts before the command enters the runtime queue.
         from .config import positive
@@ -264,20 +280,46 @@ class SyncEventScope(Generic[T]):
                 description,
                 require_complete,
                 absolute_deadline=deadline,
+                since=since,
             )
 
         return self._owner._dispatch(expect, budget=timeout + self._owner._portal.control_timeout)
 
-    def wait_for(self, matcher, *, timeout, description=None, require_complete=True) -> T:
-        return self._expect(matcher, 1, timeout, description, require_complete)[0].payload
+    def wait_for(
+        self,
+        matcher,
+        *,
+        timeout,
+        description=None,
+        require_complete=True,
+        since: ObservationMark | None = None,
+    ) -> T:
+        return self._expect(matcher, 1, timeout, description, require_complete, since)[0].payload
 
     def wait_for_event(
-        self, matcher, *, timeout, description=None, require_complete=True
+        self,
+        matcher,
+        *,
+        timeout,
+        description=None,
+        require_complete=True,
+        since: ObservationMark | None = None,
     ) -> ObservedEvent[T]:
-        return self._expect(matcher, 1, timeout, description, require_complete)[0]
+        return self._expect(matcher, 1, timeout, description, require_complete, since)[0]
 
-    def wait_for_count(self, matcher, count, *, timeout, description=None, require_complete=True) -> list[T]:
-        return [e.payload for e in self._expect(matcher, count, timeout, description, require_complete)]
+    def wait_for_count(
+        self,
+        matcher,
+        count,
+        *,
+        timeout,
+        description=None,
+        require_complete=True,
+        since: ObservationMark | None = None,
+    ) -> list[T]:
+        return [
+            e.payload for e in self._expect(matcher, count, timeout, description, require_complete, since)
+        ]
 
 
 class SyncEventWatcher(SyncEventScope[T]):

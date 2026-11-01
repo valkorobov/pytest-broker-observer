@@ -8,7 +8,7 @@ uv sync --all-groups --all-extras
 uv run pytest -c pyproject.toml examples/pytest -m 'not integration' -v
 ```
 
-Nine scenarios use `FakeTransport` and run without a broker. It simulates events
+Eleven scenarios use `FakeTransport` and run without a broker. It simulates events
 from the service under test; your service or a separate producer performs real
 publication. These examples demonstrate the observation API; separate integration
 examples use real Kafka, RabbitMQ, and Redis Streams.
@@ -19,8 +19,8 @@ JSON attachments, and commands to generate and view HTML reports.
 | File | Demonstrates |
 | --- | --- |
 | [conftest.py](conftest.py) | Function-scoped factory fixtures, a yield fixture for an active watcher, and a simulated service action. |
-| [test_sync.py](test_sync.py) | Ordinary `def test_*` functions, header correlation, an envelope with key/headers, and `pytest.mark.parametrize`. |
-| [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, parallel waiters, and reading history with `wait_for_count`. |
+| [test_sync.py](test_sync.py) | Ordinary `def test_*` functions, header correlation, reusable marks, an envelope with key/headers, and `pytest.mark.parametrize`. |
+| [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, ordinary `mark()` calls, parallel waiters, and reading history with `wait_for_count`. |
 | [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, an explicit resolver for mixed types, and the `on_type` guard. |
 | [test_kafka.py](test_kafka.py) | A real broker, a unique topic, an independent producer, and cleanup through a yield fixture. |
 | [test_rabbitmq.py](test_rabbitmq.py) | Sync and async observation of an exchange through dedicated observer queues, header correlation, and publisher confirmation. |
@@ -68,6 +68,39 @@ raw examples also work without an async plugin. Async and full-suite commands
 explicitly select `pyproject.toml`, which configures strict mode and function
 loop scope. Configure pytest-asyncio accordingly when copying these examples
 to your own project.
+
+## Mark before the action and wait later
+
+The mark examples in `test_sync.py` and `test_async.py` admit an old matching
+event before capturing a marker. They then perform the application action,
+receive a new matching event, and reuse the marker in a later expectation:
+
+```python
+from event_observer import ObservationMark
+
+mark: ObservationMark = watcher.mark()
+perform_operation(operation_id)
+completed = operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=1)
+```
+
+`operation` is a scope on `watcher` with the operation-id filter. The earlier
+matching history is excluded, while a new event already in the Journal when
+the wait starts remains eligible. The examples use a completed wait as an
+admission barrier, without sleeps. Async `mark()` also has no `await`; only
+the wait methods are awaited.
+
+`since` is supported by `wait_for`, `wait_for_event`, and `wait_for_count`, on
+watchers and scopes. A scope keeps its parent filters and takes the later of
+its lower boundary and the marker sequence. A mark is immutable, reusable,
+local to one watcher, and cannot be created after close. It does not create a
+consumer or change the broker position.
+
+This is a Journal admission boundary, rather than a UTC or broker-publication
+timestamp filter. An earlier publication buffered outside the Journal can
+still arrive after the marker, so keep correlation in place. Markers do not
+pin history: strict waits raise `IncompleteObservationError` for lost required
+records; `require_complete=False` explicitly accepts incomplete retained
+history. See [scopes and correlation](../../docs/scopes.md#reusable-observation-marks).
 
 ## Protobuf without compiling another schema
 
