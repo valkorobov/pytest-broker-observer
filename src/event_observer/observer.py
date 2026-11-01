@@ -696,6 +696,7 @@ class EventWatcher(_EventView[T]):
                 scope_excluded=excluded,
                 not_applicable=not_applicable,
                 deadline=deadline,
+                timeout=timeout,
                 elapsed=self._clock.monotonic() - began,
                 deadline_overrun=max(0.0, self._clock.monotonic() - deadline),
                 requested_count=count,

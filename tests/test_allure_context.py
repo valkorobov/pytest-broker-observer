@@ -22,7 +22,7 @@ def allure_capture(monkeypatch):
 
     @contextmanager
     def step(title):
-        captured = SimpleNamespace(title=title, attachments=[])
+        captured = SimpleNamespace(title=title, attachments=[], attachment_types={})
         steps.append(captured)
         stack.append(captured)
         try:
@@ -32,8 +32,10 @@ def allure_capture(monkeypatch):
 
     def attach(body, *, name, attachment_type):
         assert stack, "Attachments must belong to a completed summary step"
-        assert attachment_type == "application/json"
+        expected_type = "text/plain" if name.endswith(".txt") else "application/json"
+        assert attachment_type == expected_type
         stack[-1].attachments.append((name, body))
+        stack[-1].attachment_types[name] = attachment_type
 
     logger = SimpleNamespace(get_test=lambda _: SimpleNamespace(uuid="current-test"))
     manager = SimpleNamespace(get_plugins=lambda: [SimpleNamespace(allure_logger=logger)])
@@ -43,7 +45,7 @@ def allure_capture(monkeypatch):
         SimpleNamespace(
             step=step,
             attach=attach,
-            attachment_type=SimpleNamespace(JSON="application/json"),
+            attachment_type=SimpleNamespace(JSON="application/json", TEXT="text/plain"),
         ),
     )
     monkeypatch.setitem(sys.modules, "allure_commons", SimpleNamespace(plugin_manager=manager))
@@ -95,18 +97,23 @@ def test_shared_allure_prototype_keeps_each_watchers_title_and_attachments(allur
         for observer_id, source in zip(observer_ids, sources, strict=True)
     }
     observed = set()
+    text_titles = set()
     assert allure_capture
     for captured in allure_capture:
         for name, body in captured.attachments:
             assert "SECRET" not in body
             assert not any(source in body for source in sources)
-            data = json.loads(body)
+            if name == "expectation-result.txt":
+                text_titles.add(captured.title)
+                assert captured.attachment_types[name] == "text/plain"
             if name == "event-timeline.json":
+                data = json.loads(body)
                 for record in data["records"]:
                     observer_id = record["observer_id"]
                     observed.add(observer_id)
                     assert captured.title == titles[observer_id]
     assert observed == set(observer_ids)
+    assert text_titles == set(titles.values())
 
     # Binding a watcher must not change the reusable prototype's own title.
     prototype.emit(DiagnosticExport({"schema_version": 1}))
@@ -159,6 +166,20 @@ def test_standalone_reporter_keeps_generic_title_and_pretty_fallback(allure_capt
     assert body.startswith('{\n  "schema_version": 1,\n')
     assert '\n    "received": 2\n' in body
     assert json.loads(body)["counters"]["received"] == 2
+
+
+def test_allure_attaches_prepared_text_and_json_without_changing_bodies(allure_capture):
+    attachments = {
+        "expectation-result.json": '{\n  "schema_version": 1\n}',
+        "expectation-result.txt": "Expectation result: matched\nMatched 1 of 1 required events.\n",
+    }
+    AllureReporter().emit(DiagnosticExport({"schema_version": 1}, attachments=attachments))
+    [step] = allure_capture
+    assert dict(step.attachments) == attachments
+    assert step.attachment_types == {
+        "expectation-result.json": "application/json",
+        "expectation-result.txt": "text/plain",
+    }
 
 
 @pytest.mark.parametrize("sync", [False, True])

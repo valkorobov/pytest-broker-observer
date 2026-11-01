@@ -55,6 +55,9 @@ npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 505
 Все JSON-вложения форматируются с отступом в два пробела (`indent=2`). Summary ожидания содержит
 `expectation-result.json` и `event-timeline.json`; при несовпадениях добавляется
 `mismatches.json`.
+Во вложении `expectation-result.txt` есть текстовая расшифровка: исход и причина,
+время ожидания, найденное и запрошенное число событий, счётчики и полнота
+наблюдения. Последнее завершённое ожидание показано первым.
 В redaction-сценарии `message-content.json` содержит `operation_id` и `status`,
 но не токен; оригинальный payload теста сохраняется без изменений.
 
@@ -87,6 +90,9 @@ npx --yes allure@3.22.1 open artifacts/allure-kafka-report --host 127.0.0.1 --po
 где `<topic>` — уникальный topic этого теста:
 `expectation-result.json` содержит исход `timeout`, `mismatches.json` показывает
 несовпавшее событие, `event-timeline.json` — lifecycle наблюдения.
+Рядом доступен `expectation-result.txt`: для второго сценария он объясняет,
+что событие было прочитано, но не подошло условию ожидания `completed`.
+Сам текст не раскрывает содержимое сообщения.
 В обоих тестах используется `SUMMARY` с политикой `METADATA_ONLY`: содержимое
 сообщений, key и headers не раскрываются в JSON-экспорте.
 Имя адаптера и topic видны в заголовках summary; при необходимости их можно

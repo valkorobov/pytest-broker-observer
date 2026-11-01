@@ -388,7 +388,9 @@ def test_formatted_attachments_count_towards_cumulative_export_budget():
         "observer_1",
         DiagnosticPolicy(
             disclosure=DisclosurePolicy.FULL_PAYLOAD,
-            limits=DiagnosticLimits(max_attachment_bytes=2048, max_export_bytes=2100, max_mismatch_samples=1),
+            limits=DiagnosticLimits(
+                max_attachment_bytes=2048, max_export_bytes=10000, max_mismatch_samples=1
+            ),
         ),
     )
     payload = {"title": "готово 😀", "values": [0] * 10}
@@ -415,7 +417,7 @@ def test_formatted_attachments_count_towards_cumulative_export_budget():
             len(report.to_json().encode()) + sum(len(body.encode()) for body in report.attachments.values())
             for report in reports
         )
-        <= 2100
+        <= 10000
     )
     with pytest.raises(DiagnosticExportError):
         diagnostics.export()
@@ -520,13 +522,15 @@ def test_named_failure_attachments_match_conditions_without_sensitive_values():
     assert set(exported.attachments) == {
         "observer-summary.json",
         "expectation-result.json",
+        "expectation-result.txt",
         "mismatches.json",
         "event-timeline.json",
         "transport-state.json",
     }
-    for body in exported.attachments.values():
-        assert body.startswith('{\n  "schema_version": 1,\n')
-        assert json.loads(body)["schema_version"] == 1
+    for name, body in exported.attachments.items():
+        if name.endswith(".json"):
+            assert body.startswith('{\n  "schema_version": 1,\n')
+            assert json.loads(body)["schema_version"] == 1
         assert "SECRET" not in body
 
 

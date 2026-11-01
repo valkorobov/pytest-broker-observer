@@ -65,7 +65,11 @@ class AllureReporter:
                 self._allure.attach(
                     body,
                     name=name,
-                    attachment_type=self._allure.attachment_type.JSON,
+                    attachment_type=(
+                        self._allure.attachment_type.TEXT
+                        if name.endswith(".txt")
+                        else self._allure.attachment_type.JSON
+                    ),
                 )
 
 

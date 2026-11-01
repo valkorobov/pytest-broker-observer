@@ -18,8 +18,8 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 
 | Проверка | Результат |
 | --- | --- |
-| Unit/Core/parity/contracts/reliability/reporting | 294 passed |
-| pytest-xdist, два процесса | 294 passed |
+| Unit/Core/parity/contracts/reliability/reporting | 312 passed |
+| pytest-xdist, два процесса | 312 passed |
 | Ruff lint/format и Pyright | Без ошибок и предупреждений |
 | Wheel + sdist, Twine metadata check | Собраны, metadata check PASSED |
 | Чистая установка wheel без extras | Stdlib-only import, `py.typed` и sync observation прошли |
@@ -32,7 +32,8 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 | HTML Allure 3.22.1 / Node.js 24.19.0 | Обычный и демонстрационный отчёты собраны как standalone HTML |
 | Kafka-примеры с AllureReporter / Compose | 2 passed на настоящем брокере; без адреса Kafka — 2 skipped |
 | Читаемость отчёта Allure | JSON с `indent=2` и лимитами; заголовки с транспортом и топиком/стримом, aliases и изоляция watcher проверены |
-| Core вместе с pytest- и Allure-примерами без брокера | 307 passed, 1 skipped, 25 deselected |
+| Текстовая расшифровка ожиданий | `expectation-result.txt` с причиной исхода, временем и счётчиками; safe export, UTF-8 лимиты и text/plain проверены |
+| Core вместе с pytest- и Allure-примерами без брокера | 325 passed, 1 skipped, 25 deselected |
 
 Первый real-broker прогон выявил отличие `get_watermark_offsets` при
 `read_committed`: клиент вернул LSO вместо физического high watermark.

@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from ..errors import DiagnosticConfigurationError, DiagnosticExportError
+from ._text import expectation_text, truncate_text
 
 
 class DisclosurePolicy(str, Enum):
@@ -220,6 +221,7 @@ _SAFE_FIELDS = frozenset(
         "lower_bound",
         "upper_bound",
         "deadline",
+        "timeout",
         "elapsed",
         "duration",
         "evaluated",
@@ -629,6 +631,20 @@ class DiagnosticCollector:
                 attachment = _attachment_bytes({"schema_version": 1, "truncated": True, "omitted": True})
             attachments[name] = attachment.decode("utf-8")
             spent += len(attachment)
+        if data.get("expectations"):
+            available = min(
+                self.policy.limits.max_attachment_bytes,
+                self.policy.limits.max_export_bytes - self._exported_bytes - spent,
+            )
+            text = expectation_text(data)
+            if len(text.encode("utf-8")) > available:
+                data["truncated"] = True
+                if available >= 128:
+                    text = truncate_text(expectation_text(data), available)
+                else:
+                    text = ""
+            if text:
+                attachments["expectation-result.txt"] = text
         self._exported_bytes += len(_attachment_bytes(data)) + sum(
             len(value.encode("utf-8")) for value in attachments.values()
         )
