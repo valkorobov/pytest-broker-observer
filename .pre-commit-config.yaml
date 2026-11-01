@@ -1,0 +1,26 @@
+minimum_pre_commit_version: "4.0.0"
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: uv run --locked ruff check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+      - id: ruff-format
+        name: ruff format check
+        entry: uv run --locked ruff format --check .
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+      - id: pyrefly
+        name: pyrefly check
+        entry: uv run --locked pyrefly check
+        language: system
+        pass_filenames: false
+        always_run: true
+        require_serial: true

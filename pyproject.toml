@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-broker-observer"
+version = "0.1.0"
+description = "Typed broker event assertions for synchronous and asynchronous Python tests"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = []
+classifiers = ["Programming Language :: Python :: 3", "Framework :: Pytest", "Typing :: Typed"]
+
+[project.optional-dependencies]
+kafka = ["confluent-kafka>=2.6,<3"]
+protobuf = ["protobuf>=5.29,<8"]
+pytest = ["pytest>=8.3,<10"]
+pytest-asyncio = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2"]
+allure = ["allure-pytest>=2.13,<3"]
+contract-tests = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "testcontainers[kafka]>=4.9,<5"]
+all = ["confluent-kafka>=2.6,<3", "protobuf>=5.29,<8", "pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "allure-pytest>=2.13,<3"]
+
+[project.entry-points.pytest11]
+event_observer = "event_observer.integrations.pytest_plugin"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11",
+    "pyright>=1.1",
+    "build>=1.2",
+    "twine>=6",
+    "pre-commit>=4.7.0",
+    "pyrefly>=1.4.0",
+]
+test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "protobuf>=5.29,<8", "confluent-kafka>=2.6,<3"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/event_observer"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/examples", "/docs", "/pyproject.toml", "/uv.lock", "/.pre-commit-config.yaml", "/README.md", "/CHANGELOG.md", "/CONTRIBUTING.md", "/SECURITY.md", "/SPEC.md", "/.github"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "--strict-markers --import-mode=importlib"
+markers = ["contract: adapter conformance", "integration: requires a real broker", "reliability: resource and fault checks", "benchmark: performance measurements"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 110
+extend-exclude = ["SPEC.md"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pyright]
+include = ["src/event_observer"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+
+[tool.pyrefly]
+project-includes = ["src/event_observer"]
+search-path = ["src"]
+python-version = "3.11"

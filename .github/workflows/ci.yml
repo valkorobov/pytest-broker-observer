@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.19"
+
+jobs:
+  core:
+    name: Core / Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --all-groups --all-extras
+      - run: uv run pytest -m 'not integration' --junitxml=core-results.xml -o junit_family=xunit1
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --all-groups --all-extras
+      - run: uv run pre-commit run --all-files
+      - run: uv run pyright
+      - run: uv run pytest -n 2 -m 'not integration'
+
+  packaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --all-groups --all-extras
+      - run: uv build --no-sources
+      - run: uv run twine check dist/*
+      - name: Clean wheel import without optional dependencies
+        run: |
+          python -m venv /tmp/observer-wheel
+          /tmp/observer-wheel/bin/python -m pip install --no-deps dist/*.whl
+          /tmp/observer-wheel/bin/python -I - <<'PY'
+          import importlib.util
+          import importlib.resources
+          import sys
+          import event_observer
+          assert importlib.resources.files(event_observer).joinpath("py.typed").is_file()
+          for name in ("confluent_kafka", "google", "pytest", "allure", "opentelemetry"):
+              assert name not in sys.modules
+              assert importlib.util.find_spec(name) is None
+          PY
+      - name: Clean source distribution installation
+        run: |
+          python -m venv /tmp/observer-sdist
+          /tmp/observer-sdist/bin/python -m pip install --no-deps dist/*.tar.gz
+          /tmp/observer-sdist/bin/python -I -c 'from event_observer import EventObserver, SyncEventObserver'
+      - name: Pure synchronous pytest without pytest-asyncio
+        run: |
+          /tmp/observer-wheel/bin/python -m pip install 'pytest>=8.3,<10'
+          cat > /tmp/test_observer_minimal.py <<'PY'
+          from event_observer import SyncEventObserver
+          from event_observer.testing import FakeTransport
+
+          def test_sync_observer():
+              adapter = FakeTransport()
+              with SyncEventObserver(transport=adapter).watch(source="events") as watcher:
+                  adapter.publish(b"hello")
+                  assert watcher.wait_for(lambda payload: payload == b"hello", timeout=1) == b"hello"
+          PY
+          /tmp/observer-wheel/bin/python -I -m pytest -c /dev/null /tmp/test_observer_minimal.py -q
+
+  kafka:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      kafka:
+        # Verified Docker Hub multi-platform manifest for Apache Kafka 3.9.2.
+        image: apache/kafka:3.9.2@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_NODE_ID: "1"
+          KAFKA_PROCESS_ROLES: broker,controller
+          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+        options: >-
+          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
+          --health-start-period 20s
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: 127.0.0.1:9092
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "uv==${UV_VERSION}"
+      - run: uv sync --locked --all-groups --all-extras
+      - run: uv run pytest tests/integration -v --junitxml=kafka-results.xml -o junit_family=xunit1

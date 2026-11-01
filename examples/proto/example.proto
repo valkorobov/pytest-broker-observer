@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package example;
+
+enum OperationStatus {
+  OPERATION_STATUS_UNSPECIFIED = 0;
+  CREATED = 1;
+  COMPLETED = 2;
+  FAILED = 3;
+}
+
+message OperationEvent {
+  string operation_id = 1;
+  OperationStatus status = 2;
+}
+
+message OperationCreated {
+  string operation_id = 1;
+}
+
+message OperationCompleted {
+  string operation_id = 1;
+}

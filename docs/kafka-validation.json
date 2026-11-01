@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-01",
+  "kind": "local_workspace_validation",
+  "result": "passed",
+  "integration_tests": 22,
+  "integration_seconds": 27.47,
+  "native_contract_tests": 33,
+  "python": "3.14.7",
+  "client_platform": "macOS arm64",
+  "confluent_kafka": "2.16.1",
+  "librdkafka": "2.16.0",
+  "broker": "Apache Kafka 3.9.2",
+  "broker_platform": "Linux arm64",
+  "broker_mode": "single-node KRaft",
+  "image_index": "apache/kafka:3.9.2@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02",
+  "image_platform_manifest": "sha256:ddc235acd57d0fec5b21eedd46dcaf4e89a7569ff1c9890c5597c6d9561c59b0",
+  "executed_local_docker_manifest": "sha256:55462afb3063696dfa1f6ce6f2c05b16e5b51e94ac4bcc73692c8087733c207d",
+  "verified_upstream_config_blob": "sha256:5b8b0495077ca724c06b253f7d94ed27a36a3211c6c6e84ff54a758f109d3d0f",
+  "local_image_materialization": "Official upstream configuration and compressed/uncompressed layer hashes verified; imported through a Docker archive because daemon blob transfer stalled. Filesystem and configuration unchanged; manifest wrapper converted from OCI to Docker v2.",
+  "command": "KAFKA_BOOTSTRAP_SERVERS=<isolated-local-broker> PYTHONPATH=src .venv/bin/python -m pytest tests/integration -v -o junit_family=xunit1",
+  "coverage": [
+    "empty-topic and immediate-publication readiness",
+    "independent sessions, source isolation and replay",
+    "null/empty payloads, duplicate/null headers and keys",
+    "explicit offsets and timestamp fallback",
+    "topology expansion failure",
+    "read_committed numeric physical-high boundary across an older open transaction",
+    "single receive iterator and idempotent cleanup",
+    "independent failure monitors and monitor cancellation",
+    "sync and async observer integration with Protobuf"
+  ],
+  "resolved_failure": {
+    "first_run": "21 passed, 1 failed",
+    "trigger": "A read_committed Consumer watermark query returned LSO 0 after an uncommitted record at offset 0",
+    "fix": "Resolve physical highs through worker-owned AdminClient ListOffsets READ_UNCOMMITTED while keeping the reader read_committed",
+    "regressions": "Independent native-client regression and entire corrected real integration suite passed"
+  },
+  "not_verified": [
+    "CI Python 3.11-3.14 and Linux client matrix",
+    "dependency minima and full declared version ranges",
+    "additional broker versions",
+    "ACL/TLS server profiles",
+    "compaction and network fault-proxy profiles",
+    "real-broker benchmark baselines"
+  ]
+}

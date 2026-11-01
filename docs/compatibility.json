@@ -1,0 +1,37 @@
+{
+  "candidate_version": "0.1.0",
+  "verification_date": "2026-11-01",
+  "python": "3.14.7",
+  "platform": "Darwin",
+  "machine": "arm64",
+  "dependencies": {
+    "confluent-kafka": "2.16.1",
+    "protobuf": "7.36.2",
+    "pytest": "9.2.0",
+    "pytest-asyncio": "1.4.1.post1",
+    "pytest-xdist": "3.8.0",
+    "allure-pytest": "2.16.2",
+    "testcontainers": "4.15.0",
+    "ruff": "0.17.3",
+    "pyright": "1.1.414"
+  },
+  "dependency_floors_verified": false,
+  "full_ci_matrix_verified": false,
+  "broker_profile": {
+    "broker": "Apache Kafka",
+    "version": "3.9.2",
+    "mode": "KRaft single node",
+    "platform": "Linux arm64",
+    "security_protocol": "PLAINTEXT (isolated local test)",
+    "isolation_level": "read_committed",
+    "librdkafka": "2.16.0",
+    "image": "apache/kafka:3.9.2",
+    "image_manifest_digest": "sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02",
+    "real_integration_tests_passed": 22,
+    "full_fault_profile_verified": false,
+    "platform_manifest_digest": "sha256:ddc235acd57d0fec5b21eedd46dcaf4e89a7569ff1c9890c5597c6d9561c59b0",
+    "executed_local_manifest_digest": "sha256:55462afb3063696dfa1f6ce6f2c05b16e5b51e94ac4bcc73692c8087733c207d",
+    "upstream_config_digest": "sha256:5b8b0495077ca724c06b253f7d94ed27a36a3211c6c6e84ff54a758f109d3d0f",
+    "provenance_record": "kafka-validation.json"
+  }
+}
