@@ -102,31 +102,8 @@ jobs:
   kafka:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    services:
-      kafka:
-        # Verified Docker Hub multi-platform manifest for Apache Kafka 3.9.2.
-        image: apache/kafka:3.9.2@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02
-        ports:
-          - 9092:9092
-        env:
-          KAFKA_NODE_ID: "1"
-          KAFKA_PROCESS_ROLES: broker,controller
-          KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-          KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
-          KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-          KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
-          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
-          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
-          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
-        options: >-
-          --health-cmd "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 12
-          --health-start-period 20s
     env:
+      KAFKA_PORT: "9092"
       KAFKA_BOOTSTRAP_SERVERS: 127.0.0.1:9092
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -137,4 +114,12 @@ jobs:
           python-version: "3.14"
       - run: python -m pip install "uv==${UV_VERSION}"
       - run: uv sync --locked --all-groups --all-extras
+      - name: Start Kafka
+        run: docker compose up --detach --wait --wait-timeout 120
       - run: uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v --junitxml=kafka-results.xml -o junit_family=xunit1
+      - name: Kafka logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200 kafka
+      - name: Stop Kafka
+        if: always()
+        run: docker compose down --volumes

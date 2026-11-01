@@ -27,6 +27,7 @@ reporter, passive pytest plugin, reusable transport contracts, packaging и CI.
 | Обычный pytest без pytest-asyncio/Kafka/Protobuf/Allure | 1 passed |
 | Запускаемые примеры с pytest | 9 passed без брокера; отдельный Kafka-пример — 1 passed; в pytest-only окружении 4 passed, 3 skipped |
 | Реальная Kafka 3.9.2 / KRaft / arm64 | 22 passed: общие contracts, replay, topology, transactions, sync/async + Protobuf |
+| Локальная Kafka через Compose | 23 passed вместе с pytest-примером; нестандартный host port и сохранение данных после `down`/`up` проверены |
 
 Первый real-broker прогон выявил отличие `get_watermark_offsets` при
 `read_committed`: клиент вернул LSO вместо физического high watermark.

@@ -82,13 +82,19 @@ matcher. Тип не угадывается по бинарному содерж
 
 ## Отдельный пример с настоящей Kafka
 
-Укажите адрес отдельного тестового брокера с разрешениями на создание и
-удаление topics. Пример создаёт уникальный topic и удаляет его в `finally`.
+Запустите локальную Kafka из `compose.yaml` и укажите её адрес. Пример создаёт
+уникальный topic и удаляет его в `finally`.
 
 ```shell
 uv sync --all-groups --all-extras
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest -c pyproject.toml examples/pytest/test_kafka.py -m integration -v
+docker compose up --detach --wait --wait-timeout 120
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml examples/pytest/test_kafka.py -m integration -v
+docker compose down
 ```
+
+Для существующего брокера с разрешениями на создание и удаление topics достаточно
+задать его адрес в `KAFKA_BOOTSTRAP_SERVERS`. Выбор порта и сброс локальных данных:
+[../../docs/local-kafka.md](../../docs/local-kafka.md).
 
 Без переменной `KAFKA_BOOTSTRAP_SERVERS` этот пример пропускается. Заданный,
 но недоступный брокер вызывает ошибку. Переменная окружения принадлежит

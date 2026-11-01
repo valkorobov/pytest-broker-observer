@@ -23,6 +23,8 @@
   тот же набор запускается в CI.
 - Запускаемые pytest-примеры с fixtures, параметризацией, sync/async API,
   Protobuf и отдельным opt-in Kafka-сценарием; примеры включены в CI.
+- Docker Compose с локальной Kafka в режиме KRaft, readiness health check,
+  настраиваемым портом и постоянным volume; общий профиль для локальных тестов и CI.
 
 Temporal assertions, дополнительные брокеры, Schema Registry и checkpoint
 reconnect отложены. Подтверждённые результаты и незакрытые release gates —

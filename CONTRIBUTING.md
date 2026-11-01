@@ -42,15 +42,19 @@ uv run twine check dist/*
 ```
 
 Для исправления форматирования используйте `uv run ruff format .`.
-Для Kafka integration tests нужен отдельный тестовый брокер:
+Для Kafka integration tests и Kafka pytest-примера можно запустить локальный
+брокер из `compose.yaml` (Docker Compose v2.18+):
 
 ```shell
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest -m integration -v
+docker compose up --detach --wait --wait-timeout 120
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
+docker compose down
 ```
 
 Эти тесты создают и удаляют topics. Указанный, но недоступный брокер даёт failure;
 отсутствующая переменная окружения означает явный skip. Docker не требуется
 для обычных Core tests или работы с уже существующим брокером.
+Порт и правила хранения данных описаны в [docs/local-kafka.md](docs/local-kafka.md).
 
 ## Изменения Core и adapters
 

@@ -166,6 +166,7 @@ Schema Registry и reconnect с восстановлением checkpoints от�
 
 ## Руководства
 
+- [Локальная Kafka: Docker Compose, запуск тестов, порты и данные](docs/local-kafka.md)
 - [Kafka: конфигурация, readiness и стартовые позиции](docs/kafka.md)
 - [Matchers и правила Protobuf](docs/matchers.md)
 - [Scopes, корреляция и полнота](docs/scopes.md)
@@ -189,12 +190,19 @@ uv build --no-sources
 uv run twine check dist/*
 ```
 
-Реальные Kafka-тесты используют отдельный тестовый брокер и создают/удаляют
-уникальные topics:
+Для локальной Kafka требуется Docker Compose v2.18+. Запустите брокер и
+дождитесь health check:
 
 ```shell
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092 uv run pytest -m integration -v
+docker compose up --detach --wait --wait-timeout 120
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml tests/integration examples/pytest/test_kafka.py -v
 ```
+
+Compose поднимает Kafka 3.9.2 в режиме KRaft на `127.0.0.1:9092`.
+Интеграционные тесты и pytest-пример создают и удаляют свои уникальные topics.
+Остановить локальный брокер с сохранением данных можно командой `docker compose down`.
+Выбор порта, сброс данных и запуск отдельных наборов описаны в
+[руководстве локальной Kafka](docs/local-kafka.md).
 
 При отсутствии этой переменной integration tests пропускаются. Если брокер
 указан, ошибка подключения считается failure. Наличие команды или CI workflow

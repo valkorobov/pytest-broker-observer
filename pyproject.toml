@@ -38,7 +38,7 @@ test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "p
 packages = ["src/event_observer"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/examples", "/docs", "/pyproject.toml", "/uv.lock", "/.pre-commit-config.yaml", "/README.md", "/CHANGELOG.md", "/CONTRIBUTING.md", "/SECURITY.md", "/SPEC.md", "/.github"]
+include = ["/src", "/tests", "/examples", "/docs", "/pyproject.toml", "/uv.lock", "/.pre-commit-config.yaml", "/compose.yaml", "/README.md", "/CHANGELOG.md", "/CONTRIBUTING.md", "/SECURITY.md", "/SPEC.md", "/.github"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"

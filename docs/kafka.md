@@ -3,6 +3,9 @@
 Install the local project with `python -m pip install '.[kafka]'`. The import
 namespace follows the specification: `event_observer`.
 
+For a local broker, use the repository's [Docker Compose guide](local-kafka.md).
+The same profile runs the integration tests and Kafka pytest example in CI.
+
 ```python
 from event_observer import StartPosition, SyncEventObserver
 from event_observer.transports.kafka import KafkaAdapter, KafkaConfig
