@@ -32,12 +32,14 @@ policy = DiagnosticPolicy(
 счётчики пропусков.
 
 `watcher.diagnostics.export()` возвращает `DiagnosticExport`; его `.to_dict()`
-и `.to_json()` создают отделённое представление. Snapshot уже очищен согласно
-политике; он не содержит protobuf objects, исключений или native clients.
+и `.to_json()` создают отделённое представление. `.to_json()` и все JSON-вложения
+отчёта форматируются с `indent=2`. Лимиты учитывают размер UTF-8 документа вместе
+с отступами и переносами строк. Snapshot уже очищен согласно политике;
+он не содержит protobuf objects, исключений или native clients.
 
 ## Раскрытие содержимого
 
-Режим `METADATA_ONLY` исключает payload, key, headers, expected/actual значения,
+В JSON-экспорте `METADATA_ONLY` исключает payload, key, headers, expected/actual значения,
 пользовательские descriptions, source labels и trace IDs. `allowed_fields`
 разрешает выбранные дополнительные labels; `aliases` заменяет их значения.
 Credentials и transport config исключены из диагностического экспорта.
@@ -109,6 +111,14 @@ context и не прикрепляет отчёт наблюдения к сле
 ожидания. Каждый watcher получает отдельный Allure binding в контексте текущего
 теста, поэтому factory с reporter можно хранить в session fixture. Binding
 предыдущего watcher не записывает вложения в следующий тест.
+
+Заголовок summary включает класс транспортного адаптера и топик/стрим watcher:
+`Event observation summary [KafkaAdapter: orders.events]`.
+Эти имена отображаются в заголовке независимо от disclosure JSON; `aliases`
+применяется и к ним. Например, `aliases={"KafkaAdapter": "Kafka", "internal.orders": "orders"}`
+даёт заголовок `Event observation summary [Kafka: orders]`. Метки ограничены
+512 символами каждая, переводы строк заменяются пробелами. У каждого watcher
+свой заголовок, в том числе при общей factory и параллельных ожиданиях.
 
 `DiagnosticExport.attachments` содержит готовые JSON-артефакты:
 `expectation-result.json`, `mismatches.json`, `event-timeline.json`, а при

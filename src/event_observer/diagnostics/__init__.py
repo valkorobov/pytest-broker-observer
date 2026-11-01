@@ -105,6 +105,10 @@ def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("utf-8")
 
 
+def _attachment_bytes(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=True, allow_nan=False, indent=2).encode("utf-8")
+
+
 @dataclass(frozen=True, slots=True)
 class DiagnosticRecord:
     schema_version: int
@@ -193,7 +197,7 @@ class DiagnosticExport:
         return _thaw(self.data)
 
     def to_json(self) -> str:
-        return _json_bytes(self.to_dict()).decode("utf-8")
+        return _attachment_bytes(self.to_dict()).decode("utf-8")
 
 
 class DiagnosticReporter(Protocol):
@@ -599,7 +603,7 @@ class DiagnosticCollector:
         )
         if budget < 128:
             raise DiagnosticExportError("Diagnostic export budget exhausted")
-        while len(_json_bytes(data)) > budget and (data["records"] or data["expectations"]):
+        while len(_attachment_bytes(data)) > budget and (data["records"] or data["expectations"]):
             if len(data["records"]) >= len(data["expectations"]):
                 data["records"].pop(0)
                 data["omitted_records"] += 1
@@ -607,13 +611,13 @@ class DiagnosticCollector:
                 data["expectations"].pop(0)
                 data["omitted_expectations"] += 1
             data["truncated"] = True
-        if len(_json_bytes(data)) > budget:
+        if len(_attachment_bytes(data)) > budget:
             data = {"schema_version": 1, "truncated": True, "omitted": self._sequence}
-        encoded = _json_bytes(data)
+        encoded = _attachment_bytes(data)
         attachments = {}
         spent = len(encoded)
         for name, document in self._attachment_documents(data).items():
-            attachment = _json_bytes(document)
+            attachment = _attachment_bytes(document)
             available = min(
                 self.policy.limits.max_attachment_bytes,
                 self.policy.limits.max_export_bytes - self._exported_bytes - spent,
@@ -622,10 +626,10 @@ class DiagnosticCollector:
                 data["truncated"] = True
                 if available < 128:
                     continue
-                attachment = _json_bytes({"schema_version": 1, "truncated": True, "omitted": True})
+                attachment = _attachment_bytes({"schema_version": 1, "truncated": True, "omitted": True})
             attachments[name] = attachment.decode("utf-8")
             spent += len(attachment)
-        self._exported_bytes += len(_json_bytes(data)) + sum(
+        self._exported_bytes += len(_attachment_bytes(data)) + sum(
             len(value.encode("utf-8")) for value in attachments.values()
         )
         return DiagnosticExport(data, bool(data.get("truncated")), attachments)

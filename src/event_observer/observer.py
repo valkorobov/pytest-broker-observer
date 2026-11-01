@@ -317,8 +317,19 @@ class EventWatcher(_EventView[T]):
         bound_reporters = []
         for reporter in factory.reporters:
             try:
-                binder = getattr(reporter, "bind", None)
-                bound_reporters.append(binder() if callable(binder) else reporter)
+                observation_binder = getattr(reporter, "bind_observation", None)
+                if callable(observation_binder):
+                    transport_name = type(factory.transport).__name__
+                    aliases = factory.diagnostic_policy.aliases
+                    bound_reporters.append(
+                        observation_binder(
+                            transport=aliases.get(transport_name, transport_name),
+                            source=aliases.get(source.name, source.name),
+                        )
+                    )
+                else:
+                    binder = getattr(reporter, "bind", None)
+                    bound_reporters.append(binder() if callable(binder) else reporter)
             except Exception:
                 self._diagnostics.record("reporter_error", error_code="reporter_bind_failed")
         self.reporters: tuple[DiagnosticReporter, ...] = tuple(bound_reporters)

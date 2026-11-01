@@ -75,9 +75,13 @@ def test_json_truncation_keeps_valid_json_and_counts():
 def test_total_export_budget_is_enforced_across_calls():
     diagnostics = DiagnosticCollector(
         "watcher-1",
-        DiagnosticPolicy(limits=DiagnosticLimits(max_attachment_bytes=256, max_export_bytes=256)),
+        DiagnosticPolicy(limits=DiagnosticLimits(max_attachment_bytes=256, max_export_bytes=128)),
     )
-    diagnostics.export()
+    report = diagnostics.export()
+    assert not report.attachments
+    assert report.truncated
+    assert report.to_json().startswith('{\n  "schema_version": 1,\n')
+    assert len(report.to_json().encode()) <= 128
     with pytest.raises(DiagnosticExportError):
         diagnostics.export()
 
@@ -356,6 +360,89 @@ def test_attachments_and_content_respect_watcher_budgets():
     )
 
 
+def test_export_limit_counts_indentation_when_compact_payload_would_fit():
+    diagnostics = DiagnosticCollector(
+        "observer_1",
+        DiagnosticPolicy(
+            disclosure=DisclosurePolicy.FULL_PAYLOAD,
+            limits=DiagnosticLimits(max_attachment_bytes=1024, max_export_bytes=8192, max_mismatch_samples=1),
+        ),
+    )
+    payload = {"values": [0] * 80}
+    diagnostics.record_mismatch("expectation_1", 1, (), payload=payload)
+    diagnostics.record_expectation(expectation_id="expectation_1", outcome="timeout")
+    assert len(diagnostics.snapshot().to_json().encode()) < 1024
+    assert diagnostics.snapshot().to_dict()["expectations"][0]["samples"][0]["content"]["payload"] == payload
+
+    exported = diagnostics.export()
+    assert exported.to_dict()["omitted_expectations"] == 1
+    assert exported.to_dict()["expectations"] == []
+    assert exported.to_json().startswith('{\n  "schema_version": 1,\n')
+    assert exported.truncated
+    assert len(exported.to_json().encode()) <= 1024
+    assert all(len(body.encode()) <= 1024 for body in exported.attachments.values())
+
+
+def test_formatted_attachments_count_towards_cumulative_export_budget():
+    diagnostics = DiagnosticCollector(
+        "observer_1",
+        DiagnosticPolicy(
+            disclosure=DisclosurePolicy.FULL_PAYLOAD,
+            limits=DiagnosticLimits(max_attachment_bytes=2048, max_export_bytes=2100, max_mismatch_samples=1),
+        ),
+    )
+    payload = {"title": "готово 😀", "values": [0] * 10}
+    diagnostics.record_mismatch("expectation_1", 1, (), payload=payload)
+    diagnostics.record_expectation(expectation_id="expectation_1", outcome="timeout")
+
+    first = diagnostics.export()
+    content = first.attachments["message-content.json"]
+    assert json.loads(content)["messages"][0]["payload"] == payload
+    assert '\n  "messages": [\n    {' in content
+    reports = [first]
+    for _ in range(16):
+        try:
+            reports.append(diagnostics.export())
+        except DiagnosticExportError:
+            break
+    else:
+        pytest.fail("Repeated exports did not exhaust the byte budget")
+    assert len(reports) > 1
+    assert any(not report.attachments for report in reports)
+    assert all(report.to_json().startswith('{\n  "schema_version": 1,\n') for report in reports)
+    assert (
+        sum(
+            len(report.to_json().encode()) + sum(len(body.encode()) for body in report.attachments.values())
+            for report in reports
+        )
+        <= 2100
+    )
+    with pytest.raises(DiagnosticExportError):
+        diagnostics.export()
+
+
+def test_truncated_attachment_keeps_indentation_with_a_tight_remaining_budget():
+    diagnostics = DiagnosticCollector(
+        "observer_1",
+        DiagnosticPolicy(
+            disclosure=DisclosurePolicy.FULL_PAYLOAD,
+            limits=DiagnosticLimits(max_attachment_bytes=2048, max_export_bytes=1500, max_mismatch_samples=1),
+        ),
+    )
+    diagnostics.record_mismatch("expectation_1", 1, (), payload={"title": "готово 😀", "values": [0] * 10})
+    diagnostics.record_expectation(expectation_id="expectation_1", outcome="timeout")
+
+    report = diagnostics.export()
+    content = report.attachments["message-content.json"]
+    assert json.loads(content) == {"schema_version": 1, "truncated": True, "omitted": True}
+    assert content.startswith('{\n  "schema_version": 1,\n')
+    assert report.truncated
+    assert (
+        len(report.to_json().encode()) + sum(len(body.encode()) for body in report.attachments.values())
+        <= 1500
+    )
+
+
 def test_ready_boundary_positions_have_explicit_truncation_without_source_labels():
     diagnostics = DiagnosticCollector("observer_1")
     positions = {partition: partition * 10 for partition in range(30)}
@@ -438,6 +525,7 @@ def test_named_failure_attachments_match_conditions_without_sensitive_values():
         "transport-state.json",
     }
     for body in exported.attachments.values():
+        assert body.startswith('{\n  "schema_version": 1,\n')
         assert json.loads(body)["schema_version"] == 1
         assert "SECRET" not in body
 

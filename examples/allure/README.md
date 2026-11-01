@@ -51,7 +51,8 @@ npx --yes allure@3.22.1 open artifacts/allure-report --host 127.0.0.1 --port 505
 | `test_redacted_payload` | Несовпавшее JSON-сообщение в `message-content.json`; поле `access_token` удалено redactor. |
 | `test_intentional_timeout_failure` | По умолчанию пропущен; включается отдельно для настоящего красного результата. |
 
-Откройте тест и его step **Event observation summary**. Summary ожидания содержит
+Откройте тест и его step **Event observation summary [FakeTransport: operations]**.
+Все JSON-вложения форматируются с отступом в два пробела (`indent=2`). Summary ожидания содержит
 `expectation-result.json` и `event-timeline.json`; при несовпадениях добавляется
 `mismatches.json`.
 В redaction-сценарии `message-content.json` содержит `operation_id` и `status`,
@@ -82,11 +83,14 @@ npx --yes allure@3.22.1 open artifacts/allure-kafka-report --host 127.0.0.1 --po
 | `test_kafka_expected_timeout` | Сначала принята настоящая запись `started`, затем ожидание `completed` завершается timeout. В отчёте остаётся диагностика несовпадения. |
 
 Второй тест остаётся `PASSED`, поскольку timeout ожидается и перехватывается
-через `pytest.raises(EventTimeoutError)`. Откройте **Event observation summary**:
+через `pytest.raises(EventTimeoutError)`. Откройте **Event observation summary [KafkaAdapter: <topic>]**,
+где `<topic>` — уникальный topic этого теста:
 `expectation-result.json` содержит исход `timeout`, `mismatches.json` показывает
 несовпавшее событие, `event-timeline.json` — lifecycle наблюдения.
 В обоих тестах используется `SUMMARY` с политикой `METADATA_ONLY`: содержимое
 сообщений, key и headers не раскрываются в JSON-экспорте.
+Имя адаптера и topic видны в заголовках summary; при необходимости их можно
+заменить через `DiagnosticPolicy.aliases`.
 
 Function-scoped fixture создаёт уникальный topic для каждого теста и удаляет
 его в `finally`, включая случай ошибки. `KafkaAdapterHarness` — тестовый producer;

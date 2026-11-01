@@ -20,10 +20,21 @@ class AllureReporter:
         self._allure = allure
         self._manager = plugin_manager
         self._test_uuid = self._current_test_uuid()
+        self._step_title = "Event observation summary"
 
     def bind(self) -> AllureReporter:
         """Create a watcher-local binding from a reusable reporter prototype."""
         return type(self)()
+
+    def bind_observation(self, *, transport: str, source: str) -> AllureReporter:
+        """Bind display labels without sharing context between watchers."""
+        reporter = self.bind()
+        # Labels are display text, never adapter repr/config. Bound before
+        # normalizing whitespace so unusually large source names stay cheap.
+        transport_label = " ".join(transport[:512].split())
+        source_label = " ".join(source[:512].split())
+        reporter._step_title = f"Event observation summary [{transport_label}: {source_label}]"
+        return reporter
 
     def _current_test_uuid(self) -> Any:
         # Allure's listener exposes its reporter through the public plugin
@@ -48,7 +59,7 @@ class AllureReporter:
         if current is None or current != self._test_uuid:
             return
         # No step context survives an await or spans the lifetime of a watcher.
-        with self._allure.step("Event observation summary"):
+        with self._allure.step(self._step_title):
             attachments = report.attachments or {"observer-summary.json": report.to_json()}
             for name, body in attachments.items():
                 self._allure.attach(

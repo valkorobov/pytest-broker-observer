@@ -30,6 +30,8 @@
 - Интеграционные Kafka-примеры с AllureReporter: корреляция успешного события,
   диагностика ожидаемого timeout, локальный запуск через Compose и отдельный
   HTML-отчёт с артефактом в Kafka CI job.
+- JSON-вложения отчёта с `indent=2` и учётом форматирования в лимитах; заголовки
+  Allure summary с транспортом и топиком/стримом, с поддержкой aliases.
 
 Temporal assertions, дополнительные брокеры, Schema Registry и checkpoint
 reconnect отложены. Подтверждённые результаты и незакрытые release gates —
