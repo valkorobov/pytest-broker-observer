@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
@@ -39,6 +40,7 @@ class DiagnosticLimits:
     max_mismatches_per_sample: int = 10
     max_attachment_bytes: int = 256 * 1024
     max_export_bytes: int = 2 * 1024 * 1024
+    max_matched_samples: int = 20
 
     def __post_init__(self) -> None:
         for name in self.__dataclass_fields__:
@@ -264,6 +266,7 @@ _SAFE_FIELDS = frozenset(
         "deadline_overrun",
         "samples",
         "mismatch_samples_omitted",
+        "matched_samples_omitted",
         "requested_start_mode",
         "requested_offsets",
         "resolved_positions",
@@ -321,6 +324,9 @@ class DiagnosticCollector:
         self._content_capture_bytes = 0
         self._truncated_attributes = False
         self._mismatch_samples: OrderedDict[str, tuple[list[dict[str, Any]], deque[dict[str, Any]], int]] = (
+            OrderedDict()
+        )
+        self._matched_samples: OrderedDict[str, tuple[list[dict[str, Any]], deque[dict[str, Any]], int]] = (
             OrderedDict()
         )
 
@@ -435,33 +441,57 @@ class DiagnosticCollector:
             and payload is not _NO_PAYLOAD
             and self.policy.disclosure is not DisclosurePolicy.METADATA_ONLY
         ):
-            content = self._payload_document(payload)
-            try:
-                content["format"] = "protobuf" if hasattr(payload, "DESCRIPTOR") else "json"
-            except Exception:
-                content["format"] = "json"
-            encoded = _json_bytes(content)
-            sample_budget = max(128, limits.max_attachment_bytes // limits.max_mismatch_samples)
-            if (
-                len(encoded) > sample_budget
-                or self._content_capture_bytes + len(encoded) > limits.max_export_bytes
-            ):
-                content = {
-                    "payload_omitted": True,
-                    "truncated": True,
-                    "reason_code": "content_budget_exhausted",
-                    "format": content["format"],
-                }
-            else:
-                self._content_capture_bytes += len(encoded)
-            if content.get("payload_omitted"):
-                self._counters["content_omitted"] = self._counters.get("content_omitted", 0) + 1
-            sample["content"] = content
+            sample["content"] = self._capture_content(payload, limits.max_mismatch_samples)
         if len(first) < (limits.max_mismatch_samples + 1) // 2:
             first.append(sample)
         else:
             last.append(sample)
         self._mismatch_samples[expectation_id] = (first, last, count + 1)
+
+    def _capture_content(self, payload: Any, sample_limit: int) -> dict[str, Any]:
+        content = self._payload_document(payload)
+        try:
+            content["format"] = "protobuf" if hasattr(payload, "DESCRIPTOR") else "json"
+        except Exception:
+            content["format"] = "json"
+        encoded = _json_bytes(content)
+        sample_budget = max(128, self.policy.limits.max_attachment_bytes // sample_limit)
+        if (
+            len(encoded) > sample_budget
+            or self._content_capture_bytes + len(encoded) > self.policy.limits.max_export_bytes
+        ):
+            content = {
+                "payload_omitted": True,
+                "truncated": True,
+                "reason_code": "content_budget_exhausted",
+                "format": content["format"],
+            }
+        else:
+            self._content_capture_bytes += len(encoded)
+        if content.get("payload_omitted"):
+            self._counters["content_omitted"] = self._counters.get("content_omitted", 0) + 1
+        return content
+
+    def record_match(self, expectation_id: str, event_sequence: int, *, payload: Any = _NO_PAYLOAD) -> None:
+        """Retain bounded, opted-in copies of matching messages outside receive."""
+        if self.policy.disclosure is DisclosurePolicy.METADATA_ONLY or payload is _NO_PAYLOAD:
+            return
+        limits = self.policy.limits
+        if expectation_id not in self._matched_samples:
+            if len(self._matched_samples) >= limits.max_expectation_summaries:
+                self._matched_samples.popitem(last=False)
+            self._matched_samples[expectation_id] = ([], deque(maxlen=limits.max_matched_samples // 2), 0)
+        first, last, count = self._matched_samples[expectation_id]
+        if len(first) < (limits.max_matched_samples + 1) // 2 or last.maxlen:
+            sample = {
+                "event_sequence": event_sequence,
+                "content": self._capture_content(payload, limits.max_matched_samples),
+            }
+            if len(first) < (limits.max_matched_samples + 1) // 2:
+                first.append(sample)
+            else:
+                last.append(sample)
+        self._matched_samples[expectation_id] = (first, last, count + 1)
 
     def record_expectation(self, **summary: Any) -> None:
         expectation_id = summary.get("expectation_id")
@@ -474,6 +504,13 @@ class DiagnosticCollector:
             summary["samples"] = [*first, *last]
             summary["mismatch_count"] = count
             summary["mismatch_samples_omitted"] = max(0, count - len(first) - len(last))
+        matched_samples = (
+            self._matched_samples.pop(expectation_id, None) if isinstance(expectation_id, str) else None
+        )
+        if matched_samples is not None:
+            first, last, count = matched_samples
+            summary = dict(summary)
+            summary["matched_samples_omitted"] = max(0, count - len(first) - len(last))
         if summary.get("outcome") not in {"matched", "success"}:
             self._failure_generation += 1
         if len(self._expectations) >= self.policy.limits.max_expectation_summaries:
@@ -484,6 +521,8 @@ class DiagnosticCollector:
             # These samples were already sanitized/copy-isolated at capture.
             # General-purpose attribute allowlists never permit raw payloads.
             safe["samples"] = [*samples[0], *samples[1]]
+        if matched_samples is not None:
+            safe["matched_samples"] = [*matched_samples[0], *matched_samples[1]]
         self._expectations.append(ExpectationDiagnostics(safe))
         self._expectation_generation += 1
 
@@ -499,6 +538,7 @@ class DiagnosticCollector:
                 or self._omitted_expectations
                 or self._counters.get("content_omitted")
                 or self._truncated_attributes
+                or any(summary.attributes.get("matched_samples_omitted") for summary in self._expectations)
             ),
             counters=self._counters,
         )
@@ -522,6 +562,16 @@ class DiagnosticCollector:
             # JSON's own encoder rejects native objects and bounds are applied
             # before this content is retained in diagnostics.
             result = {"payload": clone}
+            if self.policy.disclosure is DisclosurePolicy.FULL_PAYLOAD and isinstance(
+                clone, (bytes, bytearray)
+            ):
+                try:
+                    result = {"payload": clone.decode("utf-8"), "payload_encoding": "utf-8"}
+                except UnicodeDecodeError:
+                    result = {
+                        "payload": base64.b64encode(clone).decode("ascii"),
+                        "payload_encoding": "base64",
+                    }
             encoded = _json_bytes(result)
             if len(encoded) > self.policy.limits.max_attachment_bytes:
                 result = {"payload_omitted": True, "truncated": True}
@@ -558,7 +608,11 @@ class DiagnosticCollector:
             protobuf_content = []
             other_content = []
             for expectation in expectations:
-                outcome = {key: value for key, value in expectation.items() if key != "samples"}
+                outcome = {
+                    key: value
+                    for key, value in expectation.items()
+                    if key not in {"samples", "matched_samples"}
+                }
                 outcomes.append(outcome)
                 samples = expectation.get("samples", [])
                 if samples:
@@ -571,14 +625,23 @@ class DiagnosticCollector:
                             ],
                         }
                     )
-                for sample in samples:
-                    if "content" not in sample:
-                        continue
-                    content = dict(sample["content"])
-                    document = {"event_sequence": sample["event_sequence"], **content}
-                    (protobuf_content if content.get("format") == "protobuf" else other_content).append(
-                        document
-                    )
+                for match_status, content_samples in (
+                    ("mismatch", samples),
+                    ("matched", expectation.get("matched_samples", [])),
+                ):
+                    for sample in content_samples:
+                        if "content" not in sample:
+                            continue
+                        content = dict(sample["content"])
+                        document = {
+                            "expectation_id": expectation.get("expectation_id"),
+                            "event_sequence": sample["event_sequence"],
+                            "match_status": match_status,
+                            **content,
+                        }
+                        (protobuf_content if content.get("format") == "protobuf" else other_content).append(
+                            document
+                        )
             documents["expectation-result.json"] = {"schema_version": 1, "expectations": outcomes}
             if mismatches:
                 documents["mismatches.json"] = {"schema_version": 1, "expectations": mismatches}
@@ -631,6 +694,7 @@ class DiagnosticCollector:
             or data["omitted_records"]
             or self._counters.get("content_omitted")
             or self._truncated_attributes
+            or any(summary.get("matched_samples_omitted") for summary in data["expectations"])
         )
         report = self._export(data)
         # Internal generations remain useful when retention or export limits
@@ -647,6 +711,20 @@ class DiagnosticCollector:
         )
         if budget < 128:
             raise DiagnosticExportError("Diagnostic export budget exhausted")
+        if len(_attachment_bytes(data)) > budget:
+            # Optional successful content must not displace its outcome just
+            # because indentation or earlier exports consume the byte budget.
+            for expectation in data["expectations"]:
+                for sample in expectation.get("matched_samples", []):
+                    content = sample["content"]
+                    if "payload" in content:
+                        sample["content"] = {
+                            "payload_omitted": True,
+                            "truncated": True,
+                            "reason_code": "content_budget_exhausted",
+                            "format": content["format"],
+                        }
+                        data["truncated"] = True
         while len(_attachment_bytes(data)) > budget and (data["records"] or data["expectations"]):
             if len(data["records"]) >= len(data["expectations"]):
                 data["records"].pop(0)

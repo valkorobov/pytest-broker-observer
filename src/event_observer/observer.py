@@ -649,6 +649,7 @@ class EventWatcher(_EventView[T]):
                         results.append(self._copy_event(event))
                         reserved += size
                         self._result_bytes += size
+                        self._diagnostics.record_match(expectation_id, event.sequence, payload=event.payload)
                         if len(results) == count:
                             check_state()
                             outcome = "matched"

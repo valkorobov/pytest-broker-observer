@@ -19,6 +19,7 @@ policy = DiagnosticPolicy(
         max_records=500,
         max_expectation_summaries=100,
         max_mismatch_samples=10,
+        max_matched_samples=10,
         max_attachment_bytes=128 * 1024,
     ),
 )
@@ -45,9 +46,12 @@ values, user descriptions, source labels, and trace IDs. `allowed_fields`
 permits selected additional labels; `aliases` replaces their values.
 Credentials and transport configuration are excluded from diagnostic exports.
 
-With disclosure enabled, mismatch samples automatically receive bounded
-content copies. Explicit `disclose_payload()` is also available for individual
-artifacts:
+With disclosure enabled, matching messages and mismatch samples automatically
+receive bounded content copies. `matched_samples` retains the first and last
+matching messages per expectation (20 by default, configurable through
+`max_matched_samples`); `matched_samples_omitted` counts the rest. Mismatch
+sampling has its own `max_mismatch_samples` limit. Explicit `disclose_payload()`
+is also available for individual artifacts:
 
 ```python
 from event_observer.diagnostics import DiagnosticPolicy, DisclosurePolicy
@@ -67,11 +71,23 @@ policy = DiagnosticPolicy(
 The redactor receives an independent copy. An exception or invalid JSON from
 it produces `payload_omitted` and a safe error code, without falling back to
 the original content. `FULL_PAYLOAD` is a separate explicit permission to
-disclose a message. Content processing runs during mismatch evaluation,
+disclose a message. Content processing runs during expectation evaluation,
 outside receive and without Journal locks. By default, the payload is not
 inspected even for reporting. Total retained sample content is limited by
-a capture budget equal to `max_export_bytes`; when exhausted, metadata and
-a truncation indicator are retained.
+a shared capture budget equal to `max_export_bytes` across matched/mismatched
+samples and expectations; when exhausted, metadata and a truncation indicator
+are retained. Capture or redaction failures omit content without changing a
+successful wait result. Export limits include all formatted JSON and text and
+apply cumulatively across reports. If successful sample content makes an export
+too large, it is replaced with omission markers before expectation summaries
+are removed.
+
+For `FULL_PAYLOAD`, top-level `bytes` and `bytearray` are represented as UTF-8
+text with `payload_encoding="utf-8"`, or lossless base64 with
+`payload_encoding="base64"` when UTF-8 decoding fails. Empty bytes remain an
+empty string; a tombstone remains JSON `null`. Redactors still receive the
+original detached payload type and must return JSON-compatible data; their
+invalid output is never replaced with the raw message.
 
 Original exceptions may remain in Python chaining. The policy protects the
 library's own exports; it does not control pytest tracebacks or external user
@@ -139,6 +155,13 @@ Disclosed Protobuf content goes into `protobuf-message.json`; other
 JSON-compatible payloads go into `message-content.json`. Allure attaches only
 these already sanitized documents. Limits account for encoded JSON and the
 combined size of all attachments.
+
+Each message entry includes `expectation_id`, `event_sequence`, and
+`match_status` (`matched` or `mismatch`). The status describes the event's
+evaluation: a partially satisfied count expectation may retain matched bodies
+even when its final outcome is timeout, cancellation, or error. Outcome and
+mismatch attachments do not duplicate the message bodies; the text explanation
+also remains free of message content.
 
 Completed expectations also receive `expectation-result.txt` with a text
 explanation. It shows the outcome and its explanation, the number of events

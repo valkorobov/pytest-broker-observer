@@ -1,7 +1,7 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.0\
-**Date:** November 1, 2026\
+**Revision:** 1.1\
+**Date:** November 2, 2026\
 **Basis:** ADR-001–012 decisions and the additional requirement to support synchronous tests.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
@@ -1240,6 +1240,7 @@ The default mode is `ERRORS_ONLY`. `SUMMARY` adds concise successful results; `V
 | `event-timeline.json` | Bounded significant lifecycle/expectation events |
 | `transport-state.json` | Transport failure |
 | `protobuf-message.json` | Only permitted disclosure and redactor |
+| `message-content.json` | Permitted non-Protobuf matched or mismatched message content |
 | `raw-payload.bin` | Separate explicit opt-in, size limit |
 
 | Diagnostic limit | Default |
@@ -1247,12 +1248,15 @@ The default mode is `ERRORS_ONLY`. `SUMMARY` adds concise successful results; `V
 | Lifecycle/diagnostic records | 1 000 |
 | Completed expectation summaries | 256 |
 | Mismatch samples per expectation | 20, first and last |
+| Matched message samples per expectation | 20, first and last (`max_matched_samples`) |
 | Mismatches per sample | 10 |
 | Attachment | 256 KiB |
 | Total export budget per watcher | 2 MiB |
 | User-specified total test/report budget | Additional explicit object for multiple watchers |
 
 The budget includes encoded JSON overhead as well as payload. Truncated JSON remains valid; counts/omitted/truncated are preserved. High-frequency receive events are aggregated, and errors/lifecycle have reserved quotas. Arbitrary unbounded exception chains are not serialized.
+
+With disclosure enabled, matched and mismatched message samples share the watcher's content capture and cumulative export byte budgets. Sample content MUST NOT change the wait result. Omitted matched samples are counted explicitly; content omitted for byte limits retains a truncation marker. Optional matched content is removed before dropping expectation summaries to fit export limits. Each disclosed message identifies its expectation, event sequence, and `match_status` (`matched` or `mismatch`). This status describes an event evaluation, not the final expectation outcome; partial matches may be retained for a timeout, cancellation, or error. Outcome attachments and text summaries do not duplicate message bodies.
 
 ### 17.5. Redaction
 
@@ -1261,6 +1265,8 @@ Default `METADATA_ONLY`: a permitted allowlist of technical fields; payload, key
 `REDACTED_PAYLOAD` requires a specified redactor. `FULL_PAYLOAD` explicitly permits message disclosure, but does **not** permit transport credential/config disclosure.
 
 The redactor runs on an independent copy outside locks. It MUST return a bounded JSON-compatible structure. A redactor error fails closed for **content export**: the payload is omitted and a safe redaction error code is retained; falling back to raw content is prohibited.
+
+Under `FULL_PAYLOAD`, top-level bytes/bytearray use strict UTF-8 text with `payload_encoding="utf-8"`, or lossless base64 with `payload_encoding="base64"` for binary data. Empty bytes and null payloads remain distinct. This conversion does not weaken the redactor's JSON-compatible return contract or enable the separate `raw-payload.bin` artifact.
 
 Topic names, source labels, file paths, correlation IDs, and even schema names can be sensitive. The policy provides allowlisting/aliasing for them. Hashing IDs is not declared to be anonymization and is not used by default as a "safe" substitute.
 

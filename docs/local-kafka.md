@@ -55,7 +55,8 @@ variable is the responsibility of the test fixtures.
 
 Two integration examples in [examples/allure/test_kafka.py](../examples/allure/test_kafka.py)
 use `AllureReporter`: successful event correlation and an expected timeout
-with a mismatched message. With the broker already running:
+with a mismatched message. Both publish JSON and explicitly enable redacted
+message content for the report. With the broker already running:
 
 ```shell
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 uv run pytest -c pyproject.toml examples/allure/test_kafka.py -m integration -v --alluredir=artifacts/allure-kafka-results --clean-alluredir
@@ -69,6 +70,19 @@ dependencies. Full setup, attachment descriptions, and viewing HTML without a
 running Kafka instance are covered in the
 [Kafka and AllureReporter guide](../examples/allure/README.md#kafka-and-allurereporter).
 In CI, the `kafka` job saves this report as `allure-kafka-example-report` for 7 days.
+
+Open a test's **Event observation summary [KafkaAdapter: <topic>]** and its
+`message-content.json` attachment. The success scenario includes the matched
+`completed` message body. The timeout scenario includes the `started` body in
+the successful expectation and in the mismatch for the expected `completed`
+event. Each sampled entry identifies its expectation and event sequence and
+has `match_status` set to `matched` or `mismatch`.
+
+The examples use `REDACTED_PAYLOAD` with a redactor that removes the synthetic
+`access_token` before report content is captured. The original decoded test
+payload stays unchanged. Disclosure is explicit and bounded; the default
+`METADATA_ONLY` policy omits message bodies. The text explanation remains free
+of message content. See the guide above for attachment details and privacy.
 
 ## Custom port
 

@@ -2,8 +2,8 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The normative contract is unchanged; the specification has been translated
-into English.
+The specification is maintained in English. Revision 1.1 adds policy-controlled
+matched message samples to diagnostics while preserving metadata-only defaults.
 
 Implemented features include a shared async core and sync facade, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
@@ -42,6 +42,21 @@ Exact dependency versions: [compatibility.json](compatibility.json).
 The English-language migration was checked on November 2, 2026: examples,
 documentation, and report labels use English; Unicode byte-limit coverage is
 preserved. Allure generation in local commands and CI selects English explicitly.
+
+Matched-content diagnostics were checked on November 2, 2026: 384 tests passed
+with 1 skipped and 25 integration scenarios deselected; the core suite passed
+371 tests with two xdist workers. Both updated Kafka Allure examples passed on
+the local Compose broker. Their HTML report contains redacted received bodies,
+three distinct expectation summaries, formatted JSON, and English labels.
+Pre-commit, Pyright, package builds, and Twine checks passed. Regression coverage
+includes metadata-only defaults, failed redactors, Protobuf/raw content,
+partial timeout/cancellation, first/last samples, and shared byte budgets.
+
+A separate full Kafka run on November 2 returned 22 passed and 1 failed:
+`test_isolation_sessions_both_observe_one_publication` failed during reader
+startup with `TransportConnectionError` (`code=None`). Its isolated recheck
+passed, but the original failure's cause remains unconfirmed. The two updated
+Allure examples do not replace validation of that broader integration suite.
 
 The first real-broker run revealed a difference in `get_watermark_offsets`
 under `read_committed`: the client returned LSO instead of the physical high

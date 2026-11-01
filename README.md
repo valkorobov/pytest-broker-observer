@@ -149,8 +149,9 @@ expected exit code are in the [guide](examples/allure/README.md). You can also
 open `artifacts/allure-report/index.html` as a standalone file.
 
 For a real broker, see the [Kafka examples with AllureReporter](examples/allure/README.md#kafka-and-allurereporter):
-start Kafka through Compose, wait for a correlated event, and inspect timeout
-diagnostics. The guide covers the full run and viewing a separate HTML report.
+start Kafka through Compose, wait for a correlated event, and inspect received
+JSON bodies after redaction alongside timeout diagnostics. The guide covers the
+full run and viewing a separate HTML report.
 
 ## MVP features
 

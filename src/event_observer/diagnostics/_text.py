@@ -103,6 +103,8 @@ def expectation_text(data: Mapping[str, Any]) -> str:
             )
         if "mismatch_samples_omitted" in summary:
             lines.append(f"Omitted mismatch samples: {_count(summary.get('mismatch_samples_omitted'))}")
+        if "matched_samples_omitted" in summary:
+            lines.append(f"Omitted matched message samples: {_count(summary.get('matched_samples_omitted'))}")
     lines.extend(
         [
             "",

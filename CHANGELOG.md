@@ -40,6 +40,10 @@ Added:
   export remains complete.
 - English project documentation, specification, examples, comments, and Allure
   labels; local and CI report generation defaults to English.
+- Opted-in matched message bodies alongside mismatch samples, with independent
+  first/last sample limits, shared byte budgets, detached redaction, and explicit
+  expectation/status labels. Raw bytes use UTF-8 or base64 under `FULL_PAYLOAD`.
+  Kafka Allure examples show redacted JSON bodies for success and expected timeout.
 
 Temporal assertions, additional brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in

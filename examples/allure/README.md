@@ -48,7 +48,7 @@ Use separate directories to keep reports from different runs. Generated
 | `test_sync_success` | A successful expectation and JSON summary without message content. |
 | `test_async_parallel_waiters` | Separate summaries for two parallel expectations of the same event. |
 | `test_expected_timeout` | Timeout diagnostics in a passing test: `pytest.raises` catches the exception. |
-| `test_redacted_payload` | A mismatched JSON message in `message-content.json`; the redactor removes `access_token`. |
+| `test_redacted_payload` | Matched and mismatched JSON bodies in `message-content.json`; the redactor removes `access_token`. |
 | `test_intentional_timeout_failure` | Skipped by default; explicitly enabled to produce a real failed result. |
 
 Open the test and its **Event observation summary [FakeTransport: operations]**
@@ -87,8 +87,8 @@ is `artifacts/allure-kafka-report/index.html`.
 
 | Test in [test_kafka.py](test_kafka.py) | Verifies |
 | --- | --- |
-| `test_kafka_correlated_success` | The watcher is ready before the action; an independent producer publishes `completed` with `operation-id`. The scope finds the event, and its partition and offset match the broker acknowledgement. |
-| `test_kafka_expected_timeout` | A real `started` record arrives before waiting for `completed` times out. The report retains mismatch diagnostics. |
+| `test_kafka_correlated_success` | The watcher is ready before the action; an independent producer publishes a JSON event with `status="completed"` and an `operation-id` header. The scope finds the event, its partition and offset match the broker acknowledgement, and the report includes its redacted body. |
+| `test_kafka_expected_timeout` | A real JSON event with `status="started"` arrives before waiting for `completed` times out. The report includes its redacted body in the successful `started` expectation and in the subsequent mismatch diagnostics. |
 
 The second test remains `PASSED` because its timeout is expected and caught with
 `pytest.raises(EventTimeoutError)`. Open
@@ -98,15 +98,29 @@ test's unique topic. `expectation-result.json` contains the `timeout` outcome;
 `event-timeline.json`, and the first expectation's summary includes the READY
 timeline.
 
+Both tests decode JSON messages containing `operation_id`, `status`, and a
+synthetic `access_token`. Their fixture explicitly enables `REDACTED_PAYLOAD`
+with a redactor that removes `access_token`. Open `message-content.json` to
+inspect the readable message body: the success scenario shows
+`status="completed"`; the timeout scenario shows `status="started"`.
+Each bounded message sample includes `expectation_id`, `event_sequence`,
+`match_status` (`matched` or `mismatch`), `format`, and the redacted `payload`.
+These fields link the content to its expectation and explain whether the
+message matched or contributed a mismatch. JSON attachments use `indent=2`.
+
 The accompanying `expectation-result.txt` explains that the second scenario read
 an event that did not satisfy the expectation for `completed`. The text does not
 disclose message content. The successful Kafka scenario creates one summary;
 the timeout scenario creates two, one each for `started` and `completed`.
 Normal close does not duplicate them.
 
-Both tests use `SUMMARY` with `METADATA_ONLY`: JSON exports exclude message
-content, keys, and headers. The adapter name and topic appear in summary titles;
-replace them through `DiagnosticPolicy.aliases` when needed.
+The redactor receives an independent copy: the tests assert that their returned
+payloads still contain the original token, while report content excludes it.
+The explicit disclosure policy applies to matched and mismatched samples under
+the same capture and export limits. Without this opt-in, the default
+`METADATA_ONLY` policy excludes message content, keys, and headers. The adapter
+name and topic appear in summary titles; replace them through
+`DiagnosticPolicy.aliases` when needed.
 
 The function-scoped fixture creates a unique topic for each test and deletes it
 in `finally`, including on failure. `KafkaAdapterHarness` is a test producer;
@@ -162,8 +176,8 @@ a caught timeout remains `PASSED`.
 
 The reporter completes each summary step before the next `await`. User-created
 `allure.step(...)` blocks in the async example also end before `await`. Payload
-content is disclosed only in the separate redaction example with an explicit
-`REDACTED_PAYLOAD` policy. See
+content is disclosed in the redaction example and the Kafka scenarios through
+an explicit `REDACTED_PAYLOAD` policy and redactor. See
 [diagnostics and safe reports](../../docs/diagnostics.md) for export policies
 and limits.
 
