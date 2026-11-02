@@ -35,6 +35,12 @@ _CLOSE_SECONDS = 5.0
 
 @dataclass(frozen=True, slots=True)
 class ContractPrecondition:
+    """Describe one declared capability needed by an optional contract case.
+
+    :ivar capability: TransportCapabilities attribute inspected by the check.
+    :ivar value: Required boolean value or member of a capability set.
+    """
+
     capability: str
     value: str | bool
 
@@ -42,6 +48,14 @@ class ContractPrecondition:
 def _require(
     harness: AdapterTestHarness, precondition: ContractPrecondition, record_property: Callable
 ) -> None:
+    """Record optional contract applicability and skip only undeclared semantics.
+
+    :param harness: Adapter harness whose declared capabilities are inspected.
+    :param precondition: Capability requirement for the current contract case.
+    :param record_property: Pytest recorder used for contract_precondition and contract_applicability
+        properties.
+    :raises pytest.skip.Exception: The adapter does not advertise the requested optional capability.
+    """
     declared = getattr(harness.adapter.capabilities, precondition.capability)
     applicable = (
         precondition.value in declared
@@ -57,10 +71,19 @@ def _require(
 
 
 async def _source(harness: AdapterTestHarness) -> TransportSource:
+    """Create a uniquely named per-case resource through the harness ownership boundary.
+
+    :param harness: Harness responsible for source creation and later fixture cleanup.
+    :returns: The newly prepared TransportSource.
+    """
     return await harness.create_source(case_id=f"observer-contract-{uuid4().hex}")
 
 
 def _context() -> OpenContext:
+    """Build a fresh contract opening context with a ten-second startup deadline.
+
+    :returns: An OpenContext with unique observer identity and default transport buffer limits.
+    """
     return OpenContext(
         observer_id=uuid4().hex,
         startup_deadline=time.monotonic() + _STARTUP_SECONDS,
@@ -74,6 +97,14 @@ async def _sessions(
     source: TransportSource,
     *starts: StartPosition,
 ) -> AsyncGenerator[list[TransportSession], None]:
+    """Open requested independent sessions and close every opened handle in reverse order.
+
+    :param harness: Adapter factory under contract test.
+    :param source: Existing isolated source created by the harness.
+    :param starts: One start policy per requested independent session.
+    :yields: Successfully opened session handles while the contract body executes.
+    :raises TimeoutError: Opening or closing a session exceeds the contract budget.
+    """
     opened: list[TransportSession] = []
     try:
         for start in starts:
@@ -92,6 +123,12 @@ async def _sessions(
 
 
 async def _receive(session: TransportSession):
+    """Obtain one delivery under a finite deadline and close the temporary iterator.
+
+    :param session: Session whose single receive iterator has not yet been consumed.
+    :returns: The first received RawEvent.
+    :raises TimeoutError: No event arrives before the five-second receive budget.
+    """
     iterator = session.receive()
     try:
         return await asyncio.wait_for(anext(iterator), timeout=_RECEIVE_SECONDS)
@@ -103,8 +140,15 @@ async def _receive(session: TransportSession):
 
 @pytest.mark.contract
 class LifecycleContract:
+    """Verify mandatory preparation, single-reader ownership, monitor independence, and cleanup."""
+
     @pytest.mark.asyncio
     async def test_lifecycle_open_has_resolved_readiness(self, adapter_harness: AdapterTestHarness):
+        """Verify that latest open resolves the source, mode, clock, and an independent isolation strategy.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             readiness = sessions[0].readiness
@@ -117,6 +161,11 @@ class LifecycleContract:
 
     @pytest.mark.asyncio
     async def test_lifecycle_second_receive_iterator_is_rejected(self, adapter_harness: AdapterTestHarness):
+        """Verify that requesting a second receive iterator fails instead of creating another reader.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             first = sessions[0].receive()
@@ -133,6 +182,11 @@ class LifecycleContract:
 
     @pytest.mark.asyncio
     async def test_lifecycle_close_is_idempotent(self, adapter_harness: AdapterTestHarness):
+        """Verify that repeatedly closing the same session completes safely.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             for _ in range(2):
@@ -142,6 +196,11 @@ class LifecycleContract:
 
     @pytest.mark.asyncio
     async def test_lifecycle_close_releases_failure_monitor(self, adapter_harness: AdapterTestHarness):
+        """Verify that clean close resolves an independently waiting failure monitor with None.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             monitor = asyncio.create_task(sessions[0].wait_failure())
@@ -156,6 +215,11 @@ class LifecycleContract:
     async def test_lifecycle_cancel_monitor_does_not_damage_session(
         self, adapter_harness: AdapterTestHarness
     ):
+        """Verify that cancelling one failure waiter preserves delivery and later clean monitor completion.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             monitor = asyncio.create_task(sessions[0].wait_failure())
@@ -173,14 +237,26 @@ class LifecycleContract:
 
 @pytest.mark.contract
 class ReadinessContract:
+    """Verify empty-source readiness, startup boundaries, and declared raw-envelope capabilities."""
+
     @pytest.mark.asyncio
     async def test_readiness_empty_source_needs_no_probe_message(self, adapter_harness: AdapterTestHarness):
+        """Verify that an empty source reaches readiness without a synthetic probe publication.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             assert sessions[0].readiness.boundary.source == source.name
 
     @pytest.mark.asyncio
     async def test_readiness_immediate_publish_is_observed(self, adapter_harness: AdapterTestHarness):
+        """Verify that a broker-accepted publication immediately after readiness is observed.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
             receipt = await adapter_harness.publish(source, b"immediately-after-ready")
@@ -191,6 +267,11 @@ class ReadinessContract:
 
     @pytest.mark.asyncio
     async def test_readiness_latest_excludes_published_history(self, adapter_harness: AdapterTestHarness):
+        """Verify that latest excludes pre-open history while retaining a post-readiness publication.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         assert (await adapter_harness.publish(source, b"before-boundary")).accepted
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
@@ -201,6 +282,13 @@ class ReadinessContract:
     async def test_readiness_earliest_replays_available_history(
         self, adapter_harness: AdapterTestHarness, record_property
     ):
+        """Verify declared earliest replay against a publication accepted before opening.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        :param record_property: Pytest property recorder receiving explicit capability applicability
+            results.
+        """
         _require(adapter_harness, ContractPrecondition("start_modes", "earliest"), record_property)
         source = await _source(adapter_harness)
         assert (await adapter_harness.publish(source, b"available-history")).accepted
@@ -211,6 +299,13 @@ class ReadinessContract:
     async def test_readiness_null_payload_is_distinct_from_empty_bytes(
         self, adapter_harness: AdapterTestHarness, record_property
     ):
+        """Verify declared null-payload support without collapsing it into empty bytes.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        :param record_property: Pytest property recorder receiving explicit capability applicability
+            results.
+        """
         _require(adapter_harness, ContractPrecondition("supports_null_payload", True), record_property)
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
@@ -229,6 +324,13 @@ class ReadinessContract:
     async def test_readiness_preserves_duplicate_and_null_headers(
         self, adapter_harness: AdapterTestHarness, record_property
     ):
+        """Verify declared header preservation for duplicates, null values, and empty values.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        :param record_property: Pytest property recorder receiving explicit capability applicability
+            results.
+        """
         _require(adapter_harness, ContractPrecondition("supports_headers", True), record_property)
         _require(adapter_harness, ContractPrecondition("supports_duplicate_headers", True), record_property)
         _require(adapter_harness, ContractPrecondition("supports_null_header_values", True), record_property)
@@ -242,6 +344,13 @@ class ReadinessContract:
     async def test_readiness_preserves_message_key(
         self, adapter_harness: AdapterTestHarness, record_property
     ):
+        """Verify declared native-key support using a nonempty byte key.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        :param record_property: Pytest property recorder receiving explicit capability applicability
+            results.
+        """
         _require(adapter_harness, ContractPrecondition("supports_key", True), record_property)
         source = await _source(adapter_harness)
         async with _sessions(adapter_harness, source, StartPosition.latest()) as sessions:
@@ -251,8 +360,15 @@ class ReadinessContract:
 
 @pytest.mark.contract
 class IsolationContract:
+    """Verify that separate sessions and sources never consume or close one another."""
+
     @pytest.mark.asyncio
     async def test_isolation_sessions_both_observe_one_publication(self, adapter_harness: AdapterTestHarness):
+        """Verify that two independent sessions both observe the same accepted publication.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(
             adapter_harness, source, StartPosition.latest(), StartPosition.latest()
@@ -264,6 +380,11 @@ class IsolationContract:
 
     @pytest.mark.asyncio
     async def test_isolation_closing_one_session_preserves_another(self, adapter_harness: AdapterTestHarness):
+        """Verify that closing one session leaves another reader operational.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         source = await _source(adapter_harness)
         async with _sessions(
             adapter_harness, source, StartPosition.latest(), StartPosition.latest()
@@ -274,6 +395,11 @@ class IsolationContract:
 
     @pytest.mark.asyncio
     async def test_isolation_sources_do_not_cross_deliver(self, adapter_harness: AdapterTestHarness):
+        """Verify that independent source names route only their corresponding publications.
+
+        :param adapter_harness: Function-scoped fixture owning isolated source creation, confirmed
+            publication, and cleanup.
+        """
         first, second = await _source(adapter_harness), await _source(adapter_harness)
         async with _sessions(adapter_harness, first, StartPosition.latest()) as first_sessions:
             async with _sessions(adapter_harness, second, StartPosition.latest()) as second_sessions:

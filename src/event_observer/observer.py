@@ -69,6 +69,16 @@ if TYPE_CHECKING:
 
 
 class LifecycleState(str, Enum):
+    """Lifecycle states for a single-use observation context.
+
+    :ivar CREATED: Constructed without transport resources.
+    :ivar STARTING: Opening the transport and confirming readiness.
+    :ivar READY: Collecting events and accepting expectations.
+    :ivar FAILED: A terminal operation or cleanup failure is known.
+    :ivar STOPPING: Releasing tasks and transport resources.
+    :ivar CLOSED: Transport and runtime cleanup completed.
+    """
+
     CREATED = "created"
     STARTING = "starting"
     READY = "ready"
@@ -79,6 +89,17 @@ class LifecycleState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ScopeSnapshot:
+    """Detached diagnostics for an immutable scope definition.
+
+    :ivar observer_id: Identity of the watcher owning this scope.
+    :ivar scope_id: Stable identity used to associate expectations with the scope.
+    :ivar lower_bound: Journal sequence at which the scope definition starts.
+    :ivar complete: Whether the scope definition contains no known retention loss.
+    :ivar expectations: Retained expectation summaries belonging to the scope.
+    :ivar name: Optional caller-supplied scope label.
+    :ivar filter_count: Number of filters inherited and added by the scope.
+    """
+
     observer_id: str
     scope_id: str
     lower_bound: int
@@ -89,7 +110,17 @@ class ScopeSnapshot:
 
 
 class EventObserver:
-    """A lazy, reusable factory. watch() performs no I/O."""
+    """Configure reusable, lazy observation contexts without opening a broker.
+
+    :ivar transport: Adapter used to create an independent session per watcher.
+    :ivar journal: Retained-history limits and overflow policy.
+    :ivar lifecycle: Startup, shutdown, and sync control budgets.
+    :ivar buffers: Transport handoff limits shared with opened sessions.
+    :ivar runtime_limits: Scope, waiter, result, and scan limits.
+    :ivar diagnostic_policy: Disclosure, reporting, and diagnostic retention policy.
+    :ivar reporters: Reporter prototypes bound separately for each watcher.
+    :ivar clock: Shared monotonic and UTC clock for each observation.
+    """
 
     def __init__(
         self,
@@ -104,6 +135,18 @@ class EventObserver:
         clock: Clock | None = None,
     ) -> None:
         # Isolated convenience layer: importing Core does not import Kafka's client.
+        """Validate observation policies and retain dependencies without opening a session.
+
+        :param transport: Adapter or supported Kafka configuration for independent observation.
+        :param journal: Retained-history limits and overflow policy; defaults to JournalPolicy.
+        :param lifecycle: Startup, shutdown, and command-control budgets.
+        :param buffers: Bounded event and byte limits for transport handoff.
+        :param runtime_limits: Scope, waiter, result, and cooperative-scan limits.
+        :param diagnostics: Disclosure and bounded diagnostic-reporting policy.
+        :param reporters: Reporter prototypes bound independently for each watcher.
+        :param clock: Shared monotonic and UTC clock; defaults to the system clock.
+        :raises ConfigurationError: If policies or the transport configuration are incompatible.
+        """
         if not hasattr(transport, "open"):
             from .transports.kafka import KafkaAdapter, KafkaConfig
 
@@ -133,7 +176,20 @@ class EventObserver:
         start: StartPosition | None = None,
         decoding: DecodingPolicy | None = None,
         identity: ObservationIdentity | None = None,
-    ) -> EventWatcher[T]: ...
+    ) -> EventWatcher[T]:
+        """Construct a single-use async watcher without performing broker I/O.
+
+        :param source: Broker source name or normalized transport source.
+        :param message_type: Generated Protobuf class, mutually exclusive with decoder.
+        :param decoder: Synchronous custom decoder, mutually exclusive with message_type.
+        :param payload_access: Independent-copy and accounted-size strategy for decoded payloads.
+        :param start: Native transport start position; defaults to latest.
+        :param decoding: Policy for unknown message types and decoding failures.
+        :param identity: Optional run, worker, and test identifiers.
+        :returns: A lazy, single-use watcher with the selected payload type.
+        :raises ConfigurationError: If message_type and decoder are both provided.
+        """
+        ...
 
     @overload
     def watch(
@@ -146,7 +202,20 @@ class EventObserver:
         start: StartPosition | None = None,
         decoding: DecodingPolicy | None = None,
         identity: ObservationIdentity | None = None,
-    ) -> EventWatcher[T]: ...
+    ) -> EventWatcher[T]:
+        """Construct a single-use async watcher without performing broker I/O.
+
+        :param source: Broker source name or normalized transport source.
+        :param decoder: Synchronous custom decoder, mutually exclusive with message_type.
+        :param message_type: Generated Protobuf class, mutually exclusive with decoder.
+        :param payload_access: Independent-copy and accounted-size strategy for decoded payloads.
+        :param start: Native transport start position; defaults to latest.
+        :param decoding: Policy for unknown message types and decoding failures.
+        :param identity: Optional run, worker, and test identifiers.
+        :returns: A lazy, single-use watcher with the selected payload type.
+        :raises ConfigurationError: If message_type and decoder are both provided.
+        """
+        ...
 
     @overload
     def watch(
@@ -159,7 +228,20 @@ class EventObserver:
         start: StartPosition | None = None,
         decoding: DecodingPolicy | None = None,
         identity: ObservationIdentity | None = None,
-    ) -> EventWatcher[bytes | None]: ...
+    ) -> EventWatcher[bytes | None]:
+        """Construct a single-use async watcher without performing broker I/O.
+
+        :param source: Broker source name or normalized transport source.
+        :param message_type: Generated Protobuf class, mutually exclusive with decoder.
+        :param decoder: Synchronous custom decoder, mutually exclusive with message_type.
+        :param payload_access: Independent-copy and accounted-size strategy for decoded payloads.
+        :param start: Native transport start position; defaults to latest.
+        :param decoding: Policy for unknown message types and decoding failures.
+        :param identity: Optional run, worker, and test identifiers.
+        :returns: A lazy, single-use watcher with the selected payload type.
+        :raises ConfigurationError: If message_type and decoder are both provided.
+        """
+        ...
 
     def watch(
         self,
@@ -172,6 +254,18 @@ class EventObserver:
         decoding=None,
         identity=None,
     ) -> EventWatcher:
+        """Construct a single-use async watcher without performing broker I/O.
+
+        :param source: Broker source name or normalized transport source.
+        :param message_type: Generated Protobuf class, mutually exclusive with decoder.
+        :param decoder: Synchronous custom decoder, mutually exclusive with message_type.
+        :param payload_access: Independent-copy and accounted-size strategy for decoded payloads.
+        :param start: Native transport start position; defaults to latest.
+        :param decoding: Policy for unknown message types and decoding failures.
+        :param identity: Optional run, worker, and test identifiers.
+        :returns: A lazy, single-use watcher with the selected payload type.
+        :raises ConfigurationError: If message_type and decoder are both provided.
+        """
         if message_type is not None and decoder is not None:
             raise ConfigurationError("Specify either message_type or decoder")
         chosen_decoder = (
@@ -191,6 +285,19 @@ class EventObserver:
 
 
 class _EventView(Generic[T]):
+    """Describe an immutable filtered view over one continuously collected Journal.
+
+    :ivar _watcher: Watcher that owns the Journal, transport, and runtime state.
+    :ivar _lower_bound: Inclusive Journal sequence defining this view.
+    :ivar _filters: Bound filters inherited in parent-to-child order.
+    :ivar _scope_id: Stable diagnostic identity retained by wait-local views.
+    :ivar _name: Optional user label for this view.
+    :ivar lower_bound: Inclusive sequence from which this view searches.
+    :ivar scope_id: Identity associated with expectations in this view.
+    :ivar name: Optional scope label.
+    :ivar diagnostics: Safe diagnostic collector owned by the watcher.
+    """
+
     def __init__(
         self,
         watcher: EventWatcher[T],
@@ -200,6 +307,14 @@ class _EventView(Generic[T]):
         scope_id: str | None = None,
         name: str | None = None,
     ) -> None:
+        """Store the immutable search boundary, filter chain, and diagnostic identity.
+
+        :param watcher: Watcher owning the runtime and shared Journal.
+        :param lower: Inclusive lower Journal sequence.
+        :param filters: Bound filters in inherited evaluation order.
+        :param scope_id: Existing diagnostic identity, or None to allocate a new identity.
+        :param name: Optional caller-defined scope label.
+        """
         self._watcher = watcher
         self._lower_bound = lower
         self._filters = filters
@@ -208,23 +323,44 @@ class _EventView(Generic[T]):
 
     @property
     def lower_bound(self) -> int:
+        """Return the inclusive Journal boundary of this view.
+
+        :returns: The inclusive Journal sequence of the scope definition.
+        """
         return self._lower_bound
 
     @property
     def scope_id(self) -> str:
+        """Return the stable identity used in expectation diagnostics.
+
+        :returns: The scope identity used in expectation summaries.
+        """
         return self._scope_id
 
     @property
     def name(self) -> str | None:
+        """Return the optional user-supplied scope label.
+
+        :returns: The optional scope label.
+        """
         return self._name
 
     @property
     def diagnostics(self) -> DiagnosticCollector:
+        """Return the safe diagnostic collector after checking owner affinity.
+
+        :returns: The watcher-owned safe diagnostic collector.
+        """
         self._watcher._check_affinity()
         return self._watcher._diagnostics
 
     def mark(self) -> ObservationMark:
-        """Capture the next Journal admission position without changing this view."""
+        """Capture the next admission sequence without modifying this view.
+
+        :returns: An immutable watcher-local admission mark with informational timestamps.
+        :raises ObserverClosedError: If the watcher has not started or has closed.
+        :raises ObserverFailedError: If a terminal observation failure is already known.
+        """
         watcher = self._watcher
         watcher._check_open()
         return ObservationMark(
@@ -235,6 +371,15 @@ class _EventView(Generic[T]):
         )
 
     def scope(self, matcher, *, name: str | None = None, start: ScopeStart | None = None) -> EventScope[T]:
+        """Create a child view with an intersected start boundary and one more filter.
+
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :param name: Optional caller-defined scope label.
+        :param start: Local Journal boundary intersected with the parent scope definition.
+        :returns: A child scope preserving the parent boundary and filter chain.
+        :raises ScopeResourceLimitError: If the registered-scope limit is exhausted.
+        :raises ConfigurationError: If the requested local start is invalid or lies in the future.
+        """
         watcher = self._watcher
         watcher._check_open()
         if watcher._scope_count >= watcher.factory.runtime_limits.max_scopes:
@@ -264,6 +409,19 @@ class _EventView(Generic[T]):
         require_complete: bool = True,
         since: ObservationMark | None = None,
     ) -> T:
+        """Return the first matching payload copy in the required observation range.
+
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :param timeout: Positive finite admission-window duration in seconds.
+        :param description: Reserved expectation label; currently not recorded or exported.
+        :param require_complete: Whether any known retention loss in the required range must fail.
+        :param since: Reusable mark from this watcher intersected with the view boundary.
+        :returns: An independent copy of the first matching payload.
+        :raises EventTimeoutError: If the required matches are not admitted before the deadline.
+        :raises IncompleteObservationError: If completeness is required and the range contains known
+            loss.
+        :raises ObserverFailedError: If a terminal observation failure is known.
+        """
         results = await self._watcher._expect(
             self, matcher, 1, timeout, description, require_complete, since=since
         )
@@ -278,6 +436,19 @@ class _EventView(Generic[T]):
         require_complete: bool = True,
         since: ObservationMark | None = None,
     ) -> ObservedEvent[T]:
+        """Return the first matching event with an independent payload copy.
+
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :param timeout: Positive finite admission-window duration in seconds.
+        :param description: Reserved expectation label; currently not recorded or exported.
+        :param require_complete: Whether any known retention loss in the required range must fail.
+        :param since: Reusable mark from this watcher intersected with the view boundary.
+        :returns: A detached event containing an independent payload copy.
+        :raises EventTimeoutError: If the required matches are not admitted before the deadline.
+        :raises IncompleteObservationError: If completeness is required and the range contains known
+            loss.
+        :raises ObserverFailedError: If a terminal observation failure is known.
+        """
         results = await self._watcher._expect(
             self, matcher, 1, timeout, description, require_complete, since=since
         )
@@ -293,6 +464,20 @@ class _EventView(Generic[T]):
         require_complete: bool = True,
         since: ObservationMark | None = None,
     ) -> list[T]:
+        """Return independent payload copies from distinct matching Journal events.
+
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :param count: Positive number of distinct matching Journal events to return.
+        :param timeout: Positive finite admission-window duration in seconds.
+        :param description: Reserved expectation label; currently not recorded or exported.
+        :param require_complete: Whether any known retention loss in the required range must fail.
+        :param since: Reusable mark from this watcher intersected with the view boundary.
+        :returns: Payload copies from distinct matching events in Journal order.
+        :raises EventTimeoutError: If the required matches are not admitted before the deadline.
+        :raises IncompleteObservationError: If completeness is required and the range contains known
+            loss.
+        :raises ObserverFailedError: If a terminal observation failure is known.
+        """
         results = await self._watcher._expect(
             self, matcher, count, timeout, description, require_complete, since=since
         )
@@ -300,7 +485,13 @@ class _EventView(Generic[T]):
 
 
 class EventScope(_EventView[T]):
+    """Search shared history through fixed correlation filters and a lower boundary."""
+
     def snapshot(self) -> ScopeSnapshot:
+        """Describe this scope definition and its retained expectation summaries.
+
+        :returns: A detached snapshot of the original scope definition.
+        """
         watcher = self._watcher
         watcher._check_affinity()
         summaries = tuple(
@@ -320,6 +511,36 @@ class EventScope(_EventView[T]):
 
 
 class EventWatcher(_EventView[T]):
+    """Own one transport session, bounded history, and independent async expectations.
+
+    :ivar factory: Reusable configuration from which this watcher was constructed.
+    :ivar _clock: Clock shared with transport admission and diagnostics.
+    :ivar source: Normalized broker source being observed.
+    :ivar decoder: Synchronous decoder that transfers payload ownership to the runtime.
+    :ivar access: Payload copying and accounted-size strategy.
+    :ivar start_position: Native transport start position requested at startup.
+    :ivar decoding: Policy for unknown message types and decode failures.
+    :ivar identity: Optional run, worker, and test identifiers.
+    :ivar observer_id: Unique identity used for events, marks, and diagnostics.
+    :ivar state: Current lifecycle state.
+    :ivar cleanup_state: Cleanup outcome independent of the observation result.
+    :ivar terminal_error: First known background or startup failure, if any.
+    :ivar _journal: Bounded admitted history and conservative loss ledger.
+    :ivar _diagnostics: Policy-controlled collector using the watcher clock and copy strategy.
+    :ivar reporters: Reporter instances bound to this observation.
+    :ivar _session: Owned transport session after opening.
+    :ivar _loop: Owner event loop captured when entering the context.
+    :ivar _pid: Process identity used to reject cross-process access.
+    :ivar _changed: Replaceable notification for admissions and lifecycle changes.
+    :ivar _tasks: Receive and independent failure-monitor tasks.
+    :ivar _close_task: Shared shielded cleanup task used by concurrent close calls.
+    :ivar _waiter_tasks: Tasks currently running expectations.
+    :ivar _scope_count: Number of registered child scope definitions.
+    :ivar _result_bytes: Bytes reserved by all pending expectation results.
+    :ivar _defer_reporting: Whether the sync facade owns caller-thread report delivery.
+    :ivar readiness: Confirmed transport capabilities and observation boundary.
+    """
+
     def __init__(
         self,
         factory: EventObserver,
@@ -330,6 +551,16 @@ class EventWatcher(_EventView[T]):
         decoding: DecodingPolicy,
         identity: ObservationIdentity,
     ) -> None:
+        """Create watcher-local state and bind report context without opening the broker.
+
+        :param factory: Lazy factory providing the policies and dependencies for this watcher.
+        :param source: Broker source name or normalized transport source.
+        :param decoder: Synchronous custom decoder, mutually exclusive with message_type.
+        :param access: Independent-copy and accounted-size strategy for decoded payloads.
+        :param start: Native transport start position; defaults to latest.
+        :param decoding: Policy for unknown message types and decoding failures.
+        :param identity: Optional run, worker, and test identifiers.
+        """
         self.factory = factory
         self._clock = factory.clock
         self.source = source
@@ -344,7 +575,12 @@ class EventWatcher(_EventView[T]):
         self.cleanup_state = "not_started"
         self.terminal_error: BaseException | None = None
         self._journal = EventJournal(self.observer_id, factory.journal)
-        self._diagnostics = DiagnosticCollector(self.observer_id, factory.diagnostic_policy)
+        self._diagnostics = DiagnosticCollector(
+            self.observer_id,
+            factory.diagnostic_policy,
+            clock=self._clock,
+            clone_payload=access.clone_for_user,
+        )
         bound_reporters = []
         for reporter in factory.reporters:
             try:
@@ -377,6 +613,11 @@ class EventWatcher(_EventView[T]):
         self.readiness = None
 
     def _check_affinity(self) -> None:
+        """Reject access from another process or an incompatible event loop.
+
+        :raises ProcessAffinityError: If the watcher belongs to another process.
+        :raises EventLoopMismatchError: If access occurs on another event loop.
+        """
         if os.getpid() != self._pid:
             raise ProcessAffinityError("Watcher belongs to another process")
         try:
@@ -387,6 +628,11 @@ class EventWatcher(_EventView[T]):
             raise EventLoopMismatchError("Watcher belongs to another event loop")
 
     def _check_open(self) -> None:
+        """Require owner affinity and readiness, prioritizing any known terminal failure.
+
+        :raises ObserverFailedError: If a terminal failure is known.
+        :raises ObserverClosedError: If observation is not ready.
+        """
         self._check_affinity()
         if self.terminal_error is not None:
             self._raise_terminal()
@@ -394,6 +640,10 @@ class EventWatcher(_EventView[T]):
             raise ObserverClosedError("Watcher is not ready or has closed", observer_id=self.observer_id)
 
     def _raise_terminal(self) -> None:
+        """Raise a stable observer error chained to the first background failure.
+
+        :raises ObserverFailedError: Always, chained to the retained primary failure.
+        """
         error = ObserverFailedError(
             "Observer background operation failed",
             observer_id=self.observer_id,
@@ -403,11 +653,16 @@ class EventWatcher(_EventView[T]):
         raise error from self.terminal_error
 
     def _notify(self) -> None:
+        """Wake current observers and replace the admission notification atomically."""
         if self._changed is not None:
             self._changed.set()
         self._changed = asyncio.Event()
 
     def _fail(self, error: BaseException) -> None:
+        """Record the first terminal failure and wake waiting expectations.
+
+        :param error: First background or transport failure to preserve.
+        """
         if self.terminal_error is None:
             self.terminal_error = error
             self.state = LifecycleState.FAILED
@@ -419,6 +674,12 @@ class EventWatcher(_EventView[T]):
             self._notify()
 
     def _copy_event(self, event: ObservedEvent[T]) -> ObservedEvent[T]:
+        """Detach an event payload using the configured copying strategy.
+
+        :param event: Canonical event whose payload must remain isolated from user callbacks.
+        :returns: An event envelope containing an independent payload copy.
+        :raises PayloadIsolationError: If the payload cannot be detached safely.
+        """
         try:
             return replace(event, payload=self.access.clone_for_user(event.payload))
         except PayloadIsolationError:
@@ -427,12 +688,24 @@ class EventWatcher(_EventView[T]):
             raise PayloadIsolationError("Payload isolation failed") from exc
 
     def _bind(self, matcher) -> EventMatcher:
+        """Bind a matcher to known decoder types and independent event copying.
+
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :returns: A bound three-valued event matcher.
+        """
         known = getattr(self.decoder, "known_message_types", None)
         if isinstance(self.decoder, RawDecoder):
             known = (bytes, type(None))
         return bind_matcher(matcher, known, copy_event=self._copy_event)
 
     async def __aenter__(self) -> EventWatcher[T]:
+        """Open an independent transport session and start collection after readiness.
+
+        :returns: This watcher after transport readiness and collector startup.
+        :raises ConfigurationError: If the context was already entered.
+        :raises ObserverStartupTimeoutError: If startup exceeds its admission-clock budget.
+        :raises TransportError: If independent transport readiness cannot be established.
+        """
         if self.state != LifecycleState.CREATED:
             raise ConfigurationError("A watch context can be entered only once")
         self._check_affinity()
@@ -504,6 +777,7 @@ class EventWatcher(_EventView[T]):
             raise
 
     async def _receive(self) -> None:
+        """Decode, account, admit, and settle records until closure or terminal failure."""
         assert self._session is not None
         try:
             async for raw in self._session.receive():
@@ -561,12 +835,18 @@ class EventWatcher(_EventView[T]):
             self._fail(exc)
 
     async def _settle(self, raw, outcome: DeliveryOutcome) -> None:
+        """Acknowledge a delivery only when the session advertises settlement.
+
+        :param raw: Transport delivery whose committed outcome may require settlement.
+        :param outcome: Committed admission, filtering, or explicit discard outcome.
+        """
         if self.readiness is not None and self.readiness.resolved_capabilities.supports_settlement:
             if raw.delivery_id is None:
                 raise TransportError("Settlement transport supplied no delivery token")
             await getattr(self._session, "settle")(raw.delivery_id, outcome)
 
     async def _monitor(self) -> None:
+        """Observe continuity failure independently of business-message reception."""
         assert self._session is not None
         try:
             error = await self._session.wait_failure()
@@ -584,6 +864,10 @@ class EventWatcher(_EventView[T]):
             )
 
     def snapshot(self) -> JournalSnapshot:
+        """Copy retained Journal events and loss information on the owner loop.
+
+        :returns: A detached snapshot of retained events, counters, and loss ranges.
+        """
         self._check_affinity()
         return self._journal.snapshot(self._copy_event)
 
@@ -599,6 +883,24 @@ class EventWatcher(_EventView[T]):
         absolute_deadline: float | None = None,
         since: ObservationMark | None = None,
     ) -> list[ObservedEvent[T]]:
+        """Scan an independent bounded range and commit a complete matching result.
+
+        :param scope: Immutable search view and inherited correlation filters.
+        :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+        :param count: Positive number of distinct matching Journal events to return.
+        :param timeout: Positive finite admission-window duration in seconds.
+        :param description: Reserved expectation label; currently not recorded or exported.
+        :param require_complete: Whether any known retention loss in the required range must fail.
+        :param absolute_deadline: Optional admission deadline already computed in the shared clock
+            domain.
+        :param since: Reusable mark from this watcher intersected with the view boundary.
+        :returns: Detached matching events in Journal order.
+        :raises EventTimeoutError: If too few eligible events match before the admission deadline.
+        :raises IncompleteObservationError: If required history contains known retention loss.
+        :raises ConfigurationError: If arguments or the observation mark are invalid.
+        :raises ExpectationResourceLimitError: If waiter or result limits would be exceeded.
+        :raises ObserverFailedError: If background collection has failed.
+        """
         self._check_open()
         if since is not None:
             if not isinstance(since, ObservationMark):
@@ -632,12 +934,13 @@ class EventWatcher(_EventView[T]):
         cursor = scope.lower_bound
         results: list[ObservedEvent[T]] = []
         reserved = 0
-        evaluated = excluded = not_applicable = 0
+        evaluated = excluded = not_applicable = mismatched = 0
         outcome = "error"
         final_upper: int | None = None
         outcome_error: BaseException | None = None
 
         def check_state() -> None:
+            """Reject cancellation, terminal failure, closure, or required-range loss."""
             if task.cancelling():
                 raise asyncio.CancelledError
             self._check_open()
@@ -652,6 +955,12 @@ class EventWatcher(_EventView[T]):
                 )
 
         def evaluate(matcher, event):
+            """Evaluate a matcher on a detached event while preserving failure precedence.
+
+            :param matcher: Payload predicate or declarative matcher to bind and evaluate.
+            :param event: Canonical event whose payload must remain isolated from user callbacks.
+            :returns: The validated match result for the copied event.
+            """
             try:
                 return matcher.match_event(self._copy_event(event))
             except (MatcherEvaluationError, InvalidMatcherResultError, PayloadIsolationError):
@@ -694,6 +1003,7 @@ class EventWatcher(_EventView[T]):
                     if result.status == MatchStatus.NOT_APPLICABLE:
                         not_applicable += 1
                     elif result.status == MatchStatus.MISMATCH:
+                        mismatched += 1
                         self._diagnostics.record_mismatch(
                             expectation_id, event.sequence, result.mismatches, payload=event.payload
                         )
@@ -752,6 +1062,7 @@ class EventWatcher(_EventView[T]):
                 outcome=outcome,
                 evaluated=evaluated,
                 matched=len(results),
+                mismatch_count=mismatched,
                 scope_excluded=excluded,
                 not_applicable=not_applicable,
                 deadline=deadline,
@@ -771,12 +1082,14 @@ class EventWatcher(_EventView[T]):
                 self._diagnostics.emit(self.reporters)
 
     async def close(self) -> None:
+        """Await shared shielded cleanup within the configured lifecycle budget."""
         self._check_affinity()
         if self._close_task is None:
             self._close_task = asyncio.create_task(self._cleanup(), name="event-observer-cleanup")
         await asyncio.shield(self._close_task)
 
     async def _cleanup(self) -> None:
+        """Release runtime tasks and the owned session while recording honest cleanup state."""
         self.cleanup_state = "running"
         self.state = LifecycleState.STOPPING
         self._notify()
@@ -811,6 +1124,12 @@ class EventWatcher(_EventView[T]):
                 self._diagnostics.emit(self.reporters)
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        """Finish observation while preserving a context or primary background failure.
+
+        :param exc_type: Context exception type, or False for explicit close without context semantics.
+        :param exc_value: Primary context exception, if any.
+        :param traceback: Original traceback supplied by the context manager protocol.
+        """
         if exc_value is not None:
             self._diagnostics.record("context_failure", error_type=type(exc_value).__name__)
         cleanup_error = None

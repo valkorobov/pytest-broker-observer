@@ -9,6 +9,14 @@ from typing import Iterable
 
 
 class TraceContextStatus(str, Enum):
+    """Classify passive traceparent extraction without failing message decoding.
+
+    :ivar MISSING: No traceparent header was supplied.
+    :ivar VALID: One supported traceparent prefix passed validation.
+    :ivar INVALID: The supplied traceparent has an invalid encoding or format.
+    :ivar AMBIGUOUS: Multiple traceparent headers prevent choosing one context safely.
+    """
+
     MISSING = "MISSING"
     VALID = "VALID"
     INVALID = "INVALID"
@@ -17,6 +25,17 @@ class TraceContextStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class TraceContextInfo:
+    """Carry extracted trace data without activating or propagating a tracing context.
+
+    :ivar status: Result of traceparent extraction and validation.
+    :ivar trace_id: Validated nonzero lowercase hexadecimal trace identity, when available.
+    :ivar span_id: Validated nonzero lowercase hexadecimal parent span identity, when available.
+    :ivar flags: Two hexadecimal trace-flags digits from the valid parent header.
+    :ivar tracestate: Validated tracestate text included only when explicitly requested.
+    :ivar tracestate_valid: Whether supplied tracestate passed validation when the parent context was
+        valid.
+    """
+
     status: TraceContextStatus
     trace_id: str | None = None
     span_id: str | None = None
@@ -31,6 +50,11 @@ _MULTI_KEY = re.compile(r"[a-z0-9][a-z0-9_*/-]{0,240}@[a-z][a-z0-9_*/-]{0,13}\Z"
 
 
 def _valid_tracestate(value: str) -> bool:
+    """Validate W3C member counts, key syntax, uniqueness, and printable value limits.
+
+    :param value: Combined ASCII tracestate header value.
+    :returns: True when the supplied state contains valid bounded unique members.
+    """
     if not value or len(value) > 512:
         return False
     members = value.split(",")
@@ -55,6 +79,16 @@ def _valid_tracestate(value: str) -> bool:
 def extract_trace_context(
     headers: Iterable[tuple[str, bytes | None]], *, include_tracestate: bool = False
 ) -> TraceContextInfo:
+    """Extract W3C trace headers passively while keeping invalid tracestate separate.
+
+    Header-name comparison is case-insensitive for these W3C fields. Version 00
+    has a fixed length; later versions retain an interpretable validated prefix.
+    No span, baggage propagation, or OpenTelemetry dependency is created.
+
+    :param headers: Transport header pairs, preserving duplicate and null values.
+    :param include_tracestate: Retain valid tracestate text in the returned data when True.
+    :returns: TraceContextInfo describing missing, ambiguous, invalid, or valid parent context.
+    """
     parents: list[bytes | None] = []
     states: list[bytes | None] = []
     for name, value in headers:

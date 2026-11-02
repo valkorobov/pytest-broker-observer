@@ -1,4 +1,8 @@
-"""Protocols for custom synchronous decoders and detached payload access."""
+"""Re-export synchronous decoder and detached-payload extension contracts.
+
+Custom decoders implement Decoder; payload isolation and accounted sizing are
+supplied through PayloadAccess or its default implementation.
+"""
 
 from ..decoders import Decoder, DefaultPayloadAccess, PayloadAccess
 

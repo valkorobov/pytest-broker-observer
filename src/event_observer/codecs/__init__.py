@@ -1,4 +1,8 @@
-"""Public codec extension API, with lazy optional Protobuf support."""
+"""Public codec extension API with lazy optional Protobuf support.
+
+These names re-export the decoder implementations and payload-access protocols.
+Importing the namespace does not import a native Protobuf runtime.
+"""
 
 from ..decoders import (
     CallableTypeResolver,

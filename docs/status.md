@@ -59,6 +59,14 @@ metadata checks passed.
 
 ## Reproducible checks
 
+The SOLID/DRY/KISS hardening and Sphinx source documentation were checked on
+November 2, 2026: 618 non-integration tests passed, 1 was skipped, and 78 were
+deselected; core xdist passed 603. The final broker run passed 71 cases with 7
+capability skips. The source audit covers 564 definitions and 539 attributes.
+See the [implementation plan](improvement-plan.md) and [follow-up review](solid-dry-kiss-review.md)
+for changes, checks, and the first Kafka partition-leader timeout retained in
+the verification record.
+
 Local run on November 1, 2026: CPython 3.14.7, macOS arm64.
 Exact dependency versions: [compatibility.json](compatibility.json).
 

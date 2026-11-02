@@ -1,8 +1,10 @@
 """Independent RabbitMQ exchange subscriptions with admission-time settlement.
 
-Each watch owns a connection and a server-named exclusive classic queue. No
-application queue is consumed and no automatic reconnection is attempted.
-The aio-pika import is deferred until opening a session.
+Each watch owns an exclusive auto-delete classic queue and its native
+connection. Application queues remain independent; no reconnect is attempted.
+The optional aio-pika client is imported only when opening a session.
+
+:ivar __all__: Public RabbitMQ configuration, adapter, and session types.
 """
 
 from __future__ import annotations
@@ -46,11 +48,23 @@ from .base import DeliveryOutcome
 
 @dataclass(frozen=True, slots=True)
 class RabbitMQConfig:
+    """Immutable connection URL, exchange bindings, and bounded prefetch policy.
+
+    :ivar url: Explicit AMQP/AMQPS URL, excluded from repr because it may contain credentials.
+    :ivar binding_keys: Nonempty immutable binding-key tuple; defaults to all topic routes.
+    :ivar prefetch_count: Positive AMQP prefetch from 1 through 65535, capped by handoff event capacity.
+    """
+
     url: str = field(repr=False)
     binding_keys: tuple[str, ...] = ("#",)
     prefetch_count: int = 100
 
     def __post_init__(self) -> None:
+        """Reject invalid AMQP URLs, binding keys, and unlimited or invalid prefetch.
+
+        :returns: None after validating the immutable subscription settings.
+        :raises ConfigurationError: If the URL, UTF-8 short-string keys, or prefetch are invalid.
+        """
         if not isinstance(self.url, str) or not self.url or self.url != self.url.strip():
             raise ConfigurationError("RabbitMQ url must be a nonempty AMQP URL")
         try:
@@ -85,6 +99,10 @@ class RabbitMQConfig:
 
 
 def _capabilities() -> TransportCapabilities:
+    """Describe latest-only isolated queue subscriptions and explicit settlement.
+
+    :returns: Capabilities without replay, message keys, null bodies, or duplicate headers.
+    """
     return TransportCapabilities(
         start_modes=frozenset({"latest"}),
         isolation_modes=frozenset({"dedicated_subscription"}),
@@ -99,11 +117,21 @@ def _capabilities() -> TransportCapabilities:
 
 
 def _load_native() -> Any:
+    """Import aio-pika only for a session that is being opened.
+
+    :returns: The aio_pika module.
+    :raises ImportError: If the optional RabbitMQ dependency is unavailable.
+    """
     return importlib.import_module("aio_pika")
 
 
 def _native_error(error: Exception, *, subscription: bool = False) -> TransportError:
-    """Classify native exceptions without displaying native messages or URLs."""
+    """Classify native failures while retaining local causes and safe summaries.
+
+    :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+    :param subscription: Whether the failure occurred while preparing queue bindings or consumption.
+    :returns: A normalized authentication, authorization, subscription, or connection error.
+    """
     if isinstance(error, TransportError):
         return error
     names = {cls.__name__ for cls in type(error).__mro__}
@@ -117,20 +145,45 @@ def _native_error(error: Exception, *, subscription: bool = False) -> TransportE
 
 
 class RabbitMQAdapter:
-    """Create a private queue bound to an existing exchange for every watch."""
+    """Lazy factory of private subscriptions bound to an existing exchange.
+
+    :ivar config: Validated immutable connection and binding settings.
+    :ivar capabilities: Latest-only dedicated-subscription and settlement semantics.
+    """
 
     def __init__(self, config: RabbitMQConfig) -> None:
+        """Store subscription configuration without creating loop-bound native objects.
+
+        :param config: Validated immutable connection and delivery settings.
+        :returns: None; the existing exchange is verified only during open.
+        :raises ConfigurationError: If config is not a RabbitMQConfig.
+        """
         if not isinstance(config, RabbitMQConfig):
             raise ConfigurationError("RabbitMQAdapter requires RabbitMQConfig")
         self.config = config
 
     @property
     def capabilities(self) -> TransportCapabilities:
+        """Return RabbitMQ's isolated subscription capabilities.
+
+        :returns: Static semantics, including bounded prefetch and post-admission settlement.
+        """
         return _capabilities()
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
     ) -> RabbitMQSession:
+        """Create an isolated bound queue and return after consume-ok readiness.
+
+        :param source: Concrete existing source selected for this observation.
+        :param start: Requested start policy and its transport-specific boundary.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: A READY RabbitMQSession owning only its subscription resources.
+        :raises UnsupportedCapabilityError: If replay or partition selection was requested.
+        :raises MissingOptionalDependencyError: If aio-pika is unavailable.
+        :raises TransportError: If connection, exchange verification, or subscription readiness fails.
+        :raises TimeoutError: If startup exceeds its shared-clock budget.
+        """
         if start.mode.value != "latest" or source.partitions is not None:
             raise UnsupportedCapabilityError(
                 "RabbitMQ supports latest exchange subscriptions without partitions"
@@ -155,9 +208,43 @@ class RabbitMQAdapter:
 
 
 class RabbitMQSession:
-    """One private subscription and an independently observable failure signal."""
+    """One runtime-owned queue, bounded pending-delivery set, and settlement path.
+
+    :ivar _config: Immutable URL, binding keys, and prefetch policy.
+    :ivar _source: Existing exchange selected for observation.
+    :ivar _context: Shared clock, deadlines, identity, and transfer limits.
+    :ivar _loop: Owner event loop for all native resources and signals.
+    :ivar _connection: Owned native connection, with automatic reconnect disabled.
+    :ivar _channel: Owned native channel for verification, QoS, and consumption.
+    :ivar _underlay: Native channel view exposing the owned consumer registration.
+    :ivar _queue: Server-named exclusive auto-delete observer queue.
+    :ivar _consumer_tag: Unique consumer tag owned by this session.
+    :ivar _consumer_started: Whether consume-ok completed and cancellation is applicable.
+    :ivar _prefetch: Configured prefetch clipped to the handoff event capacity.
+    :ivar _buffer: Detached events awaiting the single receive iterator.
+    :ivar _pending: Delivery token to native message and accounted-size mapping until settlement.
+    :ivar _settling: Tokens with an acknowledgement currently in progress.
+    :ivar _pending_bytes: Accounted bytes of all pending native deliveries, including yielded events.
+    :ivar _wake: Owner-loop wake event for receive and terminal state.
+    :ivar _failure: Shared terminal failure or intentional-close signal.
+    :ivar _error: First terminal error, preserved for all waiters.
+    :ivar _readiness: Resolved contract after exchange, queue, bindings, and consume-ok.
+    :ivar _monitor: Owned task detecting broker cancellation independently of business delivery.
+    :ivar _close_task: Single tracked cleanup task joined by concurrent close callers.
+    :ivar _closing: Whether cleanup has started and new deliveries must be ignored.
+    :ivar _closed: Whether owned native resources were successfully released.
+    :ivar _receive_started: Whether the single receive iterator has been reserved.
+    :ivar readiness: Resolved dedicated-subscription contract after startup.
+    """
 
     def __init__(self, config: RabbitMQConfig, source: TransportSource, context: OpenContext) -> None:
+        """Allocate owner-loop delivery state without opening a native connection.
+
+        :param config: Validated immutable connection and delivery settings.
+        :param source: Concrete existing source selected for this observation.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: None; the adapter subsequently prepares the subscription.
+        """
         self._config = config
         self._source = source
         self._context = context
@@ -184,9 +271,21 @@ class RabbitMQSession:
         self._receive_started = False
 
     def _remaining(self, deadline: float) -> float:
+        """Calculate nonnegative remaining time in the shared monotonic domain.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: Remaining seconds until deadline, clamped to zero.
+        """
         return max(0.0, deadline - self._context.clock.monotonic())
 
     async def _open(self, native: Any) -> None:
+        """Verify the exchange, bind an exclusive queue, and confirm its consumer.
+
+        :param native: Lazily loaded native client module or an equivalent controlled test double.
+        :returns: None once readiness and independent cancellation monitoring are installed.
+        :raises TransportError: If connection, permissions, exchange lookup, or consume-ok fails.
+        :raises TimeoutError: If an operation exhausts the startup budget.
+        """
         subscription = False
         try:
             self._connection = await native.connect(
@@ -254,11 +353,21 @@ class RabbitMQSession:
 
     @property
     def readiness(self) -> TransportReadiness:
+        """Expose confirmed queue-binding and consumer readiness.
+
+        :returns: The resolved dedicated-subscription boundary and effective prefetch.
+        :raises TransportReadinessError: If startup has not completed.
+        """
         if self._readiness is None:
             raise TransportReadinessError("RabbitMQ session is not ready")
         return self._readiness
 
     def _fail(self, error: TransportError) -> None:
+        """Retain one terminal failure and wake receive/monitoring waiters.
+
+        :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+        :returns: None; intentional closure and later failures do not replace the original error.
+        """
         if self._closing or self._error is not None:
             return
         self._error = error
@@ -267,14 +376,31 @@ class RabbitMQSession:
         self._wake.set()
 
     def _on_connection_close(self, _sender: Any, error: BaseException | None = None) -> None:
+        """Translate unexpected native connection closure into terminal failure.
+
+        :param _sender: Native callback sender; unused by the observer.
+        :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+        :returns: None after updating the independent failure signal.
+        """
         self._fail(TransportInterruptedError("RabbitMQ connection closed unexpectedly", cause=error))
 
     def _on_channel_close(self, _sender: Any, error: BaseException | None = None) -> None:
+        """Translate unexpected native channel closure into terminal failure.
+
+        :param _sender: Native callback sender; unused by the observer.
+        :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+        :returns: None after updating the independent failure signal.
+        """
         self._fail(TransportInterruptedError("RabbitMQ channel closed unexpectedly", cause=error))
 
     async def _watch_consumer(self) -> None:
         # aiormq 6.9 removes broker-cancelled tags from this public registry but
         # exposes no cancel callback. Poll one owned tag, independent of receive.
+        """Monitor the owned native tag for broker cancellation without waiting for data.
+
+        :returns: None after cancellation or terminal failure; cancellation is propagated.
+        :raises asyncio.CancelledError: If owned cleanup stops this monitor.
+        """
         try:
             while not self._closing and self._error is None:
                 if self._consumer_tag not in self._underlay.consumers:
@@ -288,6 +414,12 @@ class RabbitMQSession:
 
     @staticmethod
     def _headers(message: Any) -> tuple[tuple[str, bytes | None], ...]:
+        """Detach the supported flat AMQP header domain without coercing unsupported values.
+
+        :param message: Native delivery to detach and validate before handing it to Core.
+        :returns: Ordered name/byte-or-null pairs; native text is encoded as UTF-8.
+        :raises TransportSubscriptionError: If names or values are outside the supported flat header domain.
+        """
         headers = message.headers
         if headers is None:
             return ()
@@ -308,6 +440,11 @@ class RabbitMQSession:
         return tuple(result)
 
     async def _on_message(self, message: Any) -> None:
+        """Validate and reserve each native delivery until Core commits settlement.
+
+        :param message: Native delivery to detach and validate before handing it to Core.
+        :returns: None; malformed or oversized deliveries publish terminal failure instead of being dropped.
+        """
         if self._closing or self._error is not None:
             return
         try:
@@ -343,12 +480,22 @@ class RabbitMQSession:
             )
 
     def receive(self) -> AsyncIterator[RawEvent]:
+        """Reserve the single queue-delivery iterator.
+
+        :returns: An asynchronous iterator of normalized deliveries.
+        :raises TransportSubscriptionError: If receive was already reserved.
+        """
         if self._receive_started:
             raise TransportSubscriptionError("A RabbitMQ session permits one receive iterator")
         self._receive_started = True
         return self._receive()
 
     async def _receive(self) -> AsyncIterator[RawEvent]:
+        """Yield queued events while retaining native ownership until settlement.
+
+        :yields: Detached RawEvent objects carrying opaque settlement tokens.
+        :raises TransportError: If subscription monitoring or delivery normalization failed.
+        """
         while True:
             if self._error is not None:
                 raise self._error
@@ -361,9 +508,24 @@ class RabbitMQSession:
                 await self._wake.wait()
 
     async def wait_failure(self) -> TransportError | None:
+        """Observe terminal failure even when the delivery handoff is full.
+
+        :returns: The first terminal transport error, or None after intentional successful cleanup.
+        :raises asyncio.CancelledError: If this monitoring waiter is cancelled; the shared signal remains
+            live.
+        """
         return await asyncio.shield(self._failure)
 
     async def settle(self, delivery_id: str, outcome: DeliveryOutcome) -> None:
+        """Acknowledge exactly one token after Core commits its explicit safe outcome.
+
+        :param delivery_id: Opaque session-local token returned with the original delivery.
+        :param outcome: Committed admission, explicit filtering, or explicit Journal discard outcome.
+        :returns: None after acknowledgement releases the delivery reservation.
+        :raises TransportSubscriptionError: If outcome or token is invalid or already settling.
+        :raises TransportInterruptedError: If acknowledgement fails or is cancelled.
+        :raises TransportConnectionError: If cleanup has already started.
+        """
         if not isinstance(outcome, DeliveryOutcome):
             raise TransportSubscriptionError("RabbitMQ requires an explicit safe delivery outcome")
         if self._error is not None:
@@ -390,6 +552,13 @@ class RabbitMQSession:
             self._settling.discard(delivery_id)
 
     async def close(self, *, deadline: float) -> None:
+        """Join one shielded cleanup task without allowing a caller to cancel it.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None after owned subscription resources close.
+        :raises ObserverCleanupError: If native connection cleanup fails.
+        :raises ObserverCleanupTimeoutError: If the connection cannot close within deadline.
+        """
         if self._close_task is None:
             self._closing = True
             self._wake.set()
@@ -399,6 +568,13 @@ class RabbitMQSession:
         await asyncio.shield(self._close_task)
 
     async def _cleanup(self, deadline: float) -> None:
+        """Cancel owned monitoring and close the queue channel and connection within budget.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None after successful cleanup; source exchanges and application queues are untouched.
+        :raises ObserverCleanupError: If connection cleanup fails.
+        :raises ObserverCleanupTimeoutError: If the final connection-close budget expires.
+        """
         if self._monitor is not None:
             self._monitor.cancel()
             await asyncio.gather(self._monitor, return_exceptions=True)

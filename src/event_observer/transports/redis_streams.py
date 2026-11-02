@@ -1,8 +1,14 @@
-"""Independent Redis Streams readers with numeric cursors and bounded polling.
+"""Independent Redis Streams readers with native cursors and bounded polling.
 
-The adapter never creates a consumer group or acknowledges/writes stream data.
-Each read pairs XINFO and nonblocking XREAD atomically in a read-only transaction.
-Known connection or continuity failures are terminal and are never retried.
+Every batch atomically pairs connection/server identity, stream metadata, and
+nonblocking XREAD. The runtime never writes stream data, joins groups, or
+acknowledges deliveries. Detected connection or continuity failures are terminal.
+
+:ivar _MANAGED_OPTIONS: URL options reserved for binary decoding, zero retries,
+    bounded sockets, callbacks, and ownership of the native connection.
+:ivar _STREAM_ID: Native full-ID parser used before numeric pair comparison.
+:ivar _UINT64_MAX: Largest allowed component of a native Redis stream ID.
+:ivar __all__: Public Redis Streams configuration, adapter, and session types.
 """
 
 from __future__ import annotations
@@ -75,6 +81,17 @@ _UINT64_MAX = (1 << 64) - 1
 
 @dataclass(frozen=True, slots=True)
 class RedisStreamsConfig:
+    """Immutable single-stream field mapping and bounded polling configuration.
+
+    :ivar url: Explicit Redis/rediss/unix URL, excluded from repr and restricted from overriding managed
+        options.
+    :ivar payload_field: Nonempty UTF-8 native field containing body bytes.
+    :ivar header_prefix: Nonempty UTF-8 prefix stripped from normalized header names.
+    :ivar read_count: Positive maximum requested native batch size, clipped to handoff capacity.
+    :ivar poll_interval: Positive finite delay between nonblocking polls, in seconds.
+    :ivar socket_timeout: Positive finite native operation timeout, in seconds.
+    """
+
     url: str = field(repr=False)
     payload_field: str = "payload"
     header_prefix: str = "header:"
@@ -83,6 +100,11 @@ class RedisStreamsConfig:
     socket_timeout: float = 1.0
 
     def __post_init__(self) -> None:
+        """Validate URL ownership constraints, field mapping, and finite polling budgets.
+
+        :returns: None after validating the immutable configuration.
+        :raises ConfigurationError: If the URL, managed query options, field names, or budgets are invalid.
+        """
         if not isinstance(self.url, str) or not self.url or self.url != self.url.strip():
             raise ConfigurationError("Redis url must be a nonempty connection URL")
         try:
@@ -122,6 +144,10 @@ class RedisStreamsConfig:
 
 
 def _capabilities() -> TransportCapabilities:
+    """Describe independent stream cursors with explicit data-domain limitations.
+
+    :returns: Latest, earliest, and exclusive native-ID capabilities without groups or settlement.
+    """
     return TransportCapabilities(
         start_modes=frozenset({"latest", "earliest", "stream_id"}),
         isolation_modes=frozenset({"independent_reader"}),
@@ -136,10 +162,20 @@ def _capabilities() -> TransportCapabilities:
 
 
 def _load_native() -> Any:
+    """Import the optional asyncio Redis client only when opening a session.
+
+    :returns: The redis.asyncio module.
+    :raises ImportError: If the optional redis-py dependency is unavailable.
+    """
     return importlib.import_module("redis.asyncio")
 
 
 def _no_retry() -> Any:
+    """Create a native retry policy that does not repeat a known failed read.
+
+    :returns: A zero-attempt Retry object with NoBackoff.
+    :raises ImportError: If the required optional retry API cannot be imported.
+    """
     retry = importlib.import_module("redis.asyncio.retry")
     backoff = importlib.import_module("redis.backoff")
     return retry.Retry(backoff.NoBackoff(), 0)
@@ -148,10 +184,22 @@ def _no_retry() -> Any:
 def _raw_xread(response: Any, **_options: Any) -> Any:
     # redis-py's default XREAD parser turns each flat field sequence into a dict,
     # losing duplicate names before this adapter can validate them.
+    """Preserve flat native entry fields so duplicate selected names remain detectable.
+
+    :param response: Unconverted XREAD data from redis-py.
+    :param _options: Unused response-callback parsing options.
+    :returns: The unchanged raw XREAD response.
+    """
     return response
 
 
 def _id(value: Any) -> tuple[str, tuple[int, int]]:
+    """Validate a full native ID and retain both unsigned 64-bit numeric components.
+
+    :param value: Native value to validate before exposing it as a stream position.
+    :returns: Canonical text ID together with its numeric comparison pair.
+    :raises TransportSubscriptionError: If the native ID is malformed, non-ASCII, or out of range.
+    """
     if isinstance(value, bytes):
         try:
             value = value.decode("ascii")
@@ -170,6 +218,16 @@ def _id(value: Any) -> tuple[str, tuple[int, int]]:
 
 @dataclass(frozen=True, slots=True)
 class _StreamState:
+    """Validated atomic source metadata used to detect loss and identity rewind.
+
+    :ivar last_id: Canonical last-generated native ID, including an empty or deleted tail.
+    :ivar last_pair: Numeric pair for last-generated ID comparison.
+    :ivar added: Cumulative entries-added counter reported by the stream.
+    :ivar deleted: Conservative removed-entry count derived from entries-added minus retained length.
+    :ivar max_deleted: Largest deleted native ID observed by Redis.
+    :ivar first_pair: First retained entry ID, or None when the typed stream is empty.
+    """
+
     last_id: str
     last_pair: tuple[int, int]
     added: int
@@ -179,10 +237,22 @@ class _StreamState:
 
 
 def _state(metadata: Any) -> _StreamState:
+    """Decode required Redis 7+ counters and retained-boundary metadata.
+
+    :param metadata: Native stream metadata from the same atomic observation transaction.
+    :returns: A validated immutable stream-state value.
+    :raises TransportSubscriptionError: If required counters, IDs, or first-entry metadata are absent or
+        inconsistent.
+    """
     if not isinstance(metadata, Mapping):
         raise TransportSubscriptionError("Redis stream metadata is unavailable")
 
     def get(name: str) -> Any:
+        """Resolve one native metadata field in either text-key or byte-key form.
+
+        :param name: Metadata field name, accepted in either text or ASCII byte form.
+        :returns: The metadata value, or None if neither key representation is present.
+        """
         return metadata.get(name, metadata.get(name.encode("ascii")))
 
     length, added = get("length"), get("entries-added")
@@ -202,6 +272,13 @@ def _state(metadata: Any) -> _StreamState:
 
 
 def _identity(client_id: Any, server: Any) -> tuple[int, str]:
+    """Validate the connection ID and server process run_id from one transaction.
+
+    :param client_id: Native connection identifier returned by CLIENT ID.
+    :param server: INFO server fields containing the server process run_id.
+    :returns: A native connection ID and canonical server run_id pair.
+    :raises TransportReadinessError: If either identity value is unavailable or malformed.
+    """
     if isinstance(client_id, bool) or not isinstance(client_id, int) or client_id < 1:
         raise TransportReadinessError("Redis connection identity is unavailable")
     run_id = server.get("run_id", server.get(b"run_id")) if isinstance(server, Mapping) else None
@@ -216,6 +293,12 @@ def _identity(client_id: Any, server: Any) -> tuple[int, str]:
 
 
 def _native_error(error: Exception, *, startup: bool) -> TransportError:
+    """Classify native failures without including native messages in safe summaries.
+
+    :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+    :param startup: Whether the failure occurred before READY rather than while polling.
+    :returns: A typed authentication, authorization, subscription, connection, or interruption error.
+    """
     if isinstance(error, TransportError):
         return error
     names = {cls.__name__ for cls in type(error).__mro__}
@@ -231,20 +314,45 @@ def _native_error(error: Exception, *, startup: bool) -> TransportError:
 
 
 class RedisStreamsAdapter:
-    """Create independent polling cursors without touching consumer-group state."""
+    """Lazy factory of independent cursors over existing typed stream keys.
+
+    :ivar config: Validated immutable URL, field mapping, and polling policy.
+    :ivar capabilities: Independent latest/earliest/native-ID reading without groups, keys, or null values.
+    """
 
     def __init__(self, config: RedisStreamsConfig) -> None:
+        """Store configuration without loading a native client or connecting.
+
+        :param config: Validated immutable connection and delivery settings.
+        :returns: None; clients are created inside the runtime loop during open.
+        :raises ConfigurationError: If config is not a RedisStreamsConfig.
+        """
         if not isinstance(config, RedisStreamsConfig):
             raise ConfigurationError("RedisStreamsAdapter requires RedisStreamsConfig")
         self.config = config
 
     @property
     def capabilities(self) -> TransportCapabilities:
+        """Describe native stream starts and supported normalized values.
+
+        :returns: Fresh immutable static capabilities for this adapter.
+        """
         return _capabilities()
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
     ) -> RedisStreamsSession:
+        """Verify the existing stream and return an independently READY cursor.
+
+        :param source: Concrete existing source selected for this observation.
+        :param start: Requested start policy and its transport-specific boundary.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: A session owning its native client, poll task, and bounded handoff.
+        :raises UnsupportedCapabilityError: If partitions or unsupported start policies are requested.
+        :raises MissingOptionalDependencyError: If the Redis client or required retry API is unavailable.
+        :raises TransportError: If source, identity, permissions, cursor availability, or readiness fails.
+        :raises TimeoutError: If startup exceeds its deadline.
+        """
         if source.partitions is not None or start.mode.value not in self.capabilities.start_modes:
             raise UnsupportedCapabilityError(
                 "Redis Streams supports latest, earliest, and stream-ID cursors without partitions"
@@ -269,11 +377,44 @@ class RedisStreamsAdapter:
 
 
 class RedisStreamsSession:
-    """One owned client, one polling task, and one receive iterator."""
+    """One read-only polling client with atomic continuity checks and a bounded bridge.
+
+    :ivar _config: Immutable URL, field mapping, and polling policy.
+    :ivar _source: Existing stream key owned by the application or test harness.
+    :ivar _start: Requested latest, earliest, or exclusive native-ID start.
+    :ivar _context: Shared clock, deadlines, identity, diagnostics, and transfer limits.
+    :ivar _client: Owned optional native client and its one-connection pool.
+    :ivar _read_count: Requested batch count clipped to transport event capacity.
+    :ivar _payload_field: UTF-8 encoded native payload field name.
+    :ivar _header_prefix: UTF-8 encoded native header prefix.
+    :ivar _cursor: Current exclusive native ID used by subsequent XREAD commands.
+    :ivar _identity: Initial connection ID and server run_id; replacement is terminal.
+    :ivar _previous: Previous validated atomic stream state used for continuity checks.
+    :ivar _readiness: Resolved startup cursor and capability contract.
+    :ivar _buffer: Deque of detached event/accounted-size pairs awaiting Core.
+    :ivar _buffer_bytes: Accounted bytes currently retained in the handoff.
+    :ivar _wake: Owner-loop event for new data, closure, or terminal failure.
+    :ivar _failure: Shared terminal-error or intentional-close Future.
+    :ivar _error: First terminal transport error retained for all waiters.
+    :ivar _poll_task: Owned periodic nonblocking read/metadata task.
+    :ivar _close_task: Single cleanup task joined by concurrent close callers.
+    :ivar _closing: Whether closure has begun and the iterator must stop.
+    :ivar _closed: Whether owned native cleanup completed successfully.
+    :ivar _receive_started: Whether the single allowed receive iterator has been reserved.
+    :ivar readiness: Resolved boundary and source metadata after successful startup.
+    """
 
     def __init__(
         self, config: RedisStreamsConfig, source: TransportSource, start: StartPosition, context: OpenContext
     ) -> None:
+        """Allocate owner-loop cursor, handoff, and failure state without connecting.
+
+        :param config: Validated immutable connection and delivery settings.
+        :param source: Concrete existing source selected for this observation.
+        :param start: Requested start policy and its transport-specific boundary.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: None; native resources are created by the later startup operation.
+        """
         self._config, self._source, self._start, self._context = config, source, start, context
         self._client: Any = None
         self._read_count = min(config.read_count, context.buffers.max_events)
@@ -295,9 +436,23 @@ class RedisStreamsSession:
         self._receive_started = False
 
     def _remaining(self, deadline: float) -> float:
+        """Calculate nonnegative remaining time in the owner runtime clock domain.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: Seconds remaining until deadline, clamped to zero.
+        """
         return max(0.0, deadline - self._context.clock.monotonic())
 
     async def _open(self, native: Any, retry: Any) -> None:
+        """Resolve the initial cursor and verify an atomic read before publishing READY.
+
+        :param native: Lazily loaded native client module or an equivalent controlled test double.
+        :param retry: Native retry policy configured for zero retries.
+        :returns: None once the native client, cursor, and poll task are ready.
+        :raises StartPositionUnavailableError: If explicit history is below known baseline availability.
+        :raises TransportError: If source, identity, permissions, or initial read validation fails.
+        :raises TimeoutError: If startup runs out of time.
+        """
         try:
             self._client = native.Redis.from_url(
                 self._config.url,
@@ -362,11 +517,23 @@ class RedisStreamsSession:
 
     @property
     def readiness(self) -> TransportReadiness:
+        """Return confirmed native start metadata and reader capabilities.
+
+        :returns: The resolved contract including redis.start_id and initial connection ID.
+        :raises TransportReadinessError: If startup has not completed.
+        """
         if self._readiness is None:
             raise TransportReadinessError("Redis Streams session is not ready")
         return self._readiness
 
     def _check_continuity(self, state: _StreamState) -> None:
+        """Reject new deletion evidence or a rewind relative to the previous atomic state.
+
+        :param state: Validated stream metadata describing the same batch of entries.
+        :returns: None if the source remains conservatively continuous.
+        :raises TransportInterruptedError: If counters, first/last IDs, or deletion watermarks reveal a
+            source change.
+        """
         previous = self._previous
         if previous is None:
             return
@@ -386,6 +553,16 @@ class RedisStreamsSession:
             raise TransportInterruptedError("Redis stream history was deleted or trimmed")
 
     def _entries(self, response: Any, state: _StreamState) -> list[tuple[RawEvent, int]]:
+        """Validate batch source, order, field domain, and complete envelope accounting.
+
+        :param response: Native command response before lossy field-table conversion.
+        :param state: Validated stream metadata describing the same batch of entries.
+        :returns: Detached event/accounted-size pairs in strictly increasing native-ID order.
+        :raises TransportSubscriptionError: If the batch shape or selected payload/header fields are
+            malformed.
+        :raises TransportInterruptedError: If native IDs violate cursor or batch metadata order.
+        :raises TransportBackpressureError: If the native batch exceeds the configured read count.
+        """
         if response is None or response == []:
             return []
         if not isinstance(response, (list, tuple)) or len(response) != 1:
@@ -447,6 +624,13 @@ class RedisStreamsSession:
         return batch
 
     async def _read_once(self) -> None:
+        """Atomically validate identity, stream continuity, and entries before handoff.
+
+        :returns: None after advancing the cursor and queuing a complete bounded batch.
+        :raises TransportInterruptedError: If source or connection/server identity changed.
+        :raises TransportSubscriptionError: If the transaction response or entries are malformed.
+        :raises TransportBackpressureError: If the complete batch cannot fit the bounded handoff.
+        """
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.client_id()
             pipe.info("server")
@@ -474,6 +658,11 @@ class RedisStreamsSession:
             self._wake.set()
 
     def _fail(self, error: TransportError) -> None:
+        """Publish the first terminal error through a path independent of receive capacity.
+
+        :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+        :returns: None; intentional closure and later errors do not replace the first failure.
+        """
         if self._closing or self._error is not None:
             return
         self._error = error
@@ -482,6 +671,11 @@ class RedisStreamsSession:
         self._wake.set()
 
     async def _poll(self) -> None:
+        """Run bounded nonblocking reads periodically until cleanup or known failure.
+
+        :returns: None after cleanup or publishing a terminal error.
+        :raises asyncio.CancelledError: If the owned polling task is cancelled.
+        """
         try:
             while not self._closing:
                 await asyncio.sleep(self._config.poll_interval)
@@ -493,12 +687,22 @@ class RedisStreamsSession:
             self._fail(_native_error(error, startup=False))
 
     def receive(self) -> AsyncIterator[RawEvent]:
+        """Reserve this independent cursor's single asynchronous receive iterator.
+
+        :returns: An asynchronous iterator of detached RawEvent values.
+        :raises TransportSubscriptionError: If receive was already requested.
+        """
         if self._receive_started:
             raise TransportSubscriptionError("A Redis Streams session permits one receive iterator")
         self._receive_started = True
         return self._receive()
 
     async def _receive(self) -> AsyncIterator[RawEvent]:
+        """Drain the bounded handoff while prioritizing known failure and closure.
+
+        :yields: Detached RawEvent values with native redis.stream_id metadata.
+        :raises TransportError: If the poller has detected a terminal error.
+        """
         while True:
             if self._error is not None:
                 raise self._error
@@ -513,9 +717,21 @@ class RedisStreamsSession:
                 await self._wake.wait()
 
     async def wait_failure(self) -> TransportError | None:
+        """Wait for terminal failure independently of available business entries.
+
+        :returns: The first terminal transport error, or None after intentional cleanup.
+        :raises asyncio.CancelledError: If only this monitoring waiter is cancelled.
+        """
         return await asyncio.shield(self._failure)
 
     async def close(self, *, deadline: float) -> None:
+        """Join one shielded cleanup operation for the client and poller.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None after owned tasks, client, and pool are released.
+        :raises ObserverCleanupError: If native cleanup fails.
+        :raises ObserverCleanupTimeoutError: If cleanup exceeds deadline.
+        """
         if self._close_task is None:
             self._closing = True
             self._wake.set()
@@ -525,6 +741,13 @@ class RedisStreamsSession:
         await asyncio.shield(self._close_task)
 
     async def _cleanup(self, deadline: float) -> None:
+        """Cancel polling, close the owned pool, and clear the handoff within budget.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None after cleanup leaves the application stream and group state untouched.
+        :raises ObserverCleanupError: If client/pool cleanup fails.
+        :raises ObserverCleanupTimeoutError: If the lifecycle cleanup budget expires.
+        """
         try:
             async with asyncio.timeout(self._remaining(deadline)):
                 if self._poll_task is not None:

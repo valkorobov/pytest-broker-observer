@@ -11,19 +11,39 @@ _TRUNCATION_NOTICE = "\n[Text truncated: diagnostic byte limit reached.]\n"
 
 
 def _code(value: Any) -> str:
+    """Render a sanitized technical identifier without accepting arbitrary labels.
+
+    :param value: Candidate stable code, scope identifier, or expectation identifier.
+    :returns: The validated code or the fixed missing-value description.
+    """
     return value if isinstance(value, str) and _CODE.fullmatch(value) else "not recorded"
 
 
 def _count_value(value: Any) -> int | None:
+    """Accept only nonnegative integer diagnostic counts.
+
+    :param value: Candidate count; booleans are excluded despite integer inheritance.
+    :returns: The validated integer or ``None`` when the metric was not recorded.
+    """
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _count(value: Any) -> str:
+    """Format a safe diagnostic count for a human-readable result.
+
+    :param value: Candidate nonnegative integer count.
+    :returns: Decimal count text or the fixed missing-value description.
+    """
     count = _count_value(value)
     return str(count) if count is not None else "not recorded"
 
 
 def _duration(value: Any) -> str:
+    """Format finite, nonnegative timing metadata in seconds.
+
+    :param value: Sanitized duration from an expectation summary.
+    :returns: A compact seconds label or the fixed missing-value description.
+    """
     if (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
@@ -35,10 +55,20 @@ def _duration(value: Any) -> str:
 
 
 def _flag(value: Any) -> str:
+    """Render a recorded Boolean while preserving the unknown state.
+
+    :param value: Candidate Boolean diagnostic flag.
+    :returns: ``yes``, ``no``, or the fixed missing-value description.
+    """
     return "yes" if value is True else "no" if value is False else "not recorded"
 
 
 def _explanation(summary: Mapping[str, Any]) -> str:
+    """Explain an outcome using recorded counters rather than matcher expressions.
+
+    :param summary: Sanitized expectation outcome and evaluation metrics.
+    :returns: Fixed English prose explaining success, cancellation, error, or timeout.
+    """
     outcome = summary.get("outcome")
     if outcome in {"matched", "success"}:
         return "The requested matching event count was reached."
@@ -70,7 +100,11 @@ def _explanation(summary: Mapping[str, Any]) -> str:
 
 
 def expectation_text(data: Mapping[str, Any]) -> str:
-    """Render only known metrics and identifiers, excluding disclosed content."""
+    """Render known metrics and identifiers without including disclosed message content.
+
+    :param data: Sanitized diagnostic export with completed expectation summaries.
+    :returns: English result text ordered newest expectation first, including omission flags.
+    """
     lines = ["Expectation results (latest first)"]
     expectations = data.get("expectations", [])
     for index, summary in reversed(list(enumerate(expectations, start=1))):
@@ -117,7 +151,12 @@ def expectation_text(data: Mapping[str, Any]) -> str:
 
 
 def truncate_text(body: str, budget: int) -> str:
-    """Keep complete UTF-8 text lines and an explicit byte-limit notice."""
+    """Bound UTF-8 text with complete lines and an explicit byte-limit notice.
+
+    :param body: Human-readable diagnostic text to bound.
+    :param budget: Maximum encoded bytes; nonpositive budgets produce empty text.
+    :returns: Original text when it fits, otherwise a safe prefix and truncation notice.
+    """
     encoded = body.encode("utf-8")
     notice = _TRUNCATION_NOTICE.encode("utf-8")
     if len(encoded) <= budget:

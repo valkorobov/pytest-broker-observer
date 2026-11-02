@@ -1,10 +1,12 @@
 """Independent Kafka readers with explicit boundaries and a bounded handoff.
 
-The native client is imported only when opening a session. Every Consumer call,
-including construction and destruction, runs on that session's worker thread.
-The Python bridge conservatively holds one record at a time, so its configured
-byte budget also covers the producer-side record awaiting delivery. Native
-librdkafka queues have a separate, explicitly configured budget.
+Native imports are lazy. Every Consumer operation, including construction and
+cleanup, runs on its session's worker thread. The Python bridge conservatively
+holds one record at a time; native librdkafka queues have separate budgets.
+
+:ivar _MANAGED_OPTIONS: Native settings reserved for observer ownership, safety,
+    readiness callbacks, security, and queue budgets.
+:ivar __all__: Public Kafka configuration, adapter, and session types.
 """
 
 from __future__ import annotations
@@ -82,6 +84,26 @@ _MANAGED_OPTIONS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class KafkaConfig:
+    """Immutable Kafka connection, security, polling, and native-buffer policy.
+
+    :ivar bootstrap_servers: Bootstrap address string or immutable tuple of addresses.
+    :ivar security_protocol: Explicit PLAINTEXT, SSL, SASL_PLAINTEXT, or SASL_SSL mode.
+    :ivar sasl_mechanism: SASL mechanism when SASL is enabled.
+    :ivar sasl_username: Optional SASL username, excluded from repr.
+    :ivar sasl_password: Optional SASL secret, excluded from repr.
+    :ivar ssl_ca_location: CA certificate path used by TLS.
+    :ivar ssl_certificate_location: Optional TLS client certificate path.
+    :ivar ssl_key_location: TLS private-key path, excluded from repr.
+    :ivar ssl_key_password: TLS private-key password, excluded from repr.
+    :ivar isolation_level: Reader transaction isolation; defaults to read_committed.
+    :ivar topology_check_interval: Positive seconds between partition-topology checks.
+    :ivar poll_timeout: Positive maximum duration of a worker poll call.
+    :ivar metadata_timeout: Per-request metadata budget, capped by startup remaining time.
+    :ivar native_queue_bytes: Native queue budget, separate from Python handoff accounting.
+    :ivar native_fetch_bytes: Native fetch budget no greater than the native queue budget.
+    :ivar client_options: Detached immutable native scalar settings that cannot override managed options.
+    """
+
     bootstrap_servers: str | tuple[str, ...]
     security_protocol: str = "PLAINTEXT"
     sasl_mechanism: str | None = None
@@ -100,6 +122,12 @@ class KafkaConfig:
     client_options: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
+        """Validate related security settings and freeze caller-supplied native options.
+
+        :returns: None after the immutable policy is validated.
+        :raises ConfigurationError: If addresses, security combinations, limits, or native options are
+            invalid.
+        """
         servers = self.bootstrap_servers
         if not isinstance(servers, (str, tuple)) or not servers:
             raise ConfigurationError("bootstrap_servers must be a nonempty string or tuple")
@@ -161,6 +189,10 @@ class KafkaConfig:
 
 
 def _capabilities() -> TransportCapabilities:
+    """Describe Kafka's independent partition readers and explicit replay policies.
+
+    :returns: A fresh immutable capability value without creating native resources.
+    """
     return TransportCapabilities(
         start_modes=frozenset({"latest", "earliest", "offset", "timestamp"}),
         isolation_modes=frozenset({"independent_reader"}),
@@ -176,28 +208,63 @@ def _capabilities() -> TransportCapabilities:
 
 
 def _load_native() -> Any:
+    """Import the Kafka client only when opening an observation.
+
+    :returns: The confluent_kafka module.
+    :raises ImportError: If the optional Kafka client cannot be imported.
+    """
     return importlib.import_module("confluent_kafka")
 
 
 def _load_admin() -> Any:
+    """Import the independent AdminClient API used for physical high watermarks.
+
+    :returns: The confluent_kafka.admin module.
+    :raises ImportError: If the installed Kafka client lacks its admin module.
+    """
     return importlib.import_module("confluent_kafka.admin")
 
 
 class KafkaAdapter:
-    """Factory of independent manually assigned Kafka sessions."""
+    """Lazy factory for manually assigned Kafka reader sessions.
+
+    :ivar config: Validated immutable Kafka configuration.
+    :ivar capabilities: Supported partition isolation, replay, metadata, and flow-control semantics.
+    """
 
     def __init__(self, config: KafkaConfig) -> None:
+        """Store an explicit policy without importing a client or starting a worker.
+
+        :param config: Validated immutable connection and delivery settings.
+        :returns: None; native resources are deferred until open.
+        :raises ConfigurationError: If config is not a KafkaConfig.
+        """
         if not isinstance(config, KafkaConfig):
             raise ConfigurationError("KafkaAdapter requires KafkaConfig")
         self.config = config
 
     @property
     def capabilities(self) -> TransportCapabilities:
+        """Return static Kafka semantics without contacting the broker.
+
+        :returns: Independent-reader capabilities with partition ordering and explicit replay.
+        """
         return _capabilities()
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
     ) -> KafkaSession:
+        """Start one native worker and wait for its Fetch-confirmed READY boundary.
+
+        :param source: Concrete existing source selected for this observation.
+        :param start: Requested start policy and its transport-specific boundary.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: A READY KafkaSession with its own Consumer and handoff.
+        :raises MissingOptionalDependencyError: If the Kafka client is unavailable.
+        :raises TransportError: If boundary resolution or Fetch readiness fails.
+        :raises TimeoutError: If the startup budget is exhausted.
+        :raises asyncio.CancelledError: If startup is cancelled; rollback still attempts worker cleanup.
+        """
         try:
             native = _load_native()
         except ImportError as exc:
@@ -220,7 +287,36 @@ class KafkaAdapter:
 
 
 class KafkaSession:
-    """One worker, one receive iterator and an independent failure signal."""
+    """One serialized Kafka worker, bounded bridge, and independent failure signal.
+
+    :ivar _config: Immutable connection, security, polling, and buffer settings.
+    :ivar _native: Lazily imported Kafka client module or controlled native double.
+    :ivar _source: Selected topic and optional explicit partition set.
+    :ivar _start: Requested replay policy before numeric boundary resolution.
+    :ivar _context: Owner clock, startup deadline, observation identity, and handoff limits.
+    :ivar _loop: Async owner loop receiving worker notifications.
+    :ivar _ready: Owner-loop Future completed after readiness or startup failure.
+    :ivar _failure: Shared terminal-error signal, shielded from individual waiter cancellation.
+    :ivar _finished: Owner-loop Future completed when the worker finishes.
+    :ivar _data_ready: Owner-loop event used to wake the receive iterator.
+    :ivar _condition: Thread condition protecting bridge queue and notification bookkeeping.
+    :ivar _queue: Conservative one-record Python handoff deque.
+    :ivar _stop: Thread-safe stop request observed by polling and backpressure waits.
+    :ivar _wake_pending: Whether a worker-to-loop wake callback is already reserved.
+    :ivar _error: First terminal transport error, retained without replacement.
+    :ivar _cleanup_error: Native cleanup error with its original Python cause.
+    :ivar _receive_started: Whether the single allowed receive iterator was requested.
+    :ivar _readiness: Resolved READY contract, or None before successful startup.
+    :ivar _fetch_confirmed: Partitions for which the same reader confirmed a Fetch path.
+    :ivar _partitions: Concrete selected partitions.
+    :ivar _topology: Complete initial topic partition set used for static topology checks.
+    :ivar _highs: Captured physical numeric high watermarks by partition.
+    :ivar _consumer: Worker-owned native Consumer, never operated from the owner loop.
+    :ivar _admin: Temporary worker-owned AdminClient during physical-high resolution.
+    :ivar _thread: Dedicated worker serializing all native operations.
+    :ivar _worker_finished: Completion marker published after final worker resource cleanup.
+    :ivar readiness: Resolved boundary and capabilities after successful startup.
+    """
 
     def __init__(
         self,
@@ -230,6 +326,15 @@ class KafkaSession:
         start: StartPosition,
         context: OpenContext,
     ) -> None:
+        """Allocate loop-side signals and an unstarted worker without connecting.
+
+        :param config: Validated immutable connection and delivery settings.
+        :param native: Lazily loaded native client module or an equivalent controlled test double.
+        :param source: Concrete existing source selected for this observation.
+        :param start: Requested start policy and its transport-specific boundary.
+        :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
+        :returns: None; KafkaAdapter.open starts the allocated thread.
+        """
         self._config = config
         self._native = native
         self._source = source
@@ -260,20 +365,40 @@ class KafkaSession:
 
     @property
     def readiness(self) -> TransportReadiness:
+        """Return Fetch-confirmed boundary and session metadata.
+
+        :returns: Resolved readiness for the selected topic and partitions.
+        :raises TransportReadinessError: If startup is not complete.
+        """
         if self._readiness is None:
             raise TransportReadinessError("Kafka session is not ready")
         return self._readiness
 
     async def wait_failure(self) -> TransportError | None:
+        """Await worker failure without cancelling the shared signal.
+
+        :returns: The first terminal transport error, or None after intentional worker closure.
+        :raises asyncio.CancelledError: If only the caller's monitoring wait is cancelled.
+        """
         return await asyncio.shield(self._failure)
 
     def receive(self) -> AsyncIterator[RawEvent]:
+        """Reserve the only receive iterator for this independent reader.
+
+        :returns: An asynchronous iterator of normalized RawEvent values.
+        :raises TransportSubscriptionError: If receive was already requested.
+        """
         if self._receive_started:
             raise TransportSubscriptionError("A Kafka session permits one receive iterator")
         self._receive_started = True
         return self._receive()
 
     async def _receive(self) -> AsyncIterator[RawEvent]:
+        """Drain the bridge while coordinating worker capacity notifications.
+
+        :yields: Detached RawEvent deliveries in observed partition-read order.
+        :raises TransportError: If the worker reports a terminal error.
+        """
         while True:
             with self._condition:
                 if self._error is not None:
@@ -292,6 +417,13 @@ class KafkaSession:
                 await self._data_ready.wait()
 
     async def close(self, *, deadline: float) -> None:
+        """Request stop and confirm both native cleanup and thread termination.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None once the worker has terminated.
+        :raises ObserverCleanupTimeoutError: If cleanup or thread join exceeds deadline.
+        :raises ObserverCleanupError: If native Consumer.close failed; its cause remains inspectable.
+        """
         self._stop.set()
         with self._condition:
             self._condition.notify_all()
@@ -313,6 +445,10 @@ class KafkaSession:
             raise self._cleanup_error
 
     def _wake_loop(self) -> None:
+        """Reserve at most one thread-safe wake callback for the owner loop.
+
+        :returns: None; a closed owner loop is left for outer cleanup accounting.
+        """
         with self._condition:
             if self._wake_pending:
                 return
@@ -323,6 +459,10 @@ class KafkaSession:
             pass
 
     def _notify(self) -> None:
+        """Publish queued data, readiness, failure, or completion to owner-loop waiters.
+
+        :returns: None after coalesced notifications are delivered.
+        """
         with self._condition:
             self._wake_pending = False
         self._data_ready.set()
@@ -347,6 +487,11 @@ class KafkaSession:
                 self._finished.set_result(None)
 
     def _fail(self, error: TransportError) -> None:
+        """Retain the first terminal worker error and wake all affected waiters.
+
+        :param error: Failure to normalize or publish without copying its message into safe diagnostics.
+        :returns: None; later errors do not replace the original failure.
+        """
         with self._condition:
             if self._error is None:
                 self._error = error
@@ -354,12 +499,21 @@ class KafkaSession:
         self._wake_loop()
 
     def _remaining(self) -> float:
+        """Bound a native startup request by remaining shared-clock time.
+
+        :returns: Positive seconds capped by metadata_timeout.
+        :raises TransportReadinessError: If startup expired or a stop request was observed.
+        """
         remaining = self._context.startup_deadline - self._context.clock.monotonic()
         if remaining <= 0 or self._stop.is_set():
             raise TransportReadinessError("Kafka fetch readiness was not confirmed within the startup budget")
         return min(self._config.metadata_timeout, remaining)
 
     def _native_config(self) -> dict[str, Any]:
+        """Build managed Consumer settings without mutating caller configuration.
+
+        :returns: Native settings with auto commit/store disabled and observer-owned callbacks.
+        """
         config = self._config
         result: dict[str, Any] = dict(config.client_options)
         result.update(
@@ -400,6 +554,11 @@ class KafkaSession:
         return result
 
     def _normalize(self, native_error: Any) -> TransportError:
+        """Translate a native numeric error code into a safe stable error type.
+
+        :param native_error: Native client error whose numeric code determines the public error type.
+        :returns: A typed transport error whose summary omits native error text.
+        """
         code = native_error.code() if callable(getattr(native_error, "code", None)) else None
         names = {
             TransportAuthenticationError: ("_AUTHENTICATION", "SASL_AUTHENTICATION_FAILED"),
@@ -418,12 +577,22 @@ class KafkaSession:
 
     def _error_callback(self, error: Any) -> None:
         # Callback details may contain server-supplied strings or credentials.
+        """Record an asynchronous native client error on the worker path.
+
+        :param error: Native Kafka error delivered by librdkafka's error callback.
+        :returns: None after publishing the normalized failure.
+        """
         self._fail(self._normalize(error))
 
     def _statistics_callback(self, payload: str) -> None:
         # hi_offset/ls_offset are updated by Fetch responses. Unlike a metadata
         # request, a successful Fetch confirms the Read path, including a reader
         # waiting beyond the LSO of an existing open transaction.
+        """Accept successful Fetch statistics as readiness evidence for selected partitions.
+
+        :param payload: librdkafka statistics JSON; native values are not copied into safe summaries.
+        :returns: None; malformed optional statistics are ignored.
+        """
         try:
             partitions = (
                 json.loads(payload).get("topics", {}).get(self._source.name, {}).get("partitions", {})
@@ -441,6 +610,13 @@ class KafkaSession:
             return
 
     def _metadata(self, timeout: float) -> tuple[int, ...]:
+        """Resolve and validate the complete topic partition set.
+
+        :param timeout: Finite operation budget in seconds.
+        :returns: Sorted partition numbers reported by valid native metadata.
+        :raises TransportSubscriptionError: If the topic or its partition metadata is unavailable.
+        :raises TransportError: If native topic or partition metadata reports a client error.
+        """
         metadata = self._consumer.list_topics(topic=self._source.name, timeout=timeout)
         topic = metadata.topics.get(self._source.name)
         if topic is None:
@@ -455,6 +631,13 @@ class KafkaSession:
         return tuple(sorted(topic.partitions))
 
     def _resolve(self) -> tuple[list[Any], dict[int, int]]:
+        """Resolve an explicit numeric start boundary for every selected partition.
+
+        :returns: Native assignments and their partition-to-offset mapping.
+        :raises StartPositionUnavailableError: If offsets or required timestamp positions are unavailable.
+        :raises TransportSubscriptionError: If requested partitions do not belong to the topic.
+        :raises TransportError: If native metadata or boundary resolution fails.
+        """
         self._topology = self._metadata(self._remaining())
         requested = self._source.partitions
         self._partitions = tuple(sorted(requested)) if requested is not None else self._topology
@@ -524,6 +707,12 @@ class KafkaSession:
         ], positions
 
     def _physical_highs(self) -> dict[int, int]:
+        """Resolve physical highs independently of the consuming reader's isolation.
+
+        :returns: Physical numeric high watermarks from READ_UNCOMMITTED ListOffsets.
+        :raises TransportReadinessError: If highs are invalid or selected partitions are omitted.
+        :raises Exception: If the bounded native admin request fails; the worker normalizes it.
+        """
         module = _load_admin()
         # AdminClient shares security/network settings; consumer-only options
         # must not leak into its configuration or produce ignored-option logs.
@@ -574,6 +763,13 @@ class KafkaSession:
             del admin
 
     def _message(self, message: Any) -> RawEvent | None:
+        """Detach one native record and enforce the complete envelope byte budget.
+
+        :param message: Native delivery to detach and validate before handing it to Core.
+        :returns: A normalized event, or None for partition-EOF readiness signals.
+        :raises TransportError: If the delivery contains a native error.
+        :raises TransportBackpressureError: If the detached envelope exceeds the handoff byte budget.
+        """
         error = message.error()
         if error is not None:
             if error.code() == self._native.KafkaError._PARTITION_EOF:
@@ -605,6 +801,11 @@ class KafkaSession:
         return raw
 
     def _run(self) -> None:
+        """Own native startup, Fetch probing, polling, topology checks, and final cleanup.
+
+        :returns: None after publishing worker completion; failures cross the Future boundary with causes
+            preserved.
+        """
         try:
             self._consumer = self._native.Consumer(self._native_config())
             assignment, positions = self._resolve()
@@ -694,13 +895,17 @@ class KafkaSession:
                 else:
                     native_error = exc.args[0] if exc.args else None
                     error = self._normalize(native_error)
+                    error.cause = exc
+                    error.__cause__ = exc
                 self._fail(error)
         finally:
             if self._consumer is not None:
                 try:
                     self._consumer.close()
-                except BaseException:
-                    self._cleanup_error = ObserverCleanupError("Kafka native client cleanup failed")
+                except BaseException as exc:
+                    error = ObserverCleanupError("Kafka native client cleanup failed", cause=exc)
+                    error.__cause__ = exc
+                    self._cleanup_error = error
             with self._condition:
                 self._queue.clear()
             self._worker_finished = True

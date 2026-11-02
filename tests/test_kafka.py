@@ -17,6 +17,7 @@ from event_observer.errors import (
     TopologyChangedError,
     TransportAuthorizationError,
     TransportBackpressureError,
+    TransportError,
     TransportReadinessError,
     TransportSubscriptionError,
 )
@@ -641,5 +642,98 @@ def test_read_committed_boundary_uses_physical_high_instead_of_consumer_lso(monk
         native.messages.append(Message(0, 1, b"new-after-boundary"))
         assert (await asyncio.wait_for(anext(session.receive()), 1)).payload == b"new-after-boundary"
         await session.close(deadline=time.monotonic() + 1)
+
+    run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["startup", "background"])
+@pytest.mark.parametrize("typed", [False, True])
+def test_worker_native_exception_retains_cause_and_chain(monkeypatch, phase, typed):
+    """Preserve worker failures for debugging without copying native details into summaries.
+
+    :param monkeypatch: Fixture replacing native clients with controlled doubles.
+    :param phase: Whether the failure occurs before or after READY.
+    :param typed: Whether the native error supplies a recognizable authorization code.
+    :returns: ``None`` after both cause references and the safe summary are checked.
+    """
+    native = Native()
+    detail = "sensitive-native-detail"
+    cause = (
+        RuntimeError(NativeError(NativeError.TOPIC_AUTHORIZATION_FAILED), detail)
+        if typed
+        else RuntimeError(detail)
+    )
+    setup_native(monkeypatch, native)
+
+    def fail_native(*args, **kwargs):
+        """Raise the exact native failure from the consumer constructor or poll call.
+
+        :param args: Unused native call positional arguments.
+        :param kwargs: Unused native call keyword arguments.
+        :raises RuntimeError: The original failure retained by the normalized error.
+        """
+        raise cause
+
+    async def scenario():
+        """Exercise the worker boundary and join every worker before returning.
+
+        :returns: ``None`` after the failure and cleanup have completed.
+        """
+        adapter = KafkaAdapter(KafkaConfig("kafka"))
+        if phase == "startup":
+            monkeypatch.setattr(native, "Consumer", fail_native)
+            with pytest.raises(TransportError) as raised:
+                await adapter.open(TransportSource("events"), StartPosition.latest(), context=context())
+            error = raised.value
+        else:
+            session = await adapter.open(TransportSource("events"), StartPosition.latest(), context=context())
+            try:
+                monkeypatch.setattr(native.clients[0], "poll", fail_native)
+                error = await asyncio.wait_for(session.wait_failure(), timeout=1)
+            finally:
+                await session.close(deadline=time.monotonic() + 1)
+            assert not session._thread.is_alive()
+        assert error is not None
+        assert error.cause is cause
+        assert error.__cause__ is cause
+        assert detail not in str(error)
+        if typed:
+            assert isinstance(error, TransportAuthorizationError)
+
+    run(scenario())
+
+
+def test_native_cleanup_exception_retains_cause_and_chain(monkeypatch):
+    """Keep cleanup's native cause while exposing only the stable cleanup summary.
+
+    :param monkeypatch: Fixture installing the controlled native client.
+    :returns: ``None`` after the original cleanup exception and worker exit are checked.
+    """
+    native = Native()
+    setup_native(monkeypatch, native)
+    cause = RuntimeError("sensitive-cleanup-detail")
+
+    def fail_close():
+        """Raise a native cleanup failure with a detail unsuitable for safe reports.
+
+        :raises RuntimeError: The original failure that cleanup must preserve.
+        """
+        raise cause
+
+    async def scenario():
+        """Close the owned session and inspect its normalized cleanup failure.
+
+        :returns: ``None`` once the worker is confirmed terminated.
+        """
+        session = await KafkaAdapter(KafkaConfig("kafka")).open(
+            TransportSource("events"), StartPosition.latest(), context=context()
+        )
+        monkeypatch.setattr(native.clients[0], "close", fail_close)
+        with pytest.raises(ObserverCleanupError) as raised:
+            await session.close(deadline=time.monotonic() + 1)
+        assert raised.value.cause is cause
+        assert raised.value.__cause__ is cause
+        assert "sensitive-cleanup-detail" not in str(raised.value)
+        assert not session._thread.is_alive()
 
     run(scenario())

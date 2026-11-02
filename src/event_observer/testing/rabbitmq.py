@@ -1,8 +1,9 @@
-"""Independent RabbitMQ publisher/admin harness for explicitly owned exchanges.
+"""Independent RabbitMQ publisher/admin harness for owned topic exchanges.
 
-Each operation opens and closes its own connection, so a synchronous test can
-call create_source(), publish(), and cleanup() through separate asyncio.run()
-invocations without sharing loop-bound clients.
+Each operation creates and closes its own native connection, supporting
+separate asyncio.run calls without sharing clients tied to closed loops.
+
+:ivar __all__: Public RabbitMQ publisher/admin harness type.
 """
 
 from __future__ import annotations
@@ -27,6 +28,11 @@ from .harness import PublishReceipt
 
 
 def _load_client() -> tuple[Any, Any]:
+    """Load the optional publisher APIs without importing them during construction.
+
+    :returns: The aio-pika and aiormq modules needed for broker-confirmation checks.
+    :raises MissingOptionalDependencyError: If the RabbitMQ extra is unavailable.
+    """
     try:
         return importlib.import_module("aio_pika"), importlib.import_module("aiormq")
     except ImportError as exc:
@@ -34,7 +40,23 @@ def _load_client() -> tuple[Any, Any]:
 
 
 class RabbitMQAdapterHarness:
+    """Create owned exchanges and publish through independent confirmed connections.
+
+    :ivar adapter: Lazy dedicated-subscription adapter used by contracts.
+    :ivar _url: Explicit native connection URL, retained only for fixture operations.
+    :ivar _timeout: Positive finite connection/operation/cleanup budget.
+    :ivar _exchanges: Names owned by the fixture, registered before declaration can succeed.
+    :ivar _closed: Whether cleanup has forbidden new creation/publication.
+    """
+
     def __init__(self, url: str, *, timeout: float = 15.0) -> None:
+        """Validate fixture budgets and store explicit connection settings.
+
+        :param url: Explicit broker connection URL; never discovered from environment variables.
+        :param timeout: Finite operation budget in seconds.
+        :returns: None; native clients remain unimported until an operation.
+        :raises ConfigurationError: If timeout or connection configuration is invalid.
+        """
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -49,11 +71,22 @@ class RabbitMQAdapterHarness:
         self._closed = False
 
     def _ensure_open(self) -> None:
+        """Reject new fixture operations after cleanup has started.
+
+        :returns: None while source creation/publication remains allowed.
+        :raises ConfigurationError: If the harness has been cleaned up.
+        """
         if self._closed:
             raise ConfigurationError("RabbitMQ harness is already cleaned up")
 
     @asynccontextmanager
     async def _connection(self) -> AsyncGenerator[tuple[Any, Any, Any], None]:
+        """Own one fresh native connection for a bounded publisher/admin operation.
+
+        :yields: Native aio-pika module, aiormq module, and a fresh connected client.
+        :raises TransportError: If cleanup fails without another primary exception.
+        :raises TimeoutError: If the operation exceeds the fixture timeout.
+        """
         native, amqp = _load_client()
         connection = None
         primary: BaseException | None = None
@@ -74,6 +107,13 @@ class RabbitMQAdapterHarness:
                     primary.add_note("RabbitMQ harness connection cleanup also failed")
 
     async def create_source(self, *, case_id: str) -> TransportSource:
+        """Create and register a unique non-durable topic exchange.
+
+        :param case_id: Nonempty test label used in a unique owned source name.
+        :returns: A source naming the independently created exchange.
+        :raises ConfigurationError: If the case label is invalid or cleanup already ran.
+        :raises TransportError: If the exchange cannot be declared.
+        """
         self._ensure_open()
         if not isinstance(case_id, str) or not case_id:
             raise ConfigurationError("Harness case_id must be a nonempty string")
@@ -106,6 +146,19 @@ class RabbitMQAdapterHarness:
         headers: tuple[tuple[str, bytes | None], ...] = (),
         routing_key: str = "events",
     ) -> PublishReceipt:
+        """Publish one supported body/header set and require broker Basic.Ack.
+
+        :param source: Concrete existing source selected for this observation.
+        :param payload: Raw message body; null is accepted only when the adapter advertises it.
+        :param key: Optional message key, rejected by transports that do not support one.
+        :param headers: Ordered normalized header pairs, subject to the transport capabilities.
+        :param routing_key: UTF-8 routing key used when publishing to the owned topic exchange.
+        :returns: A confirmed receipt containing the routing key.
+        :raises ConfigurationError: If the exchange is unowned or native names/keys are invalid.
+        :raises UnsupportedCapabilityError: If null bodies, separate keys, or duplicate headers are
+            supplied.
+        :raises TransportError: If the broker does not confirm publication.
+        """
         self._ensure_open()
         if source.name not in self._exchanges:
             raise ConfigurationError("RabbitMQ harness can publish only to its own test sources")
@@ -154,6 +207,11 @@ class RabbitMQAdapterHarness:
         return PublishReceipt(metadata={"rabbitmq.routing_key": routing_key})
 
     async def cleanup(self) -> None:
+        """Delete only registered exchanges using fresh native channels.
+
+        :returns: None after all owned exchange names are removed.
+        :raises TransportError: If connection cleanup or an owned exchange deletion fails.
+        """
         self._closed = True
         if not self._exchanges:
             return

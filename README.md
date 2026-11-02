@@ -317,6 +317,7 @@ and reconnect with checkpoint recovery are deferred beyond this MVP.
 - [Diagnostics, redaction, Allure, and trace context](docs/diagnostics.md)
 - [Run pytest with AllureReporter and view HTML reports](examples/allure/README.md)
 - [Compatibility](docs/compatibility.md) and [verified status](docs/status.md)
+- [SOLID/DRY/KISS improvement plan](docs/improvement-plan.md) and [follow-up review](docs/solid-dry-kiss-review.md)
 - [Technical specification](SPEC.md), [changelog](CHANGELOG.md),
   [contributing](CONTRIBUTING.md), and [security](SECURITY.md)
 

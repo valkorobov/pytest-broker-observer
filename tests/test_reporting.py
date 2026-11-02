@@ -133,14 +133,22 @@ def test_reporter_errors_preserve_successful_result(sync):
     async def async_case():
         async with EventObserver(**configuration).watch(source="events") as watcher:
             adapter.publish(b"ok")
-            return await watcher.wait_for(lambda _: True, timeout=1)
+            assert await watcher.wait_for(lambda _: True, timeout=1) == b"ok"
+            assert await watcher.wait_for(lambda _: True, timeout=1) == b"ok"
+            return watcher.diagnostics.snapshot()
 
     def sync_case():
         with SyncEventObserver(**configuration).watch(source="events") as watcher:
             adapter.publish(b"ok")
-            return watcher.wait_for(lambda _: True, timeout=1)
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"ok"
+            assert watcher.wait_for(lambda _: True, timeout=1) == b"ok"
+            return watcher.diagnostics.snapshot()
 
-    assert (sync_case() if sync else asyncio.run(async_case())) == b"ok"
+    snapshot = sync_case() if sync else asyncio.run(async_case())
+    errors = [record for record in snapshot.records if record.kind == "reporter_error"]
+    assert [record.attributes["reporter_errors"] for record in errors] == [1, 2]
+    assert all(record.attributes["error_code"] == "reporter_failed" for record in errors)
+    assert "SECRET_REPORTER" not in snapshot.to_json()
 
 
 @pytest.mark.parametrize("sync", [False, True])
@@ -431,3 +439,84 @@ def test_result_budget_rejection_does_not_capture_a_match(sync):
     assert not getattr(snapshot.expectations[-1], "matched_samples", ())
     assert len(reporter.reports) == 1
     assert "message-content.json" not in reporter.reports[0].attachments
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_custom_payload_access_and_clock_also_apply_to_opted_in_diagnostics(sync):
+    from datetime import datetime, timezone
+
+    class OpaquePayload:
+        def __init__(self, values):
+            self.values = values
+
+        def __deepcopy__(self, memo):
+            raise AssertionError("This payload requires its supplied PayloadAccess")
+
+    class Decoder:
+        def __init__(self):
+            self.value = OpaquePayload(["SECRET"])
+
+        def decode(self, raw):
+            return self.value
+
+    class Access:
+        def clone_for_user(self, value):
+            return OpaquePayload(list(value.values))
+
+        def estimate_bytes(self, value):
+            return 128
+
+    class FixedClock:
+        def monotonic(self):
+            return 100.0
+
+        def utcnow(self):
+            return datetime(2026, 11, 2, tzinfo=timezone.utc)
+
+    redacted = []
+
+    def redact(payload):
+        redacted.append(payload)
+        payload.values[:] = ["[REDACTED]"]
+        return {"values": payload.values}
+
+    transport = FakeTransport()
+    reporter = CollectingReporter()
+    decoder = Decoder()
+    factory = SyncEventObserver if sync else EventObserver
+    events = factory(
+        transport=transport,
+        clock=FixedClock(),
+        reporters=[reporter],
+        diagnostics=DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            disclosure=DisclosurePolicy.REDACTED_PAYLOAD,
+            redactor=redact,
+        ),
+    )
+
+    async def async_case():
+        async with events.watch(source="events", decoder=decoder, payload_access=Access()) as watcher:
+            mark = watcher.mark()
+            transport.publish(b"wire-value")
+            result = await watcher.wait_for(lambda _: True, since=mark, timeout=1)
+            assert result.values == ["SECRET"]
+            return watcher.diagnostics.snapshot()
+
+    def sync_case():
+        with events.watch(source="events", decoder=decoder, payload_access=Access()) as watcher:
+            mark = watcher.mark()
+            transport.publish(b"wire-value")
+            result = watcher.wait_for(lambda _: True, since=mark, timeout=1)
+            assert result.values == ["SECRET"]
+            return watcher.diagnostics.snapshot()
+
+    snapshot = sync_case() if sync else asyncio.run(async_case())
+    assert len(redacted) == 1
+    assert redacted[0] is not decoder.value
+    assert decoder.value.values == ["SECRET"]
+    [summary] = snapshot.expectations
+    assert summary.matched_samples[0]["content"]["payload"]["values"] == ("[REDACTED]",)
+    assert all(record.recorded_monotonic == 100 for record in snapshot.records)
+    assert all(record.recorded_at == "2026-11-02T00:00:00+00:00" for record in snapshot.records)
+    assert "SECRET" not in json.dumps([report for _, report in reporter.calls])

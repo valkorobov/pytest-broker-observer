@@ -762,3 +762,328 @@ def test_tracestate_is_retained_only_by_opt_in():
     headers = (("traceparent", PARENT), ("tracestate", b"vendor=value"))
     assert extract_trace_context(headers).tracestate is None
     assert extract_trace_context(headers, include_tracestate=True).tracestate == "vendor=value"
+
+
+def test_collector_records_use_the_injected_clock_domain():
+    from datetime import datetime, timezone
+
+    class FixedClock:
+        def monotonic(self):
+            return -12.5
+
+        def utcnow(self):
+            return datetime(2026, 11, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+    collector = DiagnosticCollector("watcher", clock=FixedClock())
+    collector.record("ready")
+    collector.record_reporter_error()
+    records = collector.snapshot().records
+    assert [record.recorded_monotonic for record in records] == [-12.5, -12.5]
+    assert [record.recorded_at for record in records] == ["2026-11-02T03:04:05+00:00"] * 2
+
+
+@pytest.mark.parametrize("options", [{"clock": object()}, {"clone_payload": 42}])
+def test_collector_dependency_hooks_require_callable_interfaces(options):
+    with pytest.raises(DiagnosticConfigurationError):
+        DiagnosticCollector("watcher", **options)
+
+
+def test_mismatch_sample_omissions_mark_all_views_truncated_without_poisoning_later_reports():
+    from types import SimpleNamespace
+
+    collector = DiagnosticCollector(
+        "watcher",
+        DiagnosticPolicy(mode=ReportingMode.SUMMARY, limits=DiagnosticLimits(max_mismatch_samples=3)),
+    )
+    for sequence in range(10):
+        collector.record_mismatch("first", sequence, [SimpleNamespace(reason_code="predicate_false")])
+    collector.record_expectation(expectation_id="first", outcome="timeout")
+    snapshot = collector.snapshot()
+    [summary] = snapshot.expectations
+    assert [sample["event_sequence"] for sample in summary.samples] == [0, 1, 9]
+    assert summary.mismatch_count == 10
+    assert summary.mismatch_samples_omitted == 7
+    assert snapshot.truncated
+    assert collector.export().truncated
+    report = collector.prepare_report()
+    assert report is not None and report.truncated
+    assert "Omitted mismatch samples: 7" in report.attachments["expectation-result.txt"]
+    assert "Diagnostic export truncated: yes" in report.attachments["expectation-result.txt"]
+
+    collector.record_expectation(expectation_id="next", outcome="matched")
+    next_report = collector.prepare_report()
+    assert next_report is not None and not next_report.truncated
+    assert [summary["expectation_id"] for summary in next_report.to_dict()["expectations"]] == ["next"]
+    assert "Diagnostic export truncated: no" in next_report.attachments["expectation-result.txt"]
+    assert collector.snapshot().truncated
+
+
+def test_single_slot_sample_buffers_capture_lazily_and_use_independent_capacities():
+    captured = []
+
+    def clone(payload):
+        captured.append(payload)
+        return {"sequence": payload}
+
+    collector = DiagnosticCollector(
+        "watcher",
+        DiagnosticPolicy(
+            disclosure=DisclosurePolicy.FULL_PAYLOAD,
+            limits=DiagnosticLimits(max_mismatch_samples=1, max_matched_samples=3),
+        ),
+        clone_payload=clone,
+    )
+    for sequence in range(5):
+        collector.record_mismatch("first", sequence, (), payload=sequence)
+    assert captured == [0]
+    for sequence in range(5, 10):
+        collector.record_match("first", sequence, payload=sequence)
+    collector.record_expectation(expectation_id="first", outcome="matched", matched=5)
+    [summary] = collector.snapshot().expectations
+    assert captured == [0, 5, 6, 7, 8, 9]
+    assert [sample["event_sequence"] for sample in summary.samples] == [0]
+    assert [sample["event_sequence"] for sample in summary.matched_samples] == [5, 6, 9]
+    assert summary.mismatch_samples_omitted == 4
+    assert summary.matched_samples_omitted == 2
+
+
+@pytest.mark.parametrize(
+    ("record_count", "expectation_count", "keep_records", "keep_expectations"),
+    [(6, 2, 2, 2), (2, 6, 2, 2), (4, 4, 2, 3)],
+)
+def test_export_preserves_balanced_oldest_first_removal_and_exact_budget(
+    record_count, expectation_count, keep_records, keep_expectations
+):
+    from datetime import datetime, timezone
+
+    class FixedClock:
+        def monotonic(self):
+            return 10.0
+
+        def utcnow(self):
+            return datetime(2026, 11, 2, tzinfo=timezone.utc)
+
+    def populate(collector):
+        for index in range(record_count):
+            collector.record("ready", count=index)
+        for index in range(expectation_count):
+            collector.record_expectation(expectation_id=f"expectation_{index}", outcome="matched", matched=1)
+
+    baseline = DiagnosticCollector("watcher", clock=FixedClock())
+    populate(baseline)
+    expected = baseline.snapshot().to_dict()
+    expected["records"] = expected["records"][-keep_records:]
+    expected["expectations"] = expected["expectations"][-keep_expectations:]
+    expected["omitted_records"] = record_count - keep_records
+    expected["omitted_expectations"] = expectation_count - keep_expectations
+    expected["truncated"] = True
+    budget = len(json.dumps(expected, ensure_ascii=True, allow_nan=False, indent=2).encode())
+    collector = DiagnosticCollector(
+        "watcher", DiagnosticPolicy(limits=DiagnosticLimits(max_attachment_bytes=budget)), clock=FixedClock()
+    )
+    populate(collector)
+    report = collector.export()
+    assert report.to_dict() == expected
+    assert len(report.to_json().encode()) == budget
+    assert all(len(body.encode()) <= budget for body in report.attachments.values())
+
+
+def test_export_pruning_does_not_serialize_once_per_discarded_entry(monkeypatch):
+    import event_observer.diagnostics as diagnostic_module
+
+    collector = DiagnosticCollector(
+        "watcher", DiagnosticPolicy(limits=DiagnosticLimits(max_attachment_bytes=2048))
+    )
+    for index in range(1000):
+        collector.record("ready", count=index)
+    for index in range(256):
+        collector.record_expectation(expectation_id=f"expectation_{index}", outcome="matched", matched=1)
+    original = diagnostic_module._attachment_bytes
+    serializations = []
+
+    def serialize(value):
+        serializations.append(None)
+        return original(value)
+
+    monkeypatch.setattr(diagnostic_module, "_attachment_bytes", serialize)
+    report = collector.export()
+    # This bounds algorithmic work without a timing assertion or depending on
+    # a particular search implementation; per-entry pruning takes over 1000 calls.
+    assert len(serializations) < 40
+    data = report.to_dict()
+    assert data["records"][-1]["sequence"] == 1000
+    assert data["expectations"][-1]["expectation_id"] == "expectation_255"
+    assert data["omitted_records"] + len(data["records"]) == 1000
+    assert data["omitted_expectations"] + len(data["expectations"]) == 256
+    assert report.truncated
+    assert len(report.to_json().encode()) <= 2048
+    assert all(len(body.encode()) <= 2048 for body in report.attachments.values())
+
+
+def capture_sample(collector, category, expectation_id, sequence):
+    if category == "matched":
+        collector.record_match(expectation_id, sequence, payload={"sequence": sequence})
+    else:
+        collector.record_mismatch(expectation_id, sequence, (), payload={"sequence": sequence})
+
+
+def interleaved_collector(*, max_records=4):
+    return DiagnosticCollector(
+        "watcher",
+        DiagnosticPolicy(
+            mode=ReportingMode.SUMMARY,
+            disclosure=DisclosurePolicy.FULL_PAYLOAD,
+            limits=DiagnosticLimits(
+                max_records=max_records,
+                max_expectation_summaries=1,
+                max_mismatch_samples=2,
+                max_matched_samples=2,
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("category", ["matched", "mismatch"])
+def test_evicted_inflight_sample_buffer_has_explicit_loss_counts(category):
+    collector = interleaved_collector()
+    capture_sample(collector, category, "first", 0)
+    capture_sample(collector, category, "first", 1)
+    capture_sample(collector, category, "second", 2)
+    collector.record_expectation(
+        expectation_id="first", outcome="matched", matched=2 if category == "matched" else 0
+    )
+    snapshot = collector.snapshot()
+    [summary] = snapshot.expectations
+    assert getattr(summary, f"{category}_samples_omitted") == 2
+    if category == "mismatch":
+        assert summary.mismatch_count == 2
+    assert snapshot.truncated
+    [loss] = snapshot.records
+    assert loss.kind == "sample_buffer_evicted"
+    assert loss.expectation_id == "first"
+    assert loss.attributes["count"] == 2
+    assert loss.attributes["reason_code"] == f"{category}_samples_evicted"
+    assert loss.attributes[f"{category}_samples_omitted"] == 2
+    report = collector.prepare_report()
+    assert report is not None and report.truncated
+    assert "Diagnostic export truncated: yes" in report.attachments["expectation-result.txt"]
+
+
+@pytest.mark.parametrize("category", ["matched", "mismatch"])
+def test_inflight_loss_survives_earlier_report_ack_and_buffer_recreation_without_poisoning_fresh_results(
+    category,
+):
+    collector = interleaved_collector()
+    capture_sample(collector, category, "first", 0)
+    capture_sample(collector, category, "first", 1)
+    capture_sample(collector, category, "second", 2)
+    before = collector.snapshot()
+    collector.record_expectation(
+        expectation_id="second", outcome="matched", matched=1 if category == "matched" else 0
+    )
+    earlier_report = collector.prepare_report()
+    assert earlier_report is not None and earlier_report.truncated
+    assert earlier_report.to_dict()["records"][0]["expectation_id"] == "first"
+
+    # The first expectation is still active after its original loss record was
+    # acknowledged with the second expectation's report, and can match again.
+    capture_sample(collector, category, "first", 3)
+    collector.record_expectation(
+        expectation_id="first", outcome="matched", matched=3 if category == "matched" else 0
+    )
+    [summary] = collector.snapshot().expectations
+    assert getattr(summary, f"{category}_samples_omitted") == 2
+    samples = summary.matched_samples if category == "matched" else summary.samples
+    assert [sample["event_sequence"] for sample in samples] == [3]
+    if category == "mismatch":
+        assert summary.mismatch_count == 3
+    later_report = collector.prepare_report()
+    assert later_report is not None and later_report.truncated
+    assert later_report.to_dict()["records"] == []
+    assert before.records[0].attributes["state"] == "pending"
+    assert collector.snapshot().records[0].attributes["state"] == "accounted"
+
+    # A fresh wait and an explicitly reused collector ID must not inherit a
+    # previous wait's accounted losses. Full snapshots still retain that history.
+    for expectation_id, sequence in (("fresh", 4), ("first", 5)):
+        capture_sample(collector, category, expectation_id, sequence)
+        collector.record_expectation(
+            expectation_id=expectation_id, outcome="matched", matched=1 if category == "matched" else 0
+        )
+        report = collector.prepare_report()
+        assert report is not None and not report.truncated
+        [result] = report.to_dict()["expectations"]
+        assert result[f"{category}_samples_omitted"] == 0
+    assert collector.snapshot().truncated
+
+
+@pytest.mark.parametrize("category", ["matched", "mismatch"])
+def test_sample_loss_ledger_is_bounded_and_its_own_eviction_remains_explicit(category):
+    collector = interleaved_collector(max_records=1)
+    for sequence in range(10):
+        capture_sample(collector, category, f"wait_{sequence}", sequence)
+    snapshot = collector.snapshot()
+    assert len(snapshot.records) == 1
+    assert snapshot.omitted_records == 8
+    assert snapshot.truncated
+    collector.record_expectation(
+        expectation_id="wait_0", outcome="matched", matched=1 if category == "matched" else 0
+    )
+    report = collector.prepare_report()
+    assert report is not None and report.truncated
+    assert report.to_dict()["omitted_records"] == 8
+    assert report.to_dict()["records"][0]["expectation_id"] == "wait_8"
+
+    collector.record_expectation(
+        expectation_id="wait_9", outcome="matched", matched=1 if category == "matched" else 0
+    )
+    clean = collector.prepare_report()
+    assert clean is not None and not clean.truncated
+    assert clean.to_dict()["omitted_records"] == 0
+
+
+@pytest.mark.parametrize("category", ["matched", "mismatch"])
+def test_authoritative_totals_preserve_loss_after_ledger_eviction_and_ack(category):
+    collector = interleaved_collector(max_records=1)
+    for sequence, expectation_id in enumerate(("first", "second", "third")):
+        capture_sample(collector, category, expectation_id, sequence)
+    collector.record_expectation(
+        expectation_id="third",
+        outcome="matched" if category == "matched" else "timeout",
+        matched=1 if category == "matched" else 0,
+        mismatch_count=1 if category == "mismatch" else 0,
+    )
+    earlier = collector.prepare_report()
+    assert earlier is not None and earlier.truncated
+    assert earlier.to_dict()["omitted_records"] == 1
+    assert earlier.to_dict()["records"][0]["expectation_id"] == "second"
+
+    # All metadata about the first buffer was both evicted and acknowledged.
+    # Only the core's completed evaluation counters can now recover its loss.
+    capture_sample(collector, category, "first", 3)
+    collector.record_expectation(
+        expectation_id="first",
+        outcome="matched" if category == "matched" else "timeout",
+        matched=2 if category == "matched" else 0,
+        mismatch_count=2 if category == "mismatch" else 0,
+    )
+    [summary] = collector.snapshot().expectations
+    assert getattr(summary, f"{category}_samples_omitted") == 1
+    if category == "mismatch":
+        assert summary.mismatch_count == 2
+    report = collector.prepare_report()
+    assert report is not None and report.truncated
+    assert report.to_dict()["records"] == []
+    assert report.to_dict()["omitted_records"] == 0
+    samples = summary.matched_samples if category == "matched" else summary.samples
+    assert [sample["event_sequence"] for sample in samples] == [3]
+
+    capture_sample(collector, category, "fresh", 4)
+    collector.record_expectation(
+        expectation_id="fresh",
+        outcome="matched" if category == "matched" else "timeout",
+        matched=1 if category == "matched" else 0,
+        mismatch_count=1 if category == "mismatch" else 0,
+    )
+    clean = collector.prepare_report()
+    assert clean is not None and not clean.truncated

@@ -191,8 +191,9 @@ requires a separate `export_tracestate=True`. Baggage is not carried automatical
 
 ## Payload isolation and estimation
 
-`DefaultPayloadAccess` returns detached copies to user callbacks, results,
-and the redactor. Protobuf uses `CopyFrom`; its accounted estimate is
+The watcher's configured `PayloadAccess` returns detached copies to user
+callbacks, results, and the redactor. The default is `DefaultPayloadAccess`;
+a custom copying strategy also applies to diagnostic content. Protobuf uses `CopyFrom`; its accounted estimate is
 `128 + 2 * ByteSize()`. For other objects, the estimate sums `sys.getsizeof`
 for unique objects, built-in container contents, instance dictionaries,
 and slots, including inherited private slots.
@@ -206,3 +207,8 @@ Opaque native allocations cannot be measured by this traversal. A decoder
 returning such objects must provide its own `PayloadAccess` with
 `clone_for_user(value)` and `estimate_bytes(value)`. The accounted-bytes model
 is not a measurement of the entire process's RSS.
+
+Diagnostic timestamps use the watcher's injected `Clock`, including when it is
+used to control admission time in deterministic tests. A standalone
+`DiagnosticCollector` defaults to system time and default payload copying, or
+accepts explicit `clock` and `clone_payload` dependencies.

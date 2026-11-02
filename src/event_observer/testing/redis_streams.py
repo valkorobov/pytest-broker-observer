@@ -1,8 +1,11 @@
-"""Independent Redis Streams test publisher/admin with per-operation clients.
+"""Independent Redis Streams publisher/admin harness with per-operation clients.
 
-The harness owns only its generated stream keys. It never creates or joins a
-consumer group. XADD receipts report the returned entry ID, without promising
-replication, persistence, or exactly-once publication.
+Only generated keys are owned. XADD receipts report command acceptance and
+the returned entry ID, without claiming durability or exactly-once delivery.
+The harness never creates or joins consumer groups.
+
+:ivar _ID: Canonical full-ID parser for successful XADD receipts, excluding 0-0.
+:ivar __all__: Public Redis Streams publisher/admin harness type.
 """
 
 from __future__ import annotations
@@ -30,6 +33,11 @@ _ID = re.compile(r"(0|[1-9][0-9]*)-(0|[1-9][0-9]*)\Z")
 
 
 def _load_client() -> tuple[Any, Any]:
+    """Load optional asyncio Redis APIs and a zero-attempt retry policy.
+
+    :returns: The native client module and an independent zero-retry policy.
+    :raises MissingOptionalDependencyError: If the Redis extra is unavailable.
+    """
     try:
         native = importlib.import_module("redis.asyncio")
         retry = importlib.import_module("redis.asyncio.retry").Retry
@@ -40,6 +48,12 @@ def _load_client() -> tuple[Any, Any]:
 
 
 def _stream_id(value: Any) -> str:
+    """Validate that XADD returned a canonical nonzero full native stream ID.
+
+    :param value: Native value to validate before exposing it as a stream position.
+    :returns: The ASCII stream-ID string for the broker-confirmed append.
+    :raises TransportError: If the receipt is malformed, noncanonical, zero, or out of uint64 range.
+    """
     if isinstance(value, bytes):
         try:
             value = value.decode("ascii")
@@ -54,7 +68,23 @@ def _stream_id(value: Any) -> str:
 
 
 class RedisStreamsAdapterHarness:
+    """Own unique typed test streams and independently confirmed XADD publications.
+
+    :ivar adapter: Lazy independent-reader adapter used by contracts.
+    :ivar _url: Explicit native Redis URL used by per-operation clients.
+    :ivar _timeout: Positive finite connection, operation, and cleanup budget.
+    :ivar _streams: Fixture-owned stream names recorded before initialization can succeed.
+    :ivar _closed: Whether cleanup has forbidden new creation/publication.
+    """
+
     def __init__(self, url: str, *, timeout: float = 15.0) -> None:
+        """Validate fixture policy and create a lazy adapter without a native connection.
+
+        :param url: Explicit broker connection URL; never discovered from environment variables.
+        :param timeout: Finite operation budget in seconds.
+        :returns: None; each operation later creates its own native client.
+        :raises ConfigurationError: If timeout or Redis configuration is invalid.
+        """
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -69,11 +99,22 @@ class RedisStreamsAdapterHarness:
         self._closed = False
 
     def _ensure_open(self) -> None:
+        """Reject new publisher/admin work after cleanup starts.
+
+        :returns: None while this fixture remains open.
+        :raises ConfigurationError: If cleanup has already run.
+        """
         if self._closed:
             raise ConfigurationError("Redis Streams harness is already cleaned up")
 
     @asynccontextmanager
     async def _client(self) -> AsyncGenerator[Any, None]:
+        """Own one fresh native client for a bounded publisher/admin operation.
+
+        :yields: A binary-response native Redis client with zero configured retries.
+        :raises TransportError: If native cleanup fails without an existing primary exception.
+        :raises TimeoutError: If the operation exceeds the fixture timeout.
+        """
         native, retry = _load_client()
         client = None
         primary: BaseException | None = None
@@ -101,6 +142,13 @@ class RedisStreamsAdapterHarness:
                     primary.add_note("Redis Streams harness client cleanup also failed")
 
     async def create_source(self, *, case_id: str) -> TransportSource:
+        """Leave a unique existing empty typed stream using an owned XADD/XDEL seed.
+
+        :param case_id: Nonempty test label used in a unique owned source name.
+        :returns: A source naming the fixture-owned stream.
+        :raises ConfigurationError: If the case label is invalid or the fixture is closed.
+        :raises TransportError: If seed creation or seed deletion is not confirmed.
+        """
         self._ensure_open()
         if not isinstance(case_id, str) or not case_id:
             raise ConfigurationError("Harness case_id must be a nonempty string")
@@ -127,6 +175,17 @@ class RedisStreamsAdapterHarness:
         key: bytes | None = None,
         headers: tuple[tuple[str, bytes | None], ...] = (),
     ) -> PublishReceipt:
+        """Append supported fields without recreating a disappeared owned stream.
+
+        :param source: Concrete existing source selected for this observation.
+        :param payload: Raw message body; null is accepted only when the adapter advertises it.
+        :param key: Optional message key, rejected by transports that do not support one.
+        :param headers: Ordered normalized header pairs, subject to the transport capabilities.
+        :returns: A receipt containing the server-generated redis.stream_id.
+        :raises ConfigurationError: If the stream is unowned or header names are invalid UTF-8.
+        :raises UnsupportedCapabilityError: If null bodies/headers, duplicate headers, or keys are supplied.
+        :raises TransportError: If XADD does not return a valid confirmed stream ID.
+        """
         self._ensure_open()
         if source.name not in self._streams:
             raise ConfigurationError("Redis Streams harness can publish only to its own test sources")
@@ -159,6 +218,11 @@ class RedisStreamsAdapterHarness:
         return PublishReceipt(metadata={"redis.stream_id": stream_id})
 
     async def cleanup(self) -> None:
+        """Delete only recorded fixture-owned stream keys and close its native client.
+
+        :returns: None after all owned stream names are removed.
+        :raises TransportError: If any owned key or native client cannot be cleaned up.
+        """
         self._closed = True
         if not self._streams:
             return

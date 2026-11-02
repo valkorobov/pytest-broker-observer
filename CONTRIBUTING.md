@@ -11,6 +11,20 @@ descriptions, and report labels. Unicode test data may contain non-ASCII charact
 when needed to verify encoding and byte limits; explain its purpose in English.
 Generate Allure reports with `--report-language en`.
 
+## Source docstrings
+
+Document every class and named function in `src`, including private, nested,
+async, special, protocol, and overload definitions. Use a meaningful English
+summary followed by Sphinx fields: `:param name:`, `:returns:`, and
+`:raises ErrorType:` where applicable. Class docstrings describe explicitly
+declared class and instance attributes, including properties, with `:ivar name:`.
+Inherited attributes are documented by their declaring class.
+
+Run `uv run python tools/check_docstrings.py` to check definition, parameter,
+and attribute coverage without importing optional dependencies. CI runs the
+same audit. Lambdas and generated dataclass methods have no source docstring
+requirement. The checker verifies coverage; review the text for accuracy too.
+
 ## Setup
 
 Use Python 3.11–3.14 and install the environment:
@@ -38,6 +52,7 @@ must not read credentials or open connections before entering a watcher context.
 
 ```shell
 uv run --locked pre-commit run --all-files
+uv run python tools/check_docstrings.py
 uv run pytest -m 'not integration'
 uv run pytest -n 2 -m 'not integration'
 uv run ruff check .

@@ -77,6 +77,13 @@ Added:
   Their timestamps are informational; matching uses Journal admission order.
 - Marked pytest/Allure examples for Kafka, RabbitMQ, and Redis Streams, an
   effective Journal lower bound in text diagnostics, and specification revision 1.4.
+- Sphinx docstrings for all named source definitions and `:ivar:` attribute
+  documentation, with a dependency-free source audit in CI.
+- Runtime hardening after the SOLID/DRY/KISS review: actual cancellation
+  acknowledgement before accepting another sync command, preserved primary
+  shutdown failures, and retained Kafka native exception causes.
+- Shared diagnostic copying/clock dependencies, sample-retention and reporter
+  error policies, and bounded report trimming without per-item full reserialization.
 
 Temporal assertions, further brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in
