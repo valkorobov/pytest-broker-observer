@@ -7,7 +7,8 @@ For a local broker, use the repository's [Docker Compose guide](local-kafka.md).
 The same profile runs the integration tests and Kafka pytest example in CI.
 
 ```python
-from event_observer import StartPosition, SyncEventObserver
+from event_observer import StartPosition
+from event_observer.sync import SyncEventObserver
 from event_observer.transports.kafka import KafkaAdapter, KafkaConfig
 
 events = SyncEventObserver(transport=KafkaAdapter(KafkaConfig(bootstrap_servers="localhost:9092")))
@@ -18,14 +19,24 @@ with events.watch(source="example.events", start=StartPosition.latest()) as watc
 ```
 
 The adapter does not publish messages. Replace the comment with the application
-action that produces the expected event. Use `EventObserver` and `async with` for
-asynchronous tests; the decoder and matcher API stays the same.
+action that produces the expected event. Use `EventObserver` from
+`event_observer.aio` and `async with` for asynchronous tests; the decoder and
+matcher API stays the same. Existing top-level imports remain available.
 
 ## Configuration and ownership
 
-Each watcher has its own native Consumer and polling thread. Construction and
-`watch()` perform no network operations. All native consumer operations execute
-on that polling thread. The factory can be reused across independent watchers.
+`KafkaAdapter` supports both explicit runtimes. `SyncEventObserver` calls its
+ordinary `sync_adapter()` provider to obtain `SyncKafkaAdapter`; a blocking
+adapter can also be passed directly from `event_observer.transports.sync`.
+Both bridges share the same serialized native worker, numeric boundary
+resolution, Fetch probe, topology checks, and envelope normalization. The async
+bridge belongs to the caller loop; the blocking bridge uses thread conditions
+and creates no asyncio event loop.
+
+Each watcher has its own native Consumer and polling thread. Construction,
+provider selection, and `watch()` perform no network operations or optional
+client imports. All native Consumer operations execute on that polling thread.
+The factory can be reused across independent watchers.
 Boundary resolution briefly creates an AdminClient on the same worker; its
 security/network settings match the reader. Completed bounded admin requests
 release that native handle before reading begins.
@@ -102,10 +113,16 @@ temporarily exceed fetch limits to return a large record. These settings and the
 Journal's accounted bytes do not bound total process RSS. A stuck native call
 cannot be forcibly killed safely; cleanup exposes an exhausted budget.
 
-In the sync facade, application predicates/decoders run in the private runtime
-thread, and the Kafka client runs in its separate polling thread. Predicates
-must not block or call their own synchronous watcher recursively. Parallel
-assertions use the async facade.
+In the blocking runtime, application predicates, decoders, and payload-copy
+callbacks run on the watcher actor, while the Kafka client runs on its separate
+native polling thread. The actor keeps collecting while the application call
+blocks the test thread. Callbacks must remain fast and must not call their own
+blocking watcher recursively. Parallel assertions use the async API.
+
+The blocking transport protocol uses finite `poll(timeout)`, independent
+`failure()`, and bounded `close(deadline=...)`; custom async-only adapters cannot
+be converted by starting a hidden loop. See the
+[runtime migration contract](../SPEC.md#s31).
 
 ## Validation status
 
@@ -130,8 +147,9 @@ On 1 November 2026, all **22 real Kafka integration tests passed** in 27.47 seco
 five Kafka semantics cases, fifteen reusable transport contracts, and synchronous
 and asynchronous Protobuf observer scenarios. The tested profile was CPython
 3.14.7 on macOS arm64, `confluent-kafka` 2.16.1 / librdkafka 2.16.0, and Apache
-Kafka 3.9.2 in a Linux arm64 KRaft container. Native-client unit coverage contains
-33 passing cases. See [the validation record](kafka-validation.json).
+Kafka 3.9.2 in a Linux arm64 KRaft container. That historical validation included
+33 passing native-client unit cases. See [the validation record](kafka-validation.json)
+and [current verification status](status.md) for subsequent runtime checks.
 
 The CI image is pinned to the independently verified Docker Hub multi-platform
 manifest

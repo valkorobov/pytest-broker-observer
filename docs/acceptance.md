@@ -48,3 +48,14 @@ evidence while preserving the existing Core/Kafka/RabbitMQ acceptance entries:
 | Reusable contracts and null-header preconditions | `tests/integration/test_redis_streams_contracts.py`, `testing/contracts` | Earliest is applicable; null bodies, duplicate/null headers, and keys are explicitly not applicable. Existing transport preservation remains mandatory. |
 | Real stream semantics and independent publisher/admin ownership | `tests/integration/test_redis_streams_observer.py`, `tests/test_redis_streams_harness.py` | Protobuf, headers, group/pending-entry independence, native starts, and active deletion/trim checks require real Redis where applicable. Exact metadata-equivalent recreation detection is not claimed. |
 | Redacted Allure content, local authenticated profile, CI | `examples/pytest/test_redis_streams.py`, `examples/allure/test_redis_streams.py`, `compose.yaml`, `.github/workflows/ci.yml` | Commands and CI define reproducible runs; actual versions and verified results are recorded separately. |
+
+The runtime separation in [SPEC.md section 31](../SPEC.md#s31) adds evidence
+for the blocking backend without replacing the async checks above:
+
+| Runtime area | Repository evidence | Verification boundary |
+| --- | --- | --- |
+| Shared admission, expectation state, marks, reservations and deadline ranges | `tests/test_expectation_engine.py`, existing parity/reliability tests | Both schedulers use the same policy implementation. |
+| Worker ownership, continuous collection, bounded commands and actual cancellation acknowledgement | `tests/test_sync_runtime.py`, `tests/test_sync_api.py` | Deterministic handoff/interruption regressions; arbitrary uninterruptible callbacks remain subject to the documented abandoned-worker limit. |
+| Blocking native sessions, lazy providers and absolute startup budgets | `tests/test_sync_kafka.py`, `tests/test_sync_rabbitmq.py`, `tests/test_sync_redis_streams.py`, `tests/test_transport_startup_deadlines.py` | Controlled clients cover rare failures and Core checks late custom startup/decoding; these do not establish real broker guarantees. |
+| Separate blocking transport contracts and native actor regressions | `tests/test_sync_contracts.py`, `tests/integration/test_sync_contracts.py` | Real nodes require configured brokers; RabbitMQ idle connection interruption additionally requires the management endpoint. |
+| No asyncio runtime in sync observation, stdlib-only installation | `tests/test_sync_runtime.py`, clean wheel check in CI | Loop creation is forbidden during blocking startup, waits, marks and teardown; async-only third-party adapters require a blocking provider. |

@@ -15,16 +15,19 @@ from event_observer import (
     EventObserver,
     JournalLimits,
     JournalPolicy,
+    LifecyclePolicy,
     OverflowPolicy,
     RawEvent,
     RuntimeLimits,
     ScopeStart,
+    StartPosition,
     SyncEventObserver,
 )
 from event_observer.errors import (
     EventTimeoutError,
     IncompleteObservationError,
     ObserverFailedError,
+    ObserverStartupTimeoutError,
     ProcessAffinityError,
     TransportError,
 )
@@ -55,6 +58,96 @@ class VariableSizeAccess:
 
     def estimate_bytes(self, payload):
         return 8192 if payload == b"drop-decoded" else len(payload or b"")
+
+
+@pytest.mark.parametrize("sync", [False, True])
+@pytest.mark.parametrize("stage", ["open", "initial_receive"])
+def test_core_rejects_startup_that_exceeds_its_shared_clock_deadline(sync, stage):
+    clock = ManualClock()
+    lifecycle = LifecyclePolicy(startup_timeout=0.5)
+    entered = []
+    records = []
+
+    class LateTransport(FakeTransport):
+        async def open(self, source, start, *, context):
+            session = await super().open(source, start, context=context)
+            self.startup_deadline = context.startup_deadline
+            if stage == "open":
+                clock.value = context.startup_deadline + 1
+            return session
+
+        def sync_adapter(self):
+            adapter = super().sync_adapter()
+            original_open = adapter.open
+
+            def open(source, start, *, context):
+                session = original_open(source, start, context=context)
+                self.startup_deadline = context.startup_deadline
+                if stage == "open":
+                    clock.value = context.startup_deadline + 1
+                return session
+
+            adapter.open = open
+            return adapter
+
+    class Decoder:
+        def decode(self, raw):
+            if stage == "initial_receive":
+                clock.value = adapter.startup_deadline + 1
+            return raw.payload
+
+    adapter = LateTransport((RawEvent(b"startup event", "events"),))
+    factory = SyncEventObserver if sync else EventObserver
+    watcher = factory(transport=adapter, clock=clock, lifecycle=lifecycle).watch(
+        source="events", start=StartPosition.earliest(), decoder=Decoder()
+    )
+
+    def sync_case():
+        try:
+            with watcher:
+                entered.append(True)
+        finally:
+            records.extend(watcher.diagnostics.snapshot().records)
+
+    async def async_case():
+        try:
+            async with watcher:
+                entered.append(True)
+        finally:
+            records.extend(watcher.diagnostics.snapshot().records)
+
+    with pytest.raises(ObserverStartupTimeoutError) as caught:
+        sync_case() if sync else asyncio.run(async_case())
+    assert entered == []
+    assert isinstance(caught.value.__cause__, TimeoutError)
+    assert caught.value.cause is caught.value.__cause__
+    assert adapter.open_count == adapter.close_count == 1
+    assert adapter.sessions[0].closed
+    assert not any(record.kind == "ready" for record in records)
+    if sync:
+        assert not watcher._runtime.thread.is_alive()
+    else:
+        assert all(task.done() for task in watcher._tasks)
+
+
+@pytest.mark.asyncio
+async def test_caller_cancellation_keeps_priority_when_async_open_also_expires():
+    clock = ManualClock()
+
+    class CancelledLateTransport(FakeTransport):
+        async def open(self, source, start, *, context):
+            session = await super().open(source, start, context=context)
+            clock.value = context.startup_deadline + 1
+            asyncio.current_task().cancel("Caller interrupted startup")
+            return session
+
+    adapter = CancelledLateTransport()
+    watcher = EventObserver(transport=adapter, clock=clock).watch(source="events")
+    with pytest.raises(asyncio.CancelledError, match="Caller interrupted startup"):
+        await asyncio.create_task(watcher.__aenter__())
+    assert adapter.open_count == adapter.close_count == 1
+    assert adapter.sessions[0].closed
+    assert not any(record.kind == "ready" for record in watcher.diagnostics.snapshot().records)
 
 
 @pytest.mark.asyncio
@@ -231,7 +324,7 @@ async def test_late_loss_does_not_invalidate_eligible_earlier_result():
 
 @pytest.mark.reliability
 def test_one_hundred_sync_lifecycles_leave_no_runtime_threads():
-    before = {thread.ident for thread in threading.enumerate() if thread.name == "event-observer-runtime"}
+    before = {thread.ident for thread in threading.enumerate() if thread.name == "event-observer-sync"}
     adapter = FakeTransport()
     observer = SyncEventObserver(transport=adapter)
     for index in range(100):
@@ -239,11 +332,11 @@ def test_one_hundred_sync_lifecycles_leave_no_runtime_threads():
             expected = f"event-{index}".encode()
             adapter.publish(expected)
             assert watcher.wait_for(lambda payload: payload == expected, timeout=0.2) == expected
-        assert watcher._portal.thread is not None
-        assert not watcher._portal.thread.is_alive()
+        assert watcher._runtime.thread is not None
+        assert not watcher._runtime.thread.is_alive()
         assert watcher.snapshot().next_sequence == 1
     assert adapter.open_count == adapter.close_count == 100
-    after = {thread.ident for thread in threading.enumerate() if thread.name == "event-observer-runtime"}
+    after = {thread.ident for thread in threading.enumerate() if thread.name == "event-observer-sync"}
     assert after == before
 
 
@@ -266,7 +359,7 @@ async def test_active_async_watcher_rejects_foreign_process(monkeypatch):
 
 @pytest.mark.reliability
 def test_active_sync_handle_rejects_foreign_process(monkeypatch):
-    import event_observer.sync as sync_module
+    import event_observer._runtime.threaded as sync_module
 
     adapter = FakeTransport()
     with SyncEventObserver(transport=adapter).watch(source="events") as watcher:

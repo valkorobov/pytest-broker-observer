@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.4\
+**Revision:** 1.5\
 **Date:** November 2, 2026\
-**Basis:** ADR-001–012 decisions, synchronous test support, RabbitMQ and Redis Streams extensions, and reusable observation marks.\
+**Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, and reusable observation marks.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -43,6 +43,7 @@ This document describes a standalone library. It contains no source code, messag
 28. [RabbitMQ extension: dedicated exchange subscriptions](#s28)
 29. [Redis Streams extension: independent native cursors](#s29)
 30. [Reusable observation marks and wait-local boundaries](#s30)
+31. [Explicit runtime and adapter migration](#s31)
 
 ---
 
@@ -73,9 +74,9 @@ The numeric defaults below are project settings, not measured performance or a g
 | ADR-010 | B | Temporal assertions without a scenario DSL; implementation after 0.1 |
 | ADR-011 | B | Contract tests, real brokers, fault injection, and release gates |
 | ADR-012 | A | One distribution, optional extras, and unified versioning |
-| ADR-013 supplement | New requirement | Complete sync API in 0.1 over the same runtime; architectural details in section 16 |
+| ADR-013 supplement | New requirement | Complete sync API in 0.1 with explicit runtimes and shared semantic state; architectural details in section 16 |
 
-The user separately confirmed the need for synchronous tests. The `SyncEventObserver` name and dedicated event loop model are this specification's technical definition of that requirement, not a pre-existing implementation.
+The user separately confirmed synchronous tests and the revision 1.5 migration to a true blocking runtime. `SyncEventObserver` uses a dedicated actor thread without an asyncio event loop; the async API retains its explicit caller-loop model. Section 31 records the adapter compatibility boundary.
 
 <a id="s02"></a>
 ## 2. Purpose, product boundaries, and MVP
@@ -235,7 +236,7 @@ async def test_operation_async(async_events, async_service_client):
         assert event.operation_id == operation_id
 ```
 
-The expected message type, matcher, scope, Journal, errors, and diagnostic formats are identical in both modes. The call mechanism and event loop owner differ.
+The expected message type, matcher, scope, Journal, errors, and diagnostic formats are identical in both modes. The call mechanism, scheduler, and native session ownership differ.
 
 ### 3.3. Brief intermediate states
 
@@ -265,23 +266,25 @@ The public result does not allow mutation of the Journal's canonical payload. Re
 
 ```mermaid
 flowchart TB
-    A[Async API] --> R[Shared Runtime]
-    S[Sync API] --> P[Bounded thread-safe portal]
-    P --> R
-    R --> L[Lifecycle]
-    L --> T[Transport Session]
-    T --> D[Decoder and Type Resolver]
-    D --> J[Bounded Event Journal]
+    A[Async API] --> R[Caller-loop async runtime]
+    S[Sync API] --> P[Bounded thread-safe command queue]
+    P --> B[Blocking actor thread]
+    R --> L[Shared lifecycle and admission semantics]
+    B --> L
+    L --> T[Runtime-specific transport session]
+    T --> D[Shared decoder and type resolver]
+    D --> J[Bounded single-owner Event Journal]
     J --> C[Scoped views]
-    C --> E[Expectation Engine]
+    C --> E[Shared incremental expectation state]
     E --> M[Matchers]
     R --> G[Bounded Diagnostics]
+    B --> G
     G --> X[Explicit reporters]
 ```
 
 ### 4.1. Dependency rules
 
-Core MUST NOT import `confluent_kafka`, `aio_pika`, `aiormq`, `pamqp`, `redis`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
+Core MUST NOT import `confluent_kafka`, `aio_pika`, `aiormq`, `pamqp`, `pika`, `redis`, `google.protobuf`, `pytest`, `allure`, or `opentelemetry` during an ordinary `event_observer` import. Optional modules are loaded when the corresponding capability is used.
 
 Transport has no knowledge of business predicates, Protobuf classes, or Allure. Decoder has no knowledge of consumer lifecycle. Journal does not perform commits/acks. Expectation Engine reads the Journal, not the broker. Reporter does not participate in delivery acknowledgment.
 
@@ -290,18 +293,18 @@ Transport has no knowledge of business predicates, Protobuf classes, or Allure. 
 | Object | Owner and lifetime |
 |---|---|
 | `EventObserver` / `SyncEventObserver` | User's lazy factory; no connections or background threads before `watch().__enter__` / `__aenter__` |
-| `TransportAdapter` | Factory of independent sessions; stores immutable configuration |
-| `TransportSession` | One watcher; owns its client and controlled resources |
-| `EventJournal` | One watcher; one writer in one event loop |
+| `TransportAdapter` / `SyncTransportAdapter` | Runtime-specific factory of independent sessions; stores immutable configuration |
+| `TransportSession` / `SyncTransportSession` | One watcher; owns its client and controlled resources |
+| `EventJournal` | One watcher; one writer in the async owner loop or blocking actor thread |
 | `EventScope` | Lightweight view; no consumer or Journal copy of its own |
 | Expectation | One wait call; deadline, scan position, and bounded state |
-| Sync runtime loop | One active sync watcher; runs continuously until cleanup |
+| Blocking actor thread | One active sync watcher; pumps finite native reads and expectation/control steps until cleanup |
 | Kafka polling worker | One Kafka session; serializes blocking client operations |
-| RabbitMQ connection/channel/subscription | One RabbitMQ session; created and used in its runtime loop |
-| Redis Streams client/poller | One Redis Streams session; an independent native cursor in its runtime loop |
+| RabbitMQ connection/channel/subscription | One session; async owner loop or blocking native owner thread, with no cross-runtime handle sharing |
+| Redis Streams client/poller | One session; async owner loop or owned blocking I/O worker, with an independent native cursor |
 | Reporter binding | One watcher/test reporting context; not a global singleton |
 
-An adapter supporting both facades MUST create loop-bound resources inside `open`, not in its constructor. The implementation MUST NOT share a transport session, task, lock, or Journal between pytest-xdist processes.
+Adapters supporting both facades MUST create runtime-bound resources inside the selected native `open`, not in their constructors or `sync_adapter()` providers. Async and blocking implementations share validated configuration and semantic algorithms rather than active native handles. The implementation MUST NOT share a transport session, task, lock, or Journal between pytest-xdist processes.
 
 <a id="s05"></a>
 ## 5. Normalized data models
@@ -423,9 +426,9 @@ Resolving the built-in `KafkaConfig` into `KafkaAdapter` is an isolated convenie
 | `wait_for(matcher, *, timeout, description=None, require_complete=True, since=None)` | `await → T` | `→ T` |
 | `wait_for_event(matcher, *, timeout, description=None, require_complete=True, since=None)` | `await → ObservedEvent[T]` | `→ ObservedEvent[T]` |
 | `wait_for_count(matcher, count, *, timeout, description=None, require_complete=True, since=None)` | `await → list[T]` | `→ list[T]` |
-| `mark()` | `→ ObservationMark`, ordinary owner-loop method | `→ ObservationMark`, bounded portal call |
-| `scope(matcher, *, name=None, start=None)` | `→ EventScope[T]`, no I/O | `→ SyncEventScope[T]`, bounded portal call |
-| `snapshot()` | Consistent `JournalSnapshot` / `ScopeSnapshot` in the owner loop | Detached snapshot through the portal |
+| `mark()` | `→ ObservationMark`, ordinary owner-loop method | `→ ObservationMark`, bounded actor command |
+| `scope(matcher, *, name=None, start=None)` | `→ EventScope[T]`, no I/O | `→ SyncEventScope[T]`, bounded actor command |
+| `snapshot()` | Consistent `JournalSnapshot` / `ScopeSnapshot` in the owner loop | Detached snapshot through the actor |
 | `diagnostics.snapshot()` | Safe `DiagnosticSnapshot` | Detached safe snapshot |
 | `close()` | `await → None`, watcher only | `→ None`, watcher only |
 
@@ -509,7 +512,7 @@ A jump in Kafka offsets by itself MUST NOT be considered a loss: compaction and 
 
 ### 8.1. Retention model
 
-The Journal is a single-writer / multiple-readers structure in one runtime event loop. Each watcher has a separate Journal. There is one broker reader; waiters do not compete for delivery or remove matched events.
+The Journal is a single-writer / multiple-readers structure owned by one async runtime loop or one blocking actor thread. Each watcher has a separate Journal. There is one logical broker reader; waiters do not compete for delivery or remove matched events.
 
 **JOURNAL-01.** Admission atomically assigns a sequence and monotonic time and increments the version. Every payload rejected by policy produces a skip record or terminal failure rather than disappearing without a trace.
 
@@ -613,7 +616,7 @@ class TransportAdapter(Protocol):
     ) -> TransportSession: ...
 ```
 
-`receive` is an ordinary method returning an async iterator, or an async generator with an equivalent external form. It does not return a coroutine that must first be awaited separately to obtain the iterator.
+These `TransportAdapter` and `TransportSession` protocols remain the asynchronous extension interfaces. `receive` is an ordinary method returning an async iterator, or an async generator with an equivalent external form. It does not return a coroutine that must first be awaited separately to obtain the iterator. The separate blocking protocols are specified in section 31; Core MUST NOT run an async-only custom adapter through a hidden loop.
 
 `OpenContext` contains observation identity, the startup deadline in the shared monotonic clock domain, buffer limits, and a safe diagnostic sink. It contains no Protobuf class, matcher, or Allure object.
 
@@ -677,7 +680,7 @@ Kafka does not advertise `supports_settlement`, create a receipt, or perform an 
 
 ### 9.5. Session ownership
 
-Each `watch` creates a separate session. The MVP has no shared consumer, connection pool, or hidden multiplexing. A session permits only one receive iterator. All loop-bound objects belong to the runtime loop; in sync mode, this is a private background loop.
+Each `watch` creates a separate session. The MVP has no shared consumer, connection pool, or hidden multiplexing. An async session permits one receive iterator; a blocking session has one owner-driven poll path. Async loop-bound objects belong to the caller-owned runtime loop. Blocking native clients belong to their declared I/O owner thread and MUST NOT require an asyncio loop.
 
 `close` is idempotent: concurrent close requests join one operation. Startup rollback is `open`'s responsibility if it could not return a session. The error path MUST be tested at every preparation stage.
 
@@ -949,9 +952,9 @@ The scope filter and expectation matcher are separate layers: the former determi
 ### 13.2. Boundaries
 
 ```python
-ScopeStart.all_retained()       # default: parent's logical history
-ScopeStart.from_now()           # next admission position
-ScopeStart.from_sequence(100)   # explicit Journal lower bound
+ScopeStart.all_retained()  # default: parent's logical history
+ScopeStart.from_now()  # next admission position
+ScopeStart.from_sequence(100)  # explicit Journal lower bound
 ```
 
 The name `all_retained` does not permit ignoring known gaps: it includes the available records from the parent's logical range and inherits that range's completeness. Intentionally discarding old history requires `from_now` or an explicit sequence.
@@ -1038,7 +1041,7 @@ A matcher error that has already completed does not become success when a match 
 
 ### 14.6. Callbacks that cannot be bounded
 
-`asyncio` executes callbacks/tasks in its loop thread; blocking code stops that loop. Thread-safe scheduling APIs support communication between OS threads. [S01]
+`asyncio` executes callbacks/tasks in its loop thread; blocking code stops that loop. Thread-safe scheduling APIs support communication between OS threads. [S01] In the blocking runtime, a slow user callback similarly prevents its actor from advancing commands or Journal admission; changing the scheduler does not make arbitrary Python code preemptible.
 
 Core MUST measure callback duration and emit bounded slow-callback diagnostics. It MUST NOT automatically move arbitrary predicates into an unbounded thread pool. Isolating untrusted CPU code in a separate process is outside the MVP.
 
@@ -1061,7 +1064,7 @@ On startup failure, rollback proceeds in reverse resource creation order. A star
 
 ### 15.3. Context exit
 
-Exit MUST: reject new expectations; record stopping; wake/finish waiters; stop the reader and settlement; close the transport; collect diagnostics; finish owned tasks; release bridges; and, in sync mode, stop the loop and join controlled threads.
+Exit MUST: reject new expectations; record stopping; wake/finish waiters; stop the reader and settlement; close the transport; collect diagnostics; finish owned tasks or commands; release bridges; and, in sync mode, stop the actor and join controlled threads.
 
 If user code has already raised an exception, it remains primary. Cleanup failures are attached through a safe diagnostic record and `add_note` without credentials; an AssertionError cannot be replaced with a close error.
 
@@ -1097,43 +1100,47 @@ GC/finalizers may issue `ResourceWarning`, but are not the primary mechanism for
 
 **SYNC-01.** Support for ordinary synchronous tests is included in 0.1.0 alongside the async API.
 
-**SYNC-02.** `EventObserver` remains the async API. `SyncEventObserver`, `SyncEventWatcher[T]`, and `SyncEventScope[T]` are added. There are no auto-detect methods that return `T` in one environment and a coroutine in another.
+**SYNC-02.** `EventObserver` remains the async API. `SyncEventObserver`, `SyncEventWatcher[T]`, and `SyncEventScope[T]` retain their blocking signatures. There are no auto-detect methods that return `T` in one environment and a coroutine in another. The explicit `event_observer.aio` module re-exports the async classes without removing their existing top-level imports.
 
-**SYNC-03.** Broker adapters and Expectations are implemented once. The sync facade does not implement a second Kafka consumer algorithm or duplicate matchers, scopes, codecs, completeness, or temporal logic.
+**SYNC-03.** Shared semantic algorithms MUST implement admission, Journal completeness, incremental expectation scanning, matcher evaluation, scopes, codecs, deadline/result commitment, and resource accounting for both runtimes. Internal `ExpectationState` is scheduler-independent; each runtime drives its bounded steps. Native transport algorithms and parsers SHOULD be shared where the client APIs permit it. Runtime scheduling and native I/O interfaces are separate implementations; this does not authorize a second Kafka boundary algorithm or different assertion semantics.
 
-### 16.2. Why `asyncio.run` in every method is insufficient
+### 16.2. No hidden asynchronous runtime
 
 `asyncio.run` creates/manages an event loop and closes it when finished; it cannot be called when another loop is already running in the same thread. [S02]
 
-A wrapper that runs `asyncio.run` around open and then around wait_for would leave an interval without a continuously running runtime and create ownership problems for loop-bound objects. This approach, `nest_asyncio`, and hidden loop monkey-patching are prohibited.
+The blocking runtime MUST NOT create or drive an asyncio event loop, wrap public methods in `asyncio.run`, schedule coroutines through a private loop, use `nest_asyncio`, or monkey-patch event loop behavior. A read-only running-loop check MAY reject blocking API misuse in an async caller; it MUST NOT start a runtime. Native client socket polling and internal I/O threads are distinct from an asyncio runtime and remain subject to ownership, bounds, and cleanup requirements.
+
+An async-only adapter MUST NOT silently select a hidden event-loop fallback. Section 31 specifies explicit blocking protocols and providers.
 
 ### 16.3. Runtime model
 
-Entering a synchronous `with` creates a dedicated background thread with its own asyncio event loop. The loop runs **throughout the context**, including while an ordinary HTTP/gRPC call executes in the pytest thread.
+Entering a synchronous `with` creates one dedicated actor thread. The actor remains active throughout the context, including while an ordinary HTTP/gRPC call blocks the pytest thread. It interleaves finite transport polling, source admission, bounded control commands, and incremental expectation steps. Native deliveries MUST reach decoding and the Journal through this single owner; native I/O workers MUST NOT run business matchers or mutate the Journal.
 
 ```text
-pytest/test thread                         watcher runtime thread
-------------------                         ----------------------
-with events.watch(...)  -- open request --> event loop + core startup
+pytest/test thread                         blocking actor thread
+------------------                         ---------------------
+with events.watch(...)  -- open command --> native session startup
                          <-- READY -------- boundary + reader prepared
-sync_service.perform()                     receive -> decode -> Journal
-scope.wait_for(...)     -- expectation -->  scan history + await new records
-                         <-- typed result - commit result
-exit with               -- close --------> cancel tasks + close session
-                         <-- closed ------- stop loop, join resources
+sync_service.perform()                     poll -> decode -> Journal
+scope.wait_for(...)     -- expectation -->  scan shared state + pump native reads
+                         <-- typed result - commit result + acknowledge command
+exit with               -- close --------> stop work + close owned session
+                         <-- closed ------- join controlled resources
 ```
 
-A Kafka session additionally has its own polling worker as specified in section 10. The native client may have internal threads; the thread count is not hidden in performance diagnostics.
+The async API continues to use its caller's asyncio loop with async sessions and scheduling. Both runtimes drive the same incremental expectation and admission semantics. No hidden shared watcher, global runtime, or cross-watcher Journal is introduced.
 
-The default is one runtime thread per active sync watcher, rather than a global loop for the entire pytest run. Shared runtimes/pooling are deferred because they complicate isolation and cleanup.
+Kafka retains the serialized native polling worker specified in section 10, shared by its async and blocking bridges. The blocking Redis Streams driver owns a synchronous client on its I/O worker; blocking RabbitMQ owns Pika on its declared native owner thread. Native clients MAY have additional internal threads. Thread counts and live resources MUST remain observable in diagnostics rather than being treated as one universal thread per watcher.
 
-### 16.4. Portal contract
+Shared actor pooling is deferred because it changes isolation, callback interference, and cleanup. Each active sync watcher has its own actor and independently owned native session.
 
-The sync facade submits commands through thread-safe scheduling, such as `asyncio.run_coroutine_threadsafe`, and waits for a `concurrent.futures.Future` from another thread. These APIs are intended for such cross-thread communication; direct access to asyncio objects from the pytest thread is prohibited. [S01, S03]
+### 16.4. Bounded command contract
 
-A command contains an operation ID, immutable arguments, a copied execution context, an absolute deadline, and a lifecycle generation. The portal has a bounded queue/number of in-flight commands; the owner-thread MVP permits one external blocking call on a particular handle at a time.
+The caller submits requests through a bounded thread-safe command queue and waits on an actual completion signal. The owner-thread API permits one outstanding external command per watcher; queue capacity MUST NOT grow with incoming events, caller retries, or timeouts. Commands carry their operation, captured execution context, cancellation request, and completion outcome. Expectation state retains its original call-time deadline.
 
-The returned object is fully detached from the Journal. Mutating the result in the pytest thread does not affect the runtime or other expectations. A successful command leaves no coroutine/task waiting for a forgotten future.
+Completion MUST mean that the worker operation has finished and its waiter/result reservations have been released or transferred to the committed result. Setting a cancellation request or cancelling a caller-side Future does not acknowledge worker completion. A request that remains unacknowledged MUST remain tracked, and new commands MUST be rejected while it still owns pending work.
+
+The returned object MUST be fully detached from the Journal. Mutating it in the pytest thread MUST NOT affect canonical payloads or other expectations. Successful commands leave no forgotten operation or reservation. Snapshot, scope creation, mark capture, and diagnostic access obey the same bounded dispatch and owner-affinity rules.
 
 ### 16.5. Thread affinity and API misuse
 
@@ -1148,31 +1155,31 @@ The returned object is fully detached from the Journal. Mutating the result in t
 | Passing an active watcher to another process / after fork | Unsupported; PID/owner guard |
 | Passing an async watcher to another event loop | `EventLoopMismatchError` |
 
-The owner-thread restriction applies to the public sync handle, not to independent internal runtime tasks. Users use the async API for parallel waiters; sequential sync expectations still see the same accumulated history.
+The owner-thread restriction applies to the public sync handle, not to independently owned internal I/O threads. Users use the async API for parallel waiters; sequential sync expectations still see the same accumulated history.
 
 ### 16.6. Where user code executes
 
-Decoders, resolvers, scope predicates, custom matchers, and payload-copy helpers execute in the runtime loop thread. This MUST be explicitly documented.
+Decoders, resolvers, scope predicates, custom matchers, diagnostic redactors, and payload-copy helpers execute on the owning blocking actor thread in sync mode. In async mode they execute on the owning caller-loop thread. This placement MUST be documented and MUST NOT depend on which native broker is selected. Reporter callbacks retain their separate caller-thread boundary from section 16.8.
 
-They MUST NOT assume a pytest main thread, a thread-local ORM session, a synchronous UI loop, an Allure context, or a thread-affine client. They must not call the blocking API of the same watcher. Supplied closures must be pure; external mutable state must not be changed during an expectation.
+Callbacks MUST NOT assume a pytest main thread, a thread-local ORM session, a synchronous UI loop, an Allure context, or a thread-affine application client. They MUST NOT call the blocking API of their own watcher. Supplied closures must be pure; external mutable state must not be changed during an expectation. They MUST remain fast and nonblocking; there is no implicit unbounded callback executor or forced thread interruption.
 
-A snapshot of `contextvars.copy_context` MAY be used for each public call to allow reading explicitly supplied context values. Changes to contextvars are not propagated back to the caller. Thread-local variables are not transferred. Implicitly applying an OpenTelemetry context to the background consumer is prohibited.
+A snapshot of `contextvars.copy_context` MUST be captured for startup and for each public worker command. Changes to contextvars are not propagated back to the caller. Thread-local variables are not transferred. Implicitly applying an OpenTelemetry context to the background consumer is prohibited.
 
-The startup/decoder context is captured on entry to `with`; the matcher context is captured for each particular expectation. Trace context extracted from a message remains data, rather than becoming the runtime's current span context.
+The startup/decoder context is captured on entry to `with`; the matcher context is captured for each particular expectation and remains active for its incremental steps. Trace context extracted from a message remains data, rather than becoming the runtime's current span context.
 
-### 16.7. Timeouts and bridge cancellation
+### 16.7. Timeouts and command cancellation
 
-`timeout` starts before dispatch. If a message was already admitted within the allowed interval, later runtime scheduling does not change its timestamp.
+`timeout` starts on entry to the blocking wait method, before command dispatch; queue and scheduling delay consume that original admission-window budget. If a message was already admitted within the allowed interval, later runtime scheduling does not change its timestamp. The bounded final scan, terminal-state precedence, and result commitment rules in section 14 apply unchanged.
 
-The portal MUST distinguish a domain `EventTimeoutError` from a technical `SyncRuntimeUnresponsiveError`. An external Future timeout does not permit immediately forgetting the underlying coroutine: cancellation must be sent, completion acknowledged within the grace budget, and reservations released.
+The runtime MUST distinguish a domain `EventTimeoutError` from a technical `SyncRuntimeUnresponsiveError`. A caller-control timeout requests cooperative cancellation and waits up to `cancellation_grace` for actual worker completion. The worker MUST check cancellation between bounded steps and before commitment, and MUST release expectation reservations before acknowledging it. Failure to obtain acknowledgement MUST NOT be reported as successful cancellation or permit a second outstanding command.
 
-`KeyboardInterrupt` occurs in the caller; the facade initiates controlled cancellation and bounded cleanup, then preserves the original exception. Unfinished resources are recorded if the runtime is unresponsive. Forcibly terminating an arbitrary Python/native thread is outside the contract.
+`KeyboardInterrupt` occurs in the caller; the facade requests controlled cancellation and bounded cleanup, then preserves the original exception. Unfinished commands, native resources, and threads remain recorded if the runtime is unresponsive. Forcibly terminating arbitrary Python/native code is outside the contract. A stopped caller wait alone does not prove that its worker stopped.
 
 ### 16.8. Allure in sync mode
 
-Background threads produce only structured diagnostic records. Allure steps and attachments are created in the original pytest/reporting thread at safe facade boundaries, rather than in a Kafka polling callback or runtime reader.
+Background threads produce only structured diagnostic records and sanitized exports. Allure steps and attachments are created in the original pytest/reporting thread at safe facade boundaries, rather than in a native polling callback or actor reader.
 
-Event information may be collected in the background, but the renderer receives an already redacted bounded export. A reporter error does not turn a match into a failure.
+The renderer receives an already redacted bounded export prepared by the actor. A reporter error does not turn a match into a failure. Reporting MUST NOT overlap an unacknowledged command by submitting unchecked follow-up work, and normal close MUST NOT repeat already acknowledged expectation summaries.
 
 ### 16.9. Fixtures
 
@@ -1192,9 +1199,9 @@ A session-scoped active watcher is allowed only as deliberately shared history; 
 
 ### 16.10. Required sync/async parity
 
-Given the same deterministic sequence of admitted events, both modes MUST return the same sequence IDs, match outcomes, domain error classes, and completeness result. Execution time and thread count need not be identical.
+Given the same deterministic sequence of admitted events, both modes MUST return the same sequence IDs, match outcomes, domain error classes, and completeness result. Execution time, scheduler primitives, native clients, and thread count need not be identical.
 
-Separate checks cover collection during a blocking service call; readiness before the body; already-arrived events; timeout without a dangling task; Ctrl-C in a subprocess; exception chaining; cleanup after failed enter; repeated close; repeated watcher creation/destruction without accumulating threads; and Allure only in the caller context.
+Separate checks MUST cover collection during a blocking service call; readiness before the body; already-arrived events; bounded final scans; cancellation before dispatch and during matching/copying; actual cancellation acknowledgement and rejection of overlapping work; Ctrl-C in a subprocess; contextvars placement; foreign process/thread misuse; exception chaining; cleanup after failed enter; repeated close; repeated watcher creation/destruction without accumulating threads; and Allure only in the caller context. Blocking-runtime checks MUST prove that observation creates no asyncio event loop. Existing shared contract, native integration, release, and compatibility gates remain applicable; configured checks do not substitute for recorded successful runs.
 
 <a id="s17"></a>
 ## 17. Diagnostics, Allure, secrets, and trace context
@@ -1474,7 +1481,7 @@ This revision's official API accepts `journal=JournalPolicy(...)`, `buffers=Tran
 | `ProcessAffinityError` | An active object was used in another process |
 | `SyncAPIInAsyncContextError` | The blocking facade was called with an active loop in the caller thread |
 | `ReentrantSyncCallError` | A callback attempts a blocking call to its own runtime |
-| `SyncRuntimeUnresponsiveError` | The portal received no valid response/cancellation within the control budget |
+| `SyncRuntimeUnresponsiveError` | The blocking actor received no valid response/actual cancellation acknowledgement within the control budget |
 | `DiagnosticConfigurationError` | Unsafe/invalid disclosure configuration |
 | `DiagnosticExportError` | Explicit export failed |
 
@@ -1640,7 +1647,7 @@ Results are published as a tested matrix with exact versions. "Untested" cannot 
 
 Core and real-broker benchmarks are separate. Suggested profiles: payloads of 256 B / 4 KiB / 256 KiB, a burst of 10 000 events, 1/10/100 waiters, multiple scopes, Protobuf copy on/off only in separate internal experiments, and sync and async facades.
 
-Metrics: decode throughput, Journal admission latency, matcher cost, event-to-result latency, readiness/shutdown latency, CPU, peak RSS, accounted bytes, bridge occupancy, pending tasks, live threads, cleanup iterations, and sync portal overhead.
+Metrics: decode throughput, Journal admission latency, matcher cost, event-to-result latency, readiness/shutdown latency, CPU, peak RSS, accounted bytes, bridge occupancy, pending tasks, live threads, cleanup iterations, and sync command-dispatch overhead.
 
 Workload numbers are test settings, not advertised results. Before a baseline exists, absolute throughput SLAs or an arbitrary "+20% threshold" cannot be declared mandatory gates. After a reproducible baseline is established, thresholds are introduced through a separate versioned benchmark policy.
 
@@ -1733,13 +1740,18 @@ event-observer/
 │   ├── _runtime/
 │   │   ├── loop.py
 │   │   ├── clock.py
-│   │   └── sync_portal.py
+│   │   └── threaded.py
 │   ├── sync.py
+│   ├── aio.py
 │   ├── transports/
 │   │   ├── base.py
+│   │   ├── sync_base.py
 │   │   ├── kafka.py
+│   │   ├── sync_kafka.py
 │   │   ├── rabbitmq.py
-│   │   └── redis_streams.py
+│   │   ├── sync_rabbitmq.py
+│   │   ├── redis_streams.py
+│   │   └── sync_redis_streams.py
 │   ├── codecs/
 │   │   ├── base.py
 │   │   ├── raw.py
@@ -1779,7 +1791,7 @@ event-observer/
     └── release.yml
 ```
 
-Internal modules prefixed with `_` are not stable extension points. The documented Protocols in `transports.base`, `codecs.base`, `matchers`, and diagnostics are public.
+Internal modules prefixed with `_` are not stable extension points. The documented Protocols in `transports.base`, `transports.sync_base`, `codecs.base`, `matchers`, and diagnostics are public.
 
 ### 23.2. Extras
 
@@ -1787,7 +1799,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 |---|---|---|
 | No extra | stdlib Core + sync facade + raw | No |
 | `kafka` | `confluent-kafka` | No connection |
-| `rabbitmq` | `aio-pika` | No connection; dedicated subscription only when a watcher opens |
+| `rabbitmq` | `aio-pika` and blocking `pika` | No connection; dedicated subscription only when a watcher opens |
 | `redis` | `redis` (redis-py) for the implemented Streams adapter | No connection or consumer-group changes |
 | `protobuf` | `protobuf` | No automatic schema loading |
 | `pytest` | `pytest` | Only a passive plugin entry point during pytest startup |
@@ -1796,7 +1808,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 | `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Containers only when the harness runs |
 | `all` | Implemented end-user runtime/testing integrations, excluding contract benchmark infrastructure | No |
 
-The `rabbitmq` and `redis` extras accompany the implemented sections 28 and 29 extensions. The `redis` extra does not advertise a Redis Pub/Sub adapter. A future `nats` extra is declared only with its adapter. No sync extra is required: the sync facade uses stdlib threading/asyncio. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
+The `rabbitmq` and `redis` extras accompany the implemented sections 28 and 29 extensions. The `redis` extra does not advertise a Redis Pub/Sub adapter. A future `nats` extra is declared only with its adapter. No sync extra is required: the blocking actor uses stdlib threading and bounded queues, while broker extras provide the selected native clients. Installing `allure-pytest` naturally brings pytest; Core remains independent of pytest in a base installation.
 
 Optional dependencies differ from development dependency groups: the latter are not included in published runtime metadata. [S16, S17]
 
@@ -1831,7 +1843,7 @@ classifiers = [
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
-rabbitmq = ["aio-pika"]
+rabbitmq = ["aio-pika", "pika"]
 redis = ["redis"]
 protobuf = ["protobuf"]
 pytest = ["pytest"]
@@ -1841,6 +1853,7 @@ contract-tests = ["pytest", "pytest-asyncio", "testcontainers[kafka]"]
 all = [
     "confluent-kafka",
     "aio-pika",
+    "pika",
     "redis",
     "protobuf",
     "pytest",
@@ -2000,7 +2013,7 @@ Examples MUST be checked in CI: syntax/type smoke, generated synthetic proto, an
 | M0 | Repository, build metadata, public models/errors/Protocols, synthetic proto | Core import without extras, type checks, build |
 | M1 | Clock, bounded Journal, gap accounting, lifecycle, and FakeTransport | Deterministic race/resource tests |
 | M2 | Payload/event matchers, Expectation Engine, copies, and scopes | History/concurrency/count/completeness tests |
-| M3 | Sync portal and separate facade over the same Core | Sync/async parity, blocked-action collection, cleanup/thread-affinity |
+| M3 | Blocking actor and explicit async runtime over shared semantic Core | Sync/async parity, blocked-action collection, cleanup/thread-affinity |
 | M4 | Kafka Adapter, positions/readiness/native bridge | Real Kafka contract tests and faults |
 | M5 | Protobuf single/mixed, typed resolver validation | Schema/presence/null/unknown-type/copy tests |
 | M6 | Diagnostics, redaction, trace extractor, Allure | Safe-output golden tests and reporting-context isolation |
@@ -2123,7 +2136,7 @@ This is an explicit reconciliation log for earlier examples. It does not add hid
 | Area in earlier ADRs | Normative clarification in this revision |
 |---|---|
 | Async-only examples | SyncEventObserver added to the MVP, one core, separate continuously running runtime |
-| Undefined "sync bridge" | Owner-thread facade, bounded portal, shared deadline, no nested asyncio.run |
+| Undefined "sync bridge" | Owner-thread facade, bounded actor commands, shared deadline, actual completion acknowledgement, no hidden asyncio runtime |
 | Raw headers as Mapping | Tuple pairs preserving duplicates and `bytes | None` values |
 | Raw payload | `bytes | None`; an empty string is not a tombstone |
 | EmptyPayloadError for Protobuf | NullPayloadError; b"" may be a valid default message |
@@ -2161,7 +2174,7 @@ If implementation reveals that a specific client's/broker's mandatory contract c
 
 ### 26.2. Final status
 
-The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. Revision 1.4 adds reusable observation marks in section 30. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. Revision 1.4 adds reusable observation marks in section 30. Revision 1.5 replaces the hidden sync loop with a blocking actor and explicit native protocols in sections 16 and 31. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
 The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 
@@ -2195,6 +2208,8 @@ Sources were checked while preparing revision 1.0. They substantiate properties 
 | S21 | [PyPI: Publishing with a Trusted Publisher](https://docs.pypi.org/trusted-publishers/using-a-publisher/) | GitHub OIDC and publication workflow |
 | S22 | [PyPI: Creating a Project through OIDC](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) | Pending publisher and an unreserved name |
 | S23 | [PyPI: Producing Attestations](https://docs.pypi.org/attestations/producing-attestations/) | Publish attestations |
+| S24 | [Pika: Release history](https://github.com/pika/pika/releases) | Stable 1.4 blocking API and the separate 1.5 API migration |
+| S25 | [redis-py: Advanced Features](https://redis.readthedocs.io/en/stable/advanced_features.html) | Blocking atomic pipelines and native thread ownership |
 
 
 <a id="s28"></a>
@@ -2204,17 +2219,17 @@ Sources were checked while preparing revision 1.0. They substantiate properties 
 
 Revision 1.2 adds an official RabbitMQ AMQP adapter to the current candidate. This extends the original Kafka-first MVP without changing the existing Core/Kafka guarantees or renumbering AC-01–AC-88, RG-01–RG-15, or existing section anchors. Revision 1.3 adds Redis Streams in section 29; Redis Pub/Sub, NATS, temporal assertions, and reconnect with checkpoint recovery remain deferred.
 
-The public types are `event_observer.transports.rabbitmq.RabbitMQConfig` and `RabbitMQAdapter`. The `rabbitmq` extra installs `aio-pika`; the native import MUST be deferred until a session opens. Constructing the config, adapter, factory, or watch object MUST NOT connect, create loop-bound resources, or import the optional client. `import event_observer` MUST remain stdlib-only, including without RabbitMQ dependencies installed.
+The public types are `event_observer.transports.rabbitmq.RabbitMQConfig` and `RabbitMQAdapter`. The `rabbitmq` extra installs `aio-pika` for async sessions and `pika` for blocking sessions; both native imports MUST be deferred until the corresponding session opens. Constructing the config, adapter, factory, or watch object MUST NOT connect, create loop-bound resources, or import the optional client. `import event_observer` MUST remain stdlib-only, including without RabbitMQ dependencies installed.
 
 `RabbitMQConfig` has a required `url`, `binding_keys=("#",)`, and `prefetch_count=100`. The URL MUST be a valid nonempty `amqp` or `amqps` URL and MUST be excluded from the configuration's `repr`. Binding keys MUST be a nonempty tuple of strings, each fitting the 255-byte UTF-8 AMQP short-string limit. Prefetch MUST be an integer from 1 through 65535; bool and zero are invalid. The library MUST NOT discover connection URLs or credentials from environment variables automatically.
 
-The current implementation declares `aio-pika>=9.5,<10`. This dependency floor remains a candidate until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove the minimum.
+The current implementation declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`. The blocking path targets the Pika 1.4.4 API; adopting the distinct 1.5 API requires a separate compatibility decision and verification. [S24] Dependency floors remain candidates until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove a minimum. Bounded native RPC/cleanup control MUST fail visibly if its supported client boundary is unavailable rather than silently lose lifecycle deadlines.
 
 ### 28.2. Exchange source, isolation, and readiness
 
 `watch(source=...)` identifies an existing exchange, not an application queue. Opening a watcher MUST verify that exchange exists rather than create or reconfigure it. Each session MUST create its own server-named, non-durable, exclusive, auto-delete classic queue, bind it using every configured binding key, and start its own consumer with explicit acknowledgement. Sharing an application queue, competing with application consumers, reusing another watcher's queue, or mutating an application exchange is prohibited.
 
-All connection, channel, consumer, delivery, and monitor objects MUST belong to the watcher's runtime event loop. Both sync and async facades use the same adapter. A factory MAY be reused, but active sessions MUST remain independent.
+Async connection, channel, consumer, delivery, and monitor objects MUST belong to the watcher's caller-owned event loop. Blocking sessions use Pika on their native owner thread without an asyncio loop; all native operations and delivery acknowledgements MUST respect that thread ownership. `RabbitMQAdapter.sync_adapter()` supplies `SyncRabbitMQAdapter` sharing the immutable configuration and normalized-data algorithms, not an active aio-pika handle. A factory MAY be reused, but active sessions MUST remain independent.
 
 READY MUST confirm successful exchange verification, bounded QoS, queue creation, bindings, and consumer acknowledgement before context entry returns. An empty exchange MUST reach READY without publishing a probe message. The caller's application action belongs after context entry. The latest boundary is the private subscription's binding, not a Kafka offset or an atomic broker-wide publication timestamp. Publications that predate the relevant binding are not replayed; eligible messages received during startup remain observable.
 
@@ -2249,7 +2264,7 @@ The new boolean null-body and duplicate-header capabilities default to supported
 
 The effective prefetch MUST be no greater than both the configured prefetch and `TransportBufferLimits.max_events`. The accounted byte limit MUST cover every pending native delivery through final settlement, including deliveries already yielded from the handoff. Exceeding the bounded handoff MUST terminate with a visible backpressure error rather than silently drop a transport event. Prefetch and accounted bytes do not claim an exact process RSS bound.
 
-A delivered event carries a private session-local delivery ID. Core invokes `SettlementSession.settle` only after committing `ADMITTED`, `FILTERED`, or `DISCARDED_BY_EXPLICIT_JOURNAL_POLICY`. The adapter MUST acknowledge that one delivery after the committed outcome; it MUST NOT acknowledge ahead of Journal admission, acknowledge multiple unrelated deliveries, or settle the same token twice. Filtering and DROP settlement preserve the existing Core rules for explicit exclusions and observation completeness.
+A delivered event carries a private session-local delivery ID. Core invokes `SettlementSession.settle` or blocking `SyncSettlementSession.settle` only after committing `ADMITTED`, `FILTERED`, or `DISCARDED_BY_EXPLICIT_JOURNAL_POLICY`. The adapter MUST acknowledge that one delivery after the committed outcome; it MUST NOT acknowledge ahead of Journal admission, acknowledge multiple unrelated deliveries, or settle the same token twice. Filtering and DROP settlement preserve the existing Core rules for explicit exclusions and observation completeness.
 
 Matcher success is not the acknowledgement boundary. A mismatch is already admitted and may satisfy another expectation from retained Journal history. Test failure, an expected timeout, or report rendering does not retroactively change delivery acknowledgement.
 
@@ -2330,9 +2345,9 @@ The configured payload field MUST be present with bytes, including valid empty b
 
 ### 29.4. Independent read-only observations
 
-Each watcher MUST own its native client, polling task, cursor, bounded handoff, and failure signal in its runtime loop. A session permits one receive iterator. The sync and async facades use the same adapter; constructors MUST NOT retain a client tied to another event loop. Read count is bounded by transport event capacity, and complete returned batches remain subject to event/byte limits. Exceeding a bound MUST fail explicitly rather than silently truncate or drop entries. These accounted limits do not claim a total process RSS bound.
+Each watcher MUST own its native client, cursor, bounded handoff, and failure signal. Async sessions own their polling task and `redis.asyncio` client in the caller loop. `RedisStreamsAdapter.sync_adapter()` supplies `SyncRedisStreamsAdapter`, whose I/O worker owns the blocking `redis.Redis` client and pool. The implementations MUST share start resolution, connection/server identity validation, continuity checks, raw field parsing, and complete batch accounting. Constructors MUST NOT retain active clients or create hidden loops. Read count is bounded by transport event capacity, and complete returned batches remain subject to event/byte limits. Exceeding a bound MUST fail explicitly rather than silently truncate or drop entries. These accounted limits do not claim a total process RSS bound.
 
-A read batch MUST obtain `CLIENT ID`, `INFO server`, `XINFO STREAM`, and nonblocking `XREAD` in one read-only `MULTI`/`EXEC` transaction so connection/server identity, continuity metadata, and selected entries describe one consistent Redis state. Empty reads are polled at the configured interval. The runtime MUST NOT use Lua or require `EVAL`, write stream entries, create or change consumer groups, use `XREADGROUP`, or acknowledge group pending entries. Independent observation MUST leave application group cursors and pending-entry lists unchanged.
+A read batch MUST obtain `CLIENT ID`, `INFO server`, `XINFO STREAM`, and nonblocking `XREAD` in one read-only `MULTI`/`EXEC` transaction so connection/server identity, continuity metadata, and selected entries describe one consistent Redis state. Both native APIs MUST preserve this transaction and the raw field callback; a blocking pipeline MUST remain on its I/O owner thread. [S25] Empty reads are polled at the configured interval. The runtime MUST NOT use Lua or require `EVAL`, write stream entries, create or change consumer groups, use `XREADGROUP`, or acknowledge group pending entries. Independent observation MUST leave application group cursors and pending-entry lists unchanged.
 
 The connection account requires `CLIENT ID`, `INFO server`, `XINFO STREAM`, `XREAD`, `MULTI`, and `EXEC` permissions used by this observation. Publisher/admin harness write permissions are separate and MUST NOT become requirements for the production runtime. Reading entries, matching expectations, reporting, or closing the watcher does not delete or acknowledge application entries.
 
@@ -2344,7 +2359,7 @@ The adapter MUST compare both native connection ID and server `run_id` from its 
 
 Metadata observations do not prove a durable stream incarnation. An arbitrary `DEL` and metadata-equivalent recreation completed entirely between checks on the same connection/server may be indistinguishable; the adapter MUST document this limitation rather than claim perfect recreation detection. Retained history, source lifecycle, persistence, replication, and application durability remain separate from the observation guarantee.
 
-Known native connection, authentication, permission, missing-source, wrong-type, continuity, or malformed-delivery errors MUST remain visible and terminal. Native retry policy MUST NOT replay a known failed read or silently resume from a new cursor. Cleanup MUST cancel owned tasks, close the owned client/pool within the lifecycle budget, wake waiters, and leave the source key and all application groups untouched. Partial startup rollback and concurrent close follow the existing Core lifecycle and error-priority rules.
+Known native connection, authentication, permission, missing-source, wrong-type, continuity, or malformed-delivery errors MUST remain visible and terminal. Native retry policy MUST NOT replay a known failed read or silently resume from a new cursor. Cleanup MUST cancel owned async tasks or request and join the blocking I/O worker, close the owned client/pool within the lifecycle budget, wake waiters, and leave the source key and all application groups untouched. Partial startup rollback and concurrent close follow the existing Core lifecycle and error-priority rules.
 
 ### 29.6. Harness and verification
 
@@ -2387,7 +2402,7 @@ class ObservationMark:
 
 `sequence` is the watcher's next Journal admission position, rather than a broker offset or publication timestamp. The mark MUST be immutable, have a nonempty watcher identity, and contain a nonnegative integer sequence rather than bool. `recorded_at` MUST be timezone-aware and normalized to UTC; `recorded_monotonic` MUST be finite. Both times are informational diagnostics and MUST NOT determine event eligibility or start a timeout.
 
-Active watchers and scopes expose ordinary `mark() -> ObservationMark`. In the async facade this is an atomic owner-loop call, without `await`. In the sync facade it is a bounded portal call that captures the runtime boundary before returning to the owner thread. Existing loop/thread/process affinity, lifecycle, and control-timeout rules apply. New marks after closure MUST be rejected.
+Active watchers and scopes expose ordinary `mark() -> ObservationMark`. In the async facade this is an atomic owner-loop call, without `await`. In the sync facade it is a bounded actor command that captures the runtime boundary before returning to the owner thread. Existing loop/thread/process affinity, lifecycle, and control-timeout rules apply. New marks after closure MUST be rejected.
 
 Capture MUST NOT create a consumer, seek or replay a broker, stop collection, copy the Journal, register a scope, reserve waiter/result quotas, or emit a report. A mark is a caller-owned value reusable by independent expectations of the same watcher. No new mark registry or `max_marks` quota is required.
 
@@ -2405,7 +2420,7 @@ This boundary is local to that expectation. Passing `since` MUST NOT mutate a sc
 
 A mark selects Journal admission order, not UTC, native receive time, source timestamps, or broker publication time. A publication made before capture but buffered outside the Journal can be admitted after the mark and remain eligible. Tests SHOULD retain operation correlation when using marks. This API does not establish temporal ordering beyond the existing Journal semantics.
 
-The expectation timeout starts with the wait invocation under the existing sync/async deadline rules, not when the mark was captured. In sync mode, portal queue time still counts from entry to the blocking wait method. Waiting before invoking an expectation does not spend its timeout or reset the admission time of already retained records.
+The expectation timeout starts with the wait invocation under the existing sync/async deadline rules, not when the mark was captured. In sync mode, actor command queue time still counts from entry to the blocking wait method. Waiting before invoking an expectation does not spend its timeout or reset the admission time of already retained records.
 
 Marks MUST NOT pin history or hide loss. With `require_complete=True`, known loss in the required effective range MUST raise `IncompleteObservationError`, even when a matching event remains. Loss strictly before that selected lower boundary does not by itself make the new range incomplete. `require_complete=False` explicitly permits searching retained incomplete history, while known terminal failures retain precedence. New expectations after closure remain invalid.
 
@@ -2418,3 +2433,65 @@ The supported pattern is capture before the application action, let the existing
 Verification MUST cover ordinary sync and async capture, old matching history exclusion, an event retained before the later wait, mark reuse across all wait variants, parent/mark boundary intersection, preserved scope filters and snapshots, foreign/future mark rejection, closure/affinity, quotas, and strict retention loss. Deterministic admission barriers or injected clocks MUST replace timing-based sleeps. Marks are transport-independent Core behavior and do not require a new broker service or new transport capability.
 
 The [scopes guide](docs/scopes.md#reusable-observation-marks) and [pytest examples](examples/pytest/README.md#mark-before-the-action-and-wait-later) document the pattern. Existing release and compatibility gates still apply; coverage descriptions or commands do not substitute for recorded verification results.
+
+
+<a id="s31"></a>
+## 31. Explicit runtime and adapter migration
+
+### 31.1. API compatibility and selection
+
+Revision 1.5 retains the existing top-level `EventObserver`, `EventWatcher`, and `EventScope` classes and their async context/wait signatures. `event_observer.aio` re-exports those same classes for explicit async imports. `event_observer.sync` and the existing top-level sync imports continue to expose `SyncEventObserver`, `SyncEventWatcher`, and `SyncEventScope`. A sync method MUST return its declared ordinary value; an async method MUST retain its declared await/context behavior. Runtime selection MUST NOT depend on silently adapting a result to the caller's environment.
+
+`EventObserver` uses asynchronous `TransportAdapter` / `TransportSession` from `event_observer.transports.base`. `SyncEventObserver` uses separate `SyncTransportAdapter` / `SyncTransportSession` from `event_observer.transports.sync_base`. A reusable adapter MAY implement public `SyncAdapterProvider` with ordinary `sync_adapter()` returning its native blocking counterpart without connecting. The explicit blocking interfaces and native adapters are also re-exported from `event_observer.transports.sync`. Built-in Kafka, RabbitMQ, and Redis Streams adapters provide this conversion and share their immutable broker configs; their canonical transport report names remain `KafkaAdapter`, `RabbitMQAdapter`, and `RedisStreamsAdapter`.
+
+A custom adapter with only async `open` is no longer sufficient for the blocking runtime. It MUST implement the blocking protocol directly or provide `sync_adapter()`; otherwise `SyncEventObserver` MUST reject it with `ConfigurationError` before native startup. The library MUST NOT conceal the incompatibility by creating a private event loop or calling `asyncio.run`. Existing third-party async adapters remain valid for `EventObserver` when they satisfy its unchanged protocol.
+
+### 31.2. Blocking transport protocol
+
+```python
+from typing import Protocol
+
+
+class SyncTransportSession(Protocol):
+    @property
+    def readiness(self) -> "TransportReadiness": ...
+
+    def poll(self, timeout: float) -> "RawEvent | None": ...
+
+    def failure(self) -> "TransportError | None": ...
+
+    def close(self, *, deadline: float) -> None: ...
+
+
+class SyncTransportAdapter(Protocol):
+    @property
+    def capabilities(self) -> "TransportCapabilities": ...
+
+    def open(
+        self,
+        source: "TransportSource",
+        start: "StartPosition",
+        *,
+        context: "OpenContext",
+    ) -> SyncTransportSession: ...
+
+
+class SyncAdapterProvider(Protocol):
+    def sync_adapter(self) -> SyncTransportAdapter: ...
+
+
+class SyncSettlementSession(Protocol):
+    def settle(self, delivery_id: str, outcome: "DeliveryOutcome") -> None: ...
+```
+
+`open` MUST return only after the same transport-specific READY contract is satisfied. It owns rollback if it cannot return a session. `poll` MUST accept a finite nonnegative maximum wait, including zero, and return at most one detached `RawEvent`; `None` means no delivery is currently available rather than proof that an infinite source has ended. Known failure MUST take precedence over buffered deliveries. Invalid poll budgets MUST fail visibly before native waiting.
+
+`failure()` MUST provide a nonblocking terminal-error inspection independent of delivery capacity; an empty healthy read is not failure. The native driver MUST continue to check its failure/control path while the observation remains active. Native resource construction, operations, callbacks, and closure MUST respect their declared I/O owner. `close` is idempotent, uses the absolute supplied clock-domain deadline, and MUST expose cleanup failure or a surviving worker rather than claim successful closure.
+
+`SyncSettlementSession` is an optional extension used only for a transport advertising settlement. It preserves the same post-admission/filter/explicit-discard boundary and opaque delivery-token semantics as section 9.4. Kafka and Redis Streams MUST NOT fabricate settlement or broker commits. A blocking protocol does not authorize weaker readiness, replay, completeness, isolation, byte accounting, or error-priority guarantees.
+
+### 31.3. Shared semantics and verification
+
+The two schedulers MUST drive common incremental expectation state and common source admission, decoding, payload isolation, Journal, matcher, diagnostic, and quota algorithms. The transport implementations MUST share native boundary/parser/continuity algorithms where their native APIs permit it, while retaining explicit runtime-specific I/O and cleanup. No common abstraction may erase broker-specific semantics or pretend an async handle is blocking.
+
+Verification MUST cover both explicit runtimes with the same deterministic histories, parent scopes and reusable marks, result/deadline commitment, strict loss, malformed payloads, callback failures, context propagation, cancellation acknowledgement, bounded queues, reporting acknowledgement, and owned-resource teardown. Native verification MUST exercise both client paths where they differ, including RabbitMQ delivery settlement and Redis atomic identity/continuity checks. Blocking tests MUST detect accidental event-loop creation and hidden coroutine dispatch. Actual runs and tested versions belong in compatibility/status records; a declared dependency range, test command, or CI job alone is not evidence of passing verification.

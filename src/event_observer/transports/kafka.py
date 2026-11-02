@@ -20,7 +20,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..errors import (
@@ -47,6 +47,10 @@ from ..models import (
     TransportReadiness,
     TransportSource,
 )
+
+
+if TYPE_CHECKING:
+    from .sync_kafka import SyncKafkaAdapter
 
 
 _MANAGED_OPTIONS = frozenset(
@@ -228,9 +232,12 @@ def _load_admin() -> Any:
 class KafkaAdapter:
     """Lazy factory for manually assigned Kafka reader sessions.
 
+    :ivar transport_name: Canonical report title shared by both runtime adapters.
     :ivar config: Validated immutable Kafka configuration.
     :ivar capabilities: Supported partition isolation, replay, metadata, and flow-control semantics.
     """
+
+    transport_name = "KafkaAdapter"
 
     def __init__(self, config: KafkaConfig) -> None:
         """Store an explicit policy without importing a client or starting a worker.
@@ -250,6 +257,15 @@ class KafkaAdapter:
         :returns: Independent-reader capabilities with partition ordering and explicit replay.
         """
         return _capabilities()
+
+    def sync_adapter(self) -> SyncKafkaAdapter:
+        """Build the native blocking adapter without opening a connection.
+
+        :returns: An independent blocking adapter sharing this immutable configuration.
+        """
+        from .sync_kafka import SyncKafkaAdapter
+
+        return SyncKafkaAdapter(self.config)
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
@@ -275,7 +291,12 @@ class KafkaAdapter:
         session._thread.start()
         try:
             remaining = max(0.0, context.startup_deadline - context.clock.monotonic())
-            await asyncio.wait_for(asyncio.shield(session._ready), timeout=remaining)
+            # Startup has one owner. Cancelling this wait must cancel its
+            # single-use signal before a competing late worker notification.
+            # The independent session failure signal remains untouched.
+            await asyncio.wait_for(session._ready, timeout=remaining)
+            if context.clock.monotonic() >= context.startup_deadline:
+                raise TimeoutError("Kafka startup deadline expired")
         except BaseException as primary:
             try:
                 await session.close(deadline=context.clock.monotonic() + 2.0)
@@ -286,32 +307,25 @@ class KafkaAdapter:
         return session
 
 
-class KafkaSession:
-    """One serialized Kafka worker, bounded bridge, and independent failure signal.
+class _KafkaNativeWorker:
+    """Shared native Kafka driver used by blocking and asynchronous session bridges.
 
     :ivar _config: Immutable connection, security, polling, and buffer settings.
     :ivar _native: Lazily imported Kafka client module or controlled native double.
     :ivar _source: Selected topic and optional explicit partition set.
     :ivar _start: Requested replay policy before numeric boundary resolution.
     :ivar _context: Owner clock, startup deadline, observation identity, and handoff limits.
-    :ivar _loop: Async owner loop receiving worker notifications.
-    :ivar _ready: Owner-loop Future completed after readiness or startup failure.
-    :ivar _failure: Shared terminal-error signal, shielded from individual waiter cancellation.
-    :ivar _finished: Owner-loop Future completed when the worker finishes.
-    :ivar _data_ready: Owner-loop event used to wake the receive iterator.
     :ivar _condition: Thread condition protecting bridge queue and notification bookkeeping.
     :ivar _queue: Conservative one-record Python handoff deque.
     :ivar _stop: Thread-safe stop request observed by polling and backpressure waits.
-    :ivar _wake_pending: Whether a worker-to-loop wake callback is already reserved.
     :ivar _error: First terminal transport error, retained without replacement.
     :ivar _cleanup_error: Native cleanup error with its original Python cause.
-    :ivar _receive_started: Whether the single allowed receive iterator was requested.
     :ivar _readiness: Resolved READY contract, or None before successful startup.
     :ivar _fetch_confirmed: Partitions for which the same reader confirmed a Fetch path.
     :ivar _partitions: Concrete selected partitions.
     :ivar _topology: Complete initial topic partition set used for static topology checks.
     :ivar _highs: Captured physical numeric high watermarks by partition.
-    :ivar _consumer: Worker-owned native Consumer, never operated from the owner loop.
+    :ivar _consumer: Worker-owned native Consumer, never operated from either runtime bridge.
     :ivar _admin: Temporary worker-owned AdminClient during physical-high resolution.
     :ivar _thread: Dedicated worker serializing all native operations.
     :ivar _worker_finished: Completion marker published after final worker resource cleanup.
@@ -326,32 +340,26 @@ class KafkaSession:
         start: StartPosition,
         context: OpenContext,
     ) -> None:
-        """Allocate loop-side signals and an unstarted worker without connecting.
+        """Allocate an unstarted native worker and its bounded thread-safe handoff.
 
         :param config: Validated immutable connection and delivery settings.
         :param native: Lazily loaded native client module or an equivalent controlled test double.
         :param source: Concrete existing source selected for this observation.
         :param start: Requested start policy and its transport-specific boundary.
         :param context: Runtime clock, startup deadline, observation identity, and buffer limits.
-        :returns: None; KafkaAdapter.open starts the allocated thread.
+        :returns: None; the chosen runtime bridge starts this worker after allocating its signals.
         """
         self._config = config
         self._native = native
         self._source = source
         self._start = start
         self._context = context
-        self._loop = asyncio.get_running_loop()
-        self._ready: asyncio.Future[None] = self._loop.create_future()
-        self._failure: asyncio.Future[TransportError | None] = self._loop.create_future()
-        self._finished: asyncio.Future[None] = self._loop.create_future()
-        self._data_ready = asyncio.Event()
         self._condition = threading.Condition()
         self._queue: deque[RawEvent] = deque()
         self._stop = threading.Event()
-        self._wake_pending = False
+        self._worker_finished = False
         self._error: TransportError | None = None
         self._cleanup_error: BaseException | None = None
-        self._receive_started = False
         self._readiness: TransportReadiness | None = None
         self._fetch_confirmed: set[int] = set()
         self._partitions: tuple[int, ...] = ()
@@ -362,6 +370,14 @@ class KafkaSession:
         self._thread = threading.Thread(
             target=self._run, name=f"event-observer-kafka-{uuid4().hex[:8]}", daemon=True
         )
+
+    def _wake_owner(self) -> None:
+        """Notify blocking bridge waiters after publishing worker state.
+
+        :returns: None; asynchronous bridges override this hook to wake their owner loop.
+        """
+        with self._condition:
+            self._condition.notify_all()
 
     @property
     def readiness(self) -> TransportReadiness:
@@ -374,118 +390,6 @@ class KafkaSession:
             raise TransportReadinessError("Kafka session is not ready")
         return self._readiness
 
-    async def wait_failure(self) -> TransportError | None:
-        """Await worker failure without cancelling the shared signal.
-
-        :returns: The first terminal transport error, or None after intentional worker closure.
-        :raises asyncio.CancelledError: If only the caller's monitoring wait is cancelled.
-        """
-        return await asyncio.shield(self._failure)
-
-    def receive(self) -> AsyncIterator[RawEvent]:
-        """Reserve the only receive iterator for this independent reader.
-
-        :returns: An asynchronous iterator of normalized RawEvent values.
-        :raises TransportSubscriptionError: If receive was already requested.
-        """
-        if self._receive_started:
-            raise TransportSubscriptionError("A Kafka session permits one receive iterator")
-        self._receive_started = True
-        return self._receive()
-
-    async def _receive(self) -> AsyncIterator[RawEvent]:
-        """Drain the bridge while coordinating worker capacity notifications.
-
-        :yields: Detached RawEvent deliveries in observed partition-read order.
-        :raises TransportError: If the worker reports a terminal error.
-        """
-        while True:
-            with self._condition:
-                if self._error is not None:
-                    raise self._error
-                if self._queue:
-                    event = self._queue.popleft()
-                    self._condition.notify_all()
-                elif self._stop.is_set():
-                    return
-                else:
-                    self._data_ready.clear()
-                    event = None
-            if event is not None:
-                yield event
-            else:
-                await self._data_ready.wait()
-
-    async def close(self, *, deadline: float) -> None:
-        """Request stop and confirm both native cleanup and thread termination.
-
-        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
-        :returns: None once the worker has terminated.
-        :raises ObserverCleanupTimeoutError: If cleanup or thread join exceeds deadline.
-        :raises ObserverCleanupError: If native Consumer.close failed; its cause remains inspectable.
-        """
-        self._stop.set()
-        with self._condition:
-            self._condition.notify_all()
-        self._wake_loop()
-        remaining = max(0.0, deadline - self._context.clock.monotonic())
-        try:
-            await asyncio.wait_for(asyncio.shield(self._finished), timeout=remaining)
-        except asyncio.TimeoutError as exc:
-            raise ObserverCleanupTimeoutError("Kafka worker did not stop within the cleanup budget") from exc
-        # The completion callback can reach the loop just before the worker's
-        # final Python frame returns. Confirm thread termination as well.
-        while self._thread.is_alive():
-            remaining = deadline - self._context.clock.monotonic()
-            if remaining <= 0:
-                raise ObserverCleanupTimeoutError("Kafka worker did not terminate within the cleanup budget")
-            await asyncio.sleep(min(0.001, remaining))
-        self._thread.join(timeout=0)
-        if self._cleanup_error is not None:
-            raise self._cleanup_error
-
-    def _wake_loop(self) -> None:
-        """Reserve at most one thread-safe wake callback for the owner loop.
-
-        :returns: None; a closed owner loop is left for outer cleanup accounting.
-        """
-        with self._condition:
-            if self._wake_pending:
-                return
-            self._wake_pending = True
-        try:
-            self._loop.call_soon_threadsafe(self._notify)
-        except RuntimeError:
-            pass
-
-    def _notify(self) -> None:
-        """Publish queued data, readiness, failure, or completion to owner-loop waiters.
-
-        :returns: None after coalesced notifications are delivered.
-        """
-        with self._condition:
-            self._wake_pending = False
-        self._data_ready.set()
-        if self._stop.is_set() and not self._ready.done():
-            # The outer startup timeout/cancellation owns its outcome. A late
-            # exception on its already-cancelled shield would otherwise be
-            # reported as an unhandled Future exception on Python 3.14.
-            self._ready.cancel()
-        if self._error is not None:
-            if not self._failure.done():
-                self._failure.set_result(self._error)
-            if not self._ready.done():
-                self._ready.set_exception(self._error)
-        if self._readiness is not None and not self._ready.done():
-            self._ready.set_result(None)
-        if not self._thread.is_alive() or getattr(self, "_worker_finished", False):
-            if not self._failure.done():
-                self._failure.set_result(None)
-            if not self._ready.done():
-                self._ready.cancel()
-            if not self._finished.done():
-                self._finished.set_result(None)
-
     def _fail(self, error: TransportError) -> None:
         """Retain the first terminal worker error and wake all affected waiters.
 
@@ -496,7 +400,7 @@ class KafkaSession:
             if self._error is None:
                 self._error = error
             self._condition.notify_all()
-        self._wake_loop()
+        self._wake_owner()
 
     def _remaining(self) -> float:
         """Bound a native startup request by remaining shared-clock time.
@@ -803,8 +707,8 @@ class KafkaSession:
     def _run(self) -> None:
         """Own native startup, Fetch probing, polling, topology checks, and final cleanup.
 
-        :returns: None after publishing worker completion; failures cross the Future boundary with causes
-            preserved.
+        :returns: None after publishing worker completion; both runtime bridges retain original native
+            failure causes.
         """
         try:
             self._consumer = self._native.Consumer(self._native_config())
@@ -847,7 +751,7 @@ class KafkaSession:
                 },
                 ready_monotonic=self._context.clock.monotonic(),
             )
-            self._wake_loop()
+            self._wake_owner()
             next_topology = self._context.clock.monotonic() + self._config.topology_check_interval
             paused = False
             while not self._stop.is_set() and self._error is None:
@@ -887,7 +791,7 @@ class KafkaSession:
                         with self._condition:
                             self._queue.append(raw)
                         raw = None
-                        self._wake_loop()
+                        self._wake_owner()
         except BaseException as exc:
             if not self._stop.is_set():
                 if isinstance(exc, TransportError):
@@ -909,7 +813,178 @@ class KafkaSession:
             with self._condition:
                 self._queue.clear()
             self._worker_finished = True
-            self._wake_loop()
+            self._wake_owner()
+
+
+class KafkaSession(_KafkaNativeWorker):
+    """One serialized Kafka worker, bounded bridge, and independent failure signal.
+
+    :ivar _config: Immutable connection, security, polling, and buffer settings.
+    :ivar _native: Lazily imported Kafka client module or controlled native double.
+    :ivar _source: Selected topic and optional explicit partition set.
+    :ivar _start: Requested replay policy before numeric boundary resolution.
+    :ivar _context: Owner clock, startup deadline, observation identity, and handoff limits.
+    :ivar _loop: Async owner loop receiving worker notifications.
+    :ivar _ready: Owner-loop Future completed after readiness or startup failure.
+    :ivar _failure: Shared terminal-error signal, shielded from individual waiter cancellation.
+    :ivar _finished: Owner-loop Future completed when the worker finishes.
+    :ivar _data_ready: Owner-loop event used to wake the receive iterator.
+    :ivar _condition: Thread condition protecting bridge queue and notification bookkeeping.
+    :ivar _queue: Conservative one-record Python handoff deque.
+    :ivar _stop: Thread-safe stop request observed by polling and backpressure waits.
+    :ivar _wake_pending: Whether a worker-to-loop wake callback is already reserved.
+    :ivar _error: First terminal transport error, retained without replacement.
+    :ivar _cleanup_error: Native cleanup error with its original Python cause.
+    :ivar _receive_started: Whether the single allowed receive iterator was requested.
+    :ivar _readiness: Resolved READY contract, or None before successful startup.
+    :ivar _fetch_confirmed: Partitions for which the same reader confirmed a Fetch path.
+    :ivar _partitions: Concrete selected partitions.
+    :ivar _topology: Complete initial topic partition set used for static topology checks.
+    :ivar _highs: Captured physical numeric high watermarks by partition.
+    :ivar _consumer: Worker-owned native Consumer, never operated from the owner loop.
+    :ivar _admin: Temporary worker-owned AdminClient during physical-high resolution.
+    :ivar _thread: Dedicated worker serializing all native operations.
+    :ivar _worker_finished: Completion marker published after final worker resource cleanup.
+    :ivar readiness: Resolved boundary and capabilities after successful startup.
+    """
+
+    def __init__(
+        self,
+        config: KafkaConfig,
+        native: Any,
+        source: TransportSource,
+        start: StartPosition,
+        context: OpenContext,
+    ) -> None:
+        """Allocate the shared native driver and its asynchronous owner signals.
+
+        :param config: Immutable connection, polling, and native buffer policy.
+        :param native: Lazily loaded native Kafka module or controlled double.
+        :param source: Existing topic and optional explicit partitions.
+        :param start: Requested native replay policy.
+        :param context: Runtime clock, startup deadline, identity, and handoff limits.
+        :returns: None; the adapter starts the allocated native worker.
+        """
+        super().__init__(config, native, source, start, context)
+        self._loop = asyncio.get_running_loop()
+        self._ready: asyncio.Future[None] = self._loop.create_future()
+        self._failure: asyncio.Future[TransportError | None] = self._loop.create_future()
+        self._finished: asyncio.Future[None] = self._loop.create_future()
+        self._data_ready = asyncio.Event()
+        self._wake_pending = False
+        self._receive_started = False
+
+    async def wait_failure(self) -> TransportError | None:
+        """Await worker failure without cancelling the shared signal.
+
+        :returns: The first terminal transport error, or None after intentional worker closure.
+        :raises asyncio.CancelledError: If only the caller's monitoring wait is cancelled.
+        """
+        return await asyncio.shield(self._failure)
+
+    def receive(self) -> AsyncIterator[RawEvent]:
+        """Reserve the only receive iterator for this independent reader.
+
+        :returns: An asynchronous iterator of normalized RawEvent values.
+        :raises TransportSubscriptionError: If receive was already requested.
+        """
+        if self._receive_started:
+            raise TransportSubscriptionError("A Kafka session permits one receive iterator")
+        self._receive_started = True
+        return self._receive()
+
+    async def _receive(self) -> AsyncIterator[RawEvent]:
+        """Drain the bridge while coordinating worker capacity notifications.
+
+        :yields: Detached RawEvent deliveries in observed partition-read order.
+        :raises TransportError: If the worker reports a terminal error.
+        """
+        while True:
+            with self._condition:
+                if self._error is not None:
+                    raise self._error
+                if self._queue:
+                    event = self._queue.popleft()
+                    self._condition.notify_all()
+                elif self._stop.is_set():
+                    return
+                else:
+                    self._data_ready.clear()
+                    event = None
+            if event is not None:
+                yield event
+            else:
+                await self._data_ready.wait()
+
+    async def close(self, *, deadline: float) -> None:
+        """Request stop and confirm both native cleanup and thread termination.
+
+        :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
+        :returns: None once the worker has terminated.
+        :raises ObserverCleanupTimeoutError: If cleanup or thread join exceeds deadline.
+        :raises ObserverCleanupError: If native Consumer.close failed; its cause remains inspectable.
+        """
+        self._stop.set()
+        with self._condition:
+            self._condition.notify_all()
+        self._wake_owner()
+        remaining = max(0.0, deadline - self._context.clock.monotonic())
+        try:
+            await asyncio.wait_for(asyncio.shield(self._finished), timeout=remaining)
+        except asyncio.TimeoutError as exc:
+            raise ObserverCleanupTimeoutError("Kafka worker did not stop within the cleanup budget") from exc
+        # The completion callback can reach the loop just before the worker's
+        # final Python frame returns. Confirm thread termination as well.
+        while self._thread.is_alive():
+            remaining = deadline - self._context.clock.monotonic()
+            if remaining <= 0:
+                raise ObserverCleanupTimeoutError("Kafka worker did not terminate within the cleanup budget")
+            await asyncio.sleep(min(0.001, remaining))
+        self._thread.join(timeout=0)
+        if self._cleanup_error is not None:
+            raise self._cleanup_error
+
+    def _wake_owner(self) -> None:
+        """Reserve at most one thread-safe wake callback for the owner loop.
+
+        :returns: None; a closed owner loop is left for outer cleanup accounting.
+        """
+        with self._condition:
+            if self._wake_pending:
+                return
+            self._wake_pending = True
+        try:
+            self._loop.call_soon_threadsafe(self._notify)
+        except RuntimeError:
+            pass
+
+    def _notify(self) -> None:
+        """Publish queued data, readiness, failure, or completion to owner-loop waiters.
+
+        :returns: None after coalesced notifications are delivered.
+        """
+        with self._condition:
+            self._wake_pending = False
+        self._data_ready.set()
+        if self._stop.is_set() and not self._ready.done():
+            # The outer startup timeout/cancellation owns its outcome. A late
+            # exception on its already-cancelled shield would otherwise be
+            # reported as an unhandled Future exception on Python 3.14.
+            self._ready.cancel()
+        if self._error is not None:
+            if not self._failure.done():
+                self._failure.set_result(self._error)
+            if not self._ready.done():
+                self._ready.set_exception(self._error)
+        if self._readiness is not None and not self._ready.done():
+            self._ready.set_result(None)
+        if not self._thread.is_alive() or getattr(self, "_worker_finished", False):
+            if not self._failure.done():
+                self._failure.set_result(None)
+            if not self._ready.done():
+                self._ready.cancel()
+            if not self._finished.done():
+                self._finished.set_result(None)
 
 
 __all__ = ["KafkaAdapter", "KafkaConfig", "KafkaSession"]

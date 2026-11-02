@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 import time
 from typing import AsyncGenerator, Callable
 from uuid import uuid4
@@ -27,22 +26,11 @@ from ...errors import ConfigurationError, TransportSubscriptionError
 from ...models import OpenContext, StartPosition, TransportSource
 from ...transports.base import TransportSession
 from ..harness import AdapterTestHarness
+from ._capabilities import ContractPrecondition, require_capability
 
 _STARTUP_SECONDS = 10.0
 _RECEIVE_SECONDS = 5.0
 _CLOSE_SECONDS = 5.0
-
-
-@dataclass(frozen=True, slots=True)
-class ContractPrecondition:
-    """Describe one declared capability needed by an optional contract case.
-
-    :ivar capability: TransportCapabilities attribute inspected by the check.
-    :ivar value: Required boolean value or member of a capability set.
-    """
-
-    capability: str
-    value: str | bool
 
 
 def _require(
@@ -56,18 +44,7 @@ def _require(
         properties.
     :raises pytest.skip.Exception: The adapter does not advertise the requested optional capability.
     """
-    declared = getattr(harness.adapter.capabilities, precondition.capability)
-    applicable = (
-        precondition.value in declared
-        if isinstance(declared, (set, frozenset))
-        else declared == precondition.value
-    )
-    record_property("contract_precondition", f"{precondition.capability}={precondition.value}")
-    record_property("contract_applicability", "APPLICABLE" if applicable else "NOT_APPLICABLE")
-    if not applicable:
-        pytest.skip(
-            f"NOT_APPLICABLE: adapter does not declare {precondition.capability}={precondition.value}"
-        )
+    require_capability(harness.adapter.capabilities, precondition, record_property)
 
 
 async def _source(harness: AdapterTestHarness) -> TransportSource:

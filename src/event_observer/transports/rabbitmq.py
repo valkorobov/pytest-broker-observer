@@ -14,7 +14,7 @@ import importlib
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -44,6 +44,9 @@ from ..models import (
     TransportSource,
 )
 from .base import DeliveryOutcome
+
+if TYPE_CHECKING:
+    from .sync_rabbitmq import SyncRabbitMQAdapter
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,11 +140,38 @@ def _native_error(error: Exception, *, subscription: bool = False) -> TransportE
     names = {cls.__name__ for cls in type(error).__mro__}
     if names.intersection({"AuthenticationError", "ProbableAuthenticationError"}):
         return TransportAuthenticationError("RabbitMQ authentication failed", cause=error)
-    if names.intersection({"ChannelAccessRefused", "ConnectionNotAllowed"}):
+    if names.intersection(
+        {"ChannelAccessRefused", "ConnectionNotAllowed", "ProbableAccessDeniedError"}
+    ) or getattr(error, "reply_code", None) in {403, 530}:
         return TransportAuthorizationError("RabbitMQ permission check failed", cause=error)
     if subscription:
         return TransportSubscriptionError("RabbitMQ subscription preparation failed", cause=error)
     return TransportConnectionError("RabbitMQ connection operation failed", cause=error)
+
+
+def _normalize_headers(headers: Any) -> tuple[tuple[str, bytes | None], ...]:
+    """Detach the common flat AMQP header domain for both native clients.
+
+    :param headers: Native AMQP field table, or None when no headers were supplied.
+    :returns: Ordered string/byte-or-null pairs, with native text encoded as UTF-8.
+    :raises TransportSubscriptionError: If a name or value is outside the supported flat domain.
+    """
+    if headers is None:
+        return ()
+    if not isinstance(headers, Mapping):
+        raise TransportSubscriptionError("RabbitMQ headers must be a flat string-keyed table")
+    result = []
+    for name, value in headers.items():
+        if not isinstance(name, str):
+            raise TransportSubscriptionError("RabbitMQ header names must be strings")
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        elif isinstance(value, bytearray):
+            value = bytes(value)
+        elif value is not None and not isinstance(value, bytes):
+            raise TransportSubscriptionError("RabbitMQ header values must be strings, bytes, or null")
+        result.append((name, value))
+    return tuple(result)
 
 
 class RabbitMQAdapter:
@@ -169,6 +199,15 @@ class RabbitMQAdapter:
         :returns: Static semantics, including bounded prefetch and post-admission settlement.
         """
         return _capabilities()
+
+    def sync_adapter(self) -> SyncRabbitMQAdapter:
+        """Provide the equivalent worker-owned Pika driver without opening a connection.
+
+        :returns: A lazy blocking adapter sharing this configuration and RabbitMQ semantics.
+        """
+        from .sync_rabbitmq import SyncRabbitMQAdapter
+
+        return SyncRabbitMQAdapter(self.config)
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
@@ -420,24 +459,7 @@ class RabbitMQSession:
         :returns: Ordered name/byte-or-null pairs; native text is encoded as UTF-8.
         :raises TransportSubscriptionError: If names or values are outside the supported flat header domain.
         """
-        headers = message.headers
-        if headers is None:
-            return ()
-        if not isinstance(headers, Mapping):
-            raise TransportSubscriptionError("RabbitMQ headers must be a flat string-keyed table")
-        result = []
-        for name, value in headers.items():
-            if not isinstance(name, str):
-                raise TransportSubscriptionError("RabbitMQ header names must be strings")
-            if isinstance(value, str):
-                value = value.encode("utf-8")
-            elif isinstance(value, bytearray):
-                # pamqp decodes AMQP byte-array table values as bytearray.
-                value = bytes(value)
-            elif value is not None and not isinstance(value, bytes):
-                raise TransportSubscriptionError("RabbitMQ header values must be strings, bytes, or null")
-            result.append((name, value))
-        return tuple(result)
+        return _normalize_headers(message.headers)
 
     async def _on_message(self, message: Any) -> None:
         """Validate and reserve each native delivery until Core commits settlement.

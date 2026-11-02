@@ -189,6 +189,15 @@ def test_startup_failure_keeps_transport_and_source_in_summary(allure_capture, s
         async def open(self, source, start, *, context):
             raise TransportError("SECRET_TRANSPORT_ERROR")
 
+        def sync_adapter(self):
+            adapter = super().sync_adapter()
+
+            def open(source, start, *, context):
+                raise TransportError("SECRET_TRANSPORT_ERROR")
+
+            adapter.open = open
+            return adapter
+
     factory_type = SyncEventObserver if sync else EventObserver
     events = factory_type(
         transport=UnavailableTransport(),
@@ -393,6 +402,24 @@ def test_cleanup_failure_after_success_is_still_reported_once(allure_capture, sy
             session.close = close
             return session
 
+        def sync_adapter(self):
+            adapter = super().sync_adapter()
+            original_open = adapter.open
+
+            def open(source, start, *, context):
+                session = original_open(source, start, context=context)
+                original_close = session.close
+
+                def close(*, deadline):
+                    original_close(deadline=deadline)
+                    raise TransportError("SECRET_CLEANUP_ERROR")
+
+                session.close = close
+                return session
+
+            adapter.open = open
+            return adapter
+
     adapter = FailingCleanupTransport()
     factory_type = SyncEventObserver if sync else EventObserver
     events = factory_type(
@@ -424,6 +451,10 @@ def test_background_failure_after_success_is_reported_on_exit(allure_capture, sy
     class SignallingTransport(FakeTransport):
         async def open(self, source, start, *, context):
             session = await super().open(source, start, context=context)
+            self.record_failures(context)
+            return session
+
+        def record_failures(self, context):
             original_record = context.diagnostics.record
 
             def record(kind, **attributes):
@@ -432,7 +463,18 @@ def test_background_failure_after_success_is_reported_on_exit(allure_capture, sy
                     failed.set()
 
             context.diagnostics.record = record
-            return session
+
+        def sync_adapter(self):
+            adapter = super().sync_adapter()
+            original_open = adapter.open
+
+            def open(source, start, *, context):
+                session = original_open(source, start, context=context)
+                self.record_failures(context)
+                return session
+
+            adapter.open = open
+            return adapter
 
     adapter = SignallingTransport()
     factory_type = SyncEventObserver if sync else EventObserver

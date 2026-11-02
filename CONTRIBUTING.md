@@ -48,6 +48,13 @@ Protobuf, pytest, Allure, or OpenTelemetry imports to a plain
 `import event_observer`; `aio_pika`, its AMQP dependencies, and `redis` stay lazy. The runtime
 must not read credentials or open connections before entering a watcher context.
 
+Sync and async orchestration are separate. Blocking adapters implement
+`transports.sync_base` without creating an asyncio loop or task; built-ins offer
+lazy `sync_adapter()` providers. Shared expectation/admission helpers must stay
+independent from either scheduler. Preserve both sets of transport contracts,
+worker-owned callbacks, caller-thread report delivery, and actual cancellation
+acknowledgements. See [the execution guide](docs/sync-async.md).
+
 ## Checks
 
 ```shell

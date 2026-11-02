@@ -15,7 +15,8 @@ See the [local Compose guide](local-redis.md),
 [Allure examples](../examples/allure/README.md#redis-streams-and-allurereporter).
 
 ```python
-from event_observer import ScopeStart, SyncEventObserver
+from event_observer import ScopeStart
+from event_observer.sync import SyncEventObserver
 from event_observer.matchers import header_equals
 from event_observer.transports.redis_streams import RedisStreamsAdapter, RedisStreamsConfig
 
@@ -43,7 +44,29 @@ with events.watch(source="application.events") as watcher:
 The application must publish a `payload` field and, for this correlation,
 a `header:operation-id` field. Replace the comment with the application action.
 The production adapter does not create streams or publish entries. For async
-tests, use `EventObserver`, `async with`, and `await operation.wait_for(...)`.
+tests, import `EventObserver` from `event_observer.aio`, use `async with`, and
+await `operation.wait_for(...)`. Existing top-level imports remain available.
+
+## Explicit native runtimes
+
+`RedisStreamsAdapter.sync_adapter()` lazily supplies `SyncRedisStreamsAdapter`
+with the same immutable configuration. `SyncEventObserver` uses that provider;
+a blocking adapter may also be passed directly from
+`event_observer.transports.sync`. Construction and provider selection open no
+connections and do not import the optional SDK.
+
+Async sessions use `redis.asyncio` on the caller loop. Blocking sessions use
+`redis.Redis` on an owned native I/O worker and a bounded thread-condition
+handoff to the watcher actor. No asyncio event loop is created for blocking
+observation. Both clients come from the same Redis extra and share cursor
+resolution, explicit-ID availability, connection/server identity validation,
+continuity checks, raw field parsing, and complete batch accounting.
+
+Both paths retain binary RESP2 responses, zero retries for known failures, and
+one owned connection pool per session. The blocking pool has one slot, with
+all pipelines created, executed, and closed on its I/O owner. Decoding,
+matching, and Journal admission belong to the watcher actor rather than the
+native polling thread. See the [runtime migration contract](../SPEC.md#s31).
 
 ## Source format and configuration
 
@@ -164,7 +187,9 @@ production adapter does not acquire those responsibilities.
 Each harness operation opens and closes its own native client, so synchronous
 fixtures can call setup, publication, and cleanup with separate
 `asyncio.run(...)` calls. Async tests await the same operations directly.
-The examples create their scope before calling the independent producer;
+These explicit runner calls belong to the publisher/admin harness; the
+blocking observer itself uses the native synchronous client without a hidden
+async runtime. The examples create their scope before calling the independent producer;
 replace that publication with your application's action in black-box tests.
 
 ```shell

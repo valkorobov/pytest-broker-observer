@@ -2,11 +2,12 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.4 adds reusable
-observation marks alongside Kafka, RabbitMQ, Redis Streams, and
-policy-controlled message diagnostics.
+The specification is maintained in English. Revision 1.5 separates async and
+blocking execution, building on reusable observation marks, Kafka, RabbitMQ,
+Redis Streams, and policy-controlled message diagnostics.
 
-Implemented features include a shared async core and sync facade, a bounded
+Implemented features include separate async and blocking thread runtimes sharing
+expectation/admission policies, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
 decoders/resolvers, three-valued matchers, Kafka, RabbitMQ, and Redis Streams adapters, safe diagnostics
 and an explicit Allure reporter, a passive pytest plugin, reusable transport
@@ -16,6 +17,43 @@ scope definitions or broker positions.
 
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
+
+## Separate execution backends (SPEC 1.5)
+
+The [six-stage migration plan](sync-async-migration-plan.md) is complete.
+`event_observer.aio` exposes the async classes; `event_observer.sync` uses a
+blocking observation worker with no created or driven asyncio runtime. Existing
+top-level imports remain available. Both runtimes share expectation/admission
+rules, and all three built-in adapters provide native blocking sessions.
+Custom async-only adapters require a blocking implementation or an explicit
+`sync_adapter()` provider; see [the migration guide](sync-async.md).
+
+Final local verification on November 2, 2026 used CPython 3.14.7, macOS arm64,
+the pinned Kafka 3.9.2, RabbitMQ 4.4.0, and Redis 8.2.11 Compose services,
+and Pika 1.4.4 for blocking RabbitMQ:
+
+| Check | Result |
+| --- | --- |
+| Complete non-integration suite plus pytest/Allure examples | 778 passed, 1 opt-in demonstration skipped, 125 integration nodes deselected |
+| Core suite with two xdist workers | 763 passed |
+| Async/blocking native contracts, integration tests, pytest and Allure examples | 111 passed, 14 explicit capability skips, 16 non-integration nodes deselected |
+| Allure broker artifacts | 6 passed scenarios, 9 distinct wait summaries, 27 JSON attachments with `indent=2`; English text and redacted received bodies verified |
+| Pre-commit: Ruff, format, Pyrefly; separate Pyright | Passed; Pyright reported 0 errors and 0 warnings |
+| Sphinx source audit | 704 named definitions and 679 explicit attributes documented |
+| Wheel/sdist builds and Twine metadata | Passed |
+| Clean wheel/sdist without extras | Imports, `py.typed`, and blocking observation passed; wheel observation also forbids asyncio runtime creation |
+| Plain pytest without pytest-asyncio or native clients | 1 passed |
+
+Independent review and confirmed fixes are recorded in the
+[migration review](sync-async-migration-review.md). Findings included startup
+deadline overruns, invalid-session rollback, shutdown publication ordering,
+settlement coroutine rejection, cancellation acknowledgement, and primary-error
+priority. The final review has no unresolved findings within the implemented
+scope. Initial RabbitMQ fault-test failures and their corrections remain in
+that record; the final full-broker run passed without automatic retry.
+
+These local checks do not verify the full CI matrix, minimum dependency
+versions, production ACL/TLS, all network faults, or load/RSS release gates.
 
 ## Observation marks
 

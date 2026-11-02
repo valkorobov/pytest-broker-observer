@@ -84,6 +84,12 @@ Added:
   shutdown failures, and retained Kafka native exception causes.
 - Shared diagnostic copying/clock dependencies, sample-retention and reporter
   error policies, and bounded report trimming without per-item full reserialization.
+- Separate blocking thread and async runtimes sharing scheduler-independent
+  expectation, admission, retention, and reporting rules. The sync path creates
+  no asyncio loop; built-in transports expose explicit blocking providers.
+- Blocking Kafka, Redis Streams, and Pika RabbitMQ sessions, blocking transport
+  contract suites, explicit `event_observer.aio` imports, and migration guidance
+  for async-only custom adapters. Specification revision 1.5 records the change.
 
 Temporal assertions, further brokers, Schema Registry, and checkpoint reconnect
 are deferred. Verified results and remaining release gates are in

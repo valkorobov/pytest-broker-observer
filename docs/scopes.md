@@ -110,7 +110,8 @@ async with async_events.watch(source="operations") as watcher:
     completed = await operation.wait_for(lambda payload: payload == b"completed", since=mark, timeout=5.0)
 ```
 
-Capturing the mark is atomic on the runtime loop. It does not create a new
+Capturing the mark is atomic on its owner runtime: the async loop or the sync
+observation worker. It does not create a new
 consumer, seek a transport cursor, replay from a broker, or copy the Journal.
 `ScopeStart.from_now()` selects the same kind of admission boundary when a
 scope is created; `since` selects it for an individual expectation.

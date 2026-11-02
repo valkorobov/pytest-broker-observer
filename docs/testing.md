@@ -21,10 +21,38 @@ and cleans up only its own sources in `finally`. No connections are created
 during collection. Each session provides one receive iterator for its entire
 lifetime.
 
+Blocking adapters have separate `SyncLifecycleContract`,
+`SyncReadinessContract`, and `SyncIsolationContract` mixins in
+`event_observer.testing.contracts.sync`. Supply a synchronous
+`sync_adapter_harness` fixture with blocking `create_source`, `publish`, and
+`cleanup` operations plus an `adapter` implementing `SyncTransportAdapter`.
+The contracts call blocking sessions directly; they do not create an asyncio
+runtime for observation. The repository's native fixture uses short test-side
+loops only for independent publisher/admin clients.
+
+Run the same blocking contract suite against all configured brokers:
+
+```shell
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092 \
+RABBITMQ_URL=amqp://observer:observer@127.0.0.1:5672/ \
+RABBITMQ_MANAGEMENT_URL=http://127.0.0.1:15672 \
+REDIS_URL=redis://:observer@127.0.0.1:6379/0 \
+uv run pytest tests/integration/test_sync_contracts.py -v
+```
+
+`RABBITMQ_MANAGEMENT_URL` enables one additional fault-injection test. It
+identifies the reader's connection through its owned queue and unique consumer
+tag, closes only that connection through the management API, and checks that
+idle connection failure is detected without a business message.
+AMQP credentials are reused unless management URL credentials are
+provided. The test explicitly skips without this endpoint; ordinary transport
+contracts need no management API. A supplied but failing endpoint fails the test.
+
 `FakeTransport` supports a READY barrier, immediate delivery, controlled
 failure/end, bounded handoff, and stalled close. Publishing from a sync test
-thread is supported: at most one pending wakeup per session is sent to the
-runtime. The fake's own history is used to replay test scenarios; it is not a
+thread is supported: async readers receive at most one pending wakeup per
+session, while blocking readers use a condition variable. The fake's own history
+is used to replay test scenarios; it is not a
 production broker or a guarantee of bounded memory for the test publisher.
 
 Use `KafkaAdapterHarness` to verify an existing Kafka broker:

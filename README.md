@@ -77,8 +77,11 @@ async def main():
 asyncio.run(main())
 ```
 
-Both facades share the same core. In synchronous mode, a dedicated event loop
-keeps reading messages while the test performs a blocking service action.
+The two backends share models and expectation rules. In synchronous mode, a
+dedicated observation thread keeps reading messages while the test performs a
+blocking service action; it creates no asyncio event loop. The explicit import
+paths are `event_observer.sync` and `event_observer.aio`. See
+[sync/async execution and adapter migration](docs/sync-async.md).
 
 ## Mark before an action and wait later
 
@@ -314,6 +317,7 @@ and reconnect with checkpoint recovery are deferred beyond this MVP.
 - [Redis Streams: field mapping, native ID boundaries, and continuity](docs/redis-streams.md)
 - [Matchers and Protobuf rules](docs/matchers.md)
 - [Scopes, correlation, and completeness](docs/scopes.md)
+- [Separate sync/async runtimes and custom adapter migration](docs/sync-async.md)
 - [Diagnostics, redaction, Allure, and trace context](docs/diagnostics.md)
 - [Run pytest with AllureReporter and view HTML reports](examples/allure/README.md)
 - [Compatibility](docs/compatibility.md) and [verified status](docs/status.md)

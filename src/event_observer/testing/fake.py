@@ -10,7 +10,7 @@ import asyncio
 from collections import deque
 import threading
 import time
-from typing import AsyncIterator
+from typing import AsyncIterator, TYPE_CHECKING
 
 from ..errors import (
     TransportBackpressureError,
@@ -29,6 +29,9 @@ from ..models import (
     TransportReadiness,
     TransportSource,
 )
+
+if TYPE_CHECKING:
+    from .sync_fake import SyncFakeSession
 
 
 class FakeTransport:
@@ -62,11 +65,20 @@ class FakeTransport:
         """
         self._history = list(events)
         self._lock = threading.RLock()
-        self.sessions: list[FakeSession] = []
+        self.sessions: list[FakeSession | SyncFakeSession] = []
         self.ready_gate = ready
         self.close_gate = close_gate
         self.open_count = 0
         self.close_count = 0
+
+    def sync_adapter(self):
+        """Create a lazy blocking provider over the same synthetic publications.
+
+        :returns: A blocking FakeTransport adapter with independent session buffers.
+        """
+        from .sync_fake import SyncFakeTransport
+
+        return SyncFakeTransport(self)
 
     async def open(
         self, source: TransportSource, start: StartPosition, *, context: OpenContext
@@ -314,4 +326,7 @@ class FakeAdapterHarness:
     async def cleanup(self) -> None:
         """Close every session created by the owned synthetic adapter."""
         for session in self.adapter.sessions:
-            await session.close(deadline=time.monotonic() + 1)
+            if not session.closed:
+                result = session.close(deadline=time.monotonic() + 1)
+                if result is not None:
+                    await result

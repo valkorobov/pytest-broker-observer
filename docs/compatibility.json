@@ -89,5 +89,74 @@
     ],
     "connection_identity_checked": true,
     "owned_test_keys_remaining": 0
+  },
+  "runtime_migration": {
+    "implementation_date": "2026-11-02",
+    "specification_revision": "1.5",
+    "async_api_module": "event_observer.aio",
+    "blocking_api_module": "event_observer.sync",
+    "top_level_api_imports_preserved": true,
+    "blocking_model": "single-owner actor thread with no asyncio event loop",
+    "shared_expectation_and_admission_algorithms": true,
+    "blocking_protocol": "event_observer.transports.sync_base.SyncTransportAdapter",
+    "provider_protocol": "event_observer.transports.sync_base.SyncAdapterProvider",
+    "custom_async_only_adapter_in_sync": "ConfigurationError before native startup",
+    "backends": {
+      "kafka": {
+        "async_client": "confluent-kafka",
+        "blocking_client": "confluent-kafka",
+        "algorithm": "shared serialized Consumer worker and boundary/readiness algorithm"
+      },
+      "rabbitmq": {
+        "async_client": "aio-pika",
+        "blocking_client": "pika",
+        "blocking_declared_range": ">=1.4.4,<1.5",
+        "observed_blocking_client_version": "1.4.4",
+        "ownership": "native connection, channel, consumer, and settlement on actor thread",
+        "rpc_deadlines": "supported native transport timer/abort boundary checked at startup"
+      },
+      "redis_streams": {
+        "async_client": "redis.asyncio",
+        "blocking_client": "redis.Redis",
+        "observed_distribution_version": "8.1.0",
+        "algorithm": "shared native cursor, identity, continuity, raw parser, and batch accounting",
+        "blocking_ownership": "one synchronous client and one-slot pool on owned native I/O worker"
+      }
+    },
+    "verification_record": "status.md",
+    "dependency_floors_verified": false,
+    "local_verification": {
+      "verification_date": "2026-11-02",
+      "python": "3.14.7",
+      "platform": "Darwin arm64",
+      "non_integration": {
+        "passed": 778,
+        "skipped": 1,
+        "deselected": 125
+      },
+      "core_xdist": {
+        "workers": 2,
+        "passed": 763
+      },
+      "real_brokers": {
+        "passed": 111,
+        "capability_skips": 14,
+        "deselected": 16
+      },
+      "allure": {
+        "broker_scenarios": 6,
+        "distinct_wait_summaries": 9,
+        "indented_json_attachments": 27,
+        "redacted_bodies_verified": true,
+        "english_explanations_verified": true
+      },
+      "source_documentation": {
+        "named_definitions": 704,
+        "explicit_attributes": 679
+      },
+      "clean_wheel_and_sdist_verified": true,
+      "plain_pytest_without_asyncio_plugin_passed": 1,
+      "independent_review": "sync-async-migration-review.md"
+    }
   }
 }

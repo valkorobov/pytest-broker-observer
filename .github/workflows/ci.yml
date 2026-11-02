@@ -110,9 +110,22 @@ jobs:
           import sys
           import event_observer
           assert importlib.resources.files(event_observer).joinpath("py.typed").is_file()
-          for name in ("confluent_kafka", "aio_pika", "aiormq", "redis", "google", "pytest", "allure", "opentelemetry"):
+          for name in ("confluent_kafka", "aio_pika", "aiormq", "pika", "redis", "google", "pytest", "allure", "opentelemetry"):
               assert name not in sys.modules
               assert importlib.util.find_spec(name) is None
+          import asyncio
+          from event_observer.sync import SyncEventObserver
+          from event_observer.testing import FakeTransport
+          def forbidden(*args, **kwargs):
+              raise AssertionError("blocking observation must not create an asyncio runtime")
+          asyncio.new_event_loop = forbidden
+          asyncio.run = forbidden
+          asyncio.Runner = forbidden
+          adapter = FakeTransport()
+          with SyncEventObserver(transport=adapter).watch(source="events") as watcher:
+              mark = watcher.mark()
+              adapter.publish(b"completed")
+              assert watcher.wait_for(lambda value: value == b"completed", since=mark, timeout=1) == b"completed"
           PY
       - name: Clean source distribution installation
         run: |
@@ -155,7 +168,7 @@ jobs:
       - run: uv sync --locked --all-groups --all-extras
       - name: Start Kafka
         run: docker compose up --detach --wait --wait-timeout 120
-      - run: uv run pytest -c pyproject.toml tests/integration/test_kafka*.py examples/pytest/test_kafka.py -v --junitxml=kafka-results.xml -o junit_family=xunit1
+      - run: uv run pytest -c pyproject.toml tests/integration/test_kafka*.py tests/integration/test_sync_contracts.py examples/pytest/test_kafka.py -v --junitxml=kafka-results.xml -o junit_family=xunit1
       - name: Run Kafka Allure examples
         id: kafka_allure_tests
         run: uv run pytest -c pyproject.toml examples/allure/test_kafka.py -m integration --alluredir=artifacts/allure-kafka-results --clean-alluredir -v
@@ -184,6 +197,7 @@ jobs:
     timeout-minutes: 20
     env:
       RABBITMQ_URL: amqp://observer:observer@127.0.0.1:5672/
+      RABBITMQ_MANAGEMENT_URL: http://127.0.0.1:15672
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -200,7 +214,7 @@ jobs:
       - name: Start RabbitMQ
         run: docker compose --profile rabbitmq up --detach --wait --wait-timeout 120 rabbitmq
       - name: Run RabbitMQ contracts and pytest examples
-        run: uv run pytest -c pyproject.toml tests/integration/test_rabbitmq*.py examples/pytest/test_rabbitmq.py -v --junitxml=rabbitmq-results.xml -o junit_family=xunit1
+        run: uv run pytest -c pyproject.toml tests/integration/test_rabbitmq*.py tests/integration/test_sync_contracts.py examples/pytest/test_rabbitmq.py -v --junitxml=rabbitmq-results.xml -o junit_family=xunit1
       - name: Run RabbitMQ Allure examples
         id: rabbitmq_allure_tests
         run: uv run pytest -c pyproject.toml examples/allure/test_rabbitmq.py -m integration --alluredir=artifacts/allure-rabbitmq-results --clean-alluredir -v
@@ -245,7 +259,7 @@ jobs:
       - name: Start Redis Streams
         run: docker compose --profile redis up --detach --wait --wait-timeout 120 redis
       - name: Run Redis Streams contracts and pytest examples
-        run: uv run pytest -c pyproject.toml tests/integration/test_redis_streams*.py examples/pytest/test_redis_streams.py -v --junitxml=redis-results.xml -o junit_family=xunit1
+        run: uv run pytest -c pyproject.toml tests/integration/test_redis_streams*.py tests/integration/test_sync_contracts.py examples/pytest/test_redis_streams.py -v --junitxml=redis-results.xml -o junit_family=xunit1
       - name: Run Redis Streams Allure examples
         id: redis_allure_tests
         run: uv run pytest -c pyproject.toml examples/allure/test_redis_streams.py -m integration --alluredir=artifacts/allure-redis-results --clean-alluredir -v

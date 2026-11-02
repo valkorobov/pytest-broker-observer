@@ -4,12 +4,15 @@ The code supports Python 3.11–3.14. Local verification was performed on
 CPython 3.14.7, macOS arm64. CI defines a 3.11–3.14 matrix on Linux;
 the presence of a workflow does not mean that this matrix has passed.
 
-Application dependencies are optional. The main runtime and sync facade use
-only the stdlib. Extension code imports Kafka, RabbitMQ, Redis, Protobuf, and Allure lazily.
+Application dependencies are optional. The async runtime and blocking actor
+use only the stdlib. Extension code imports Kafka, RabbitMQ, Redis, Protobuf,
+and Allure lazily.
 The passive pytest plugin does not open connections or change the asyncio mode.
-The `rabbitmq` extra declares `aio-pika>=9.5,<10`; the current lock resolves
-`aio-pika` 9.6.2 with `aiormq` 6.9.4 and `pamqp` 3.3.0. These optional clients
-are not loaded by the base import or adapter construction.
+The `rabbitmq` extra declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`;
+the current environment resolves `aio-pika` 9.6.2 with `aiormq` 6.9.4 and
+`pamqp` 3.3.0, and Pika 1.4.4 for the blocking path. The 1.5 series is outside
+the selected native API range. These optional clients
+are not loaded by the base import, adapter construction, or provider selection.
 The `redis` extra declares `redis>=7.1,<9`; the current environment resolves
 redis-py 8.1.0. That resolution does not verify the candidate minimum version.
 
@@ -19,7 +22,25 @@ versions, all platforms, and generated-code/runtime combinations remains a
 release gate. A broad metadata range should not be treated as the result of
 such verification.
 
-Current local versions and the status of real broker tests are recorded in
+The async API is explicit in `event_observer.aio`; existing top-level
+`EventObserver`, `EventWatcher`, and `EventScope` imports remain aliases to
+those same async classes. `event_observer.sync` exposes ordinary blocking
+methods backed by a watcher actor without an asyncio loop. Both schedulers
+drive shared incremental expectation and admission logic.
+
+Built-in `KafkaAdapter`, `RabbitMQAdapter`, and `RedisStreamsAdapter` expose
+ordinary `sync_adapter()` providers. Custom adapters used with
+`SyncEventObserver` must implement `SyncTransportAdapter` directly or the
+`SyncAdapterProvider` interface; an async-only `open` is rejected with
+`ConfigurationError` before connection startup. No private-loop fallback is
+provided. The explicit blocking interfaces and adapters are re-exported from
+`event_observer.transports.sync`. See [the migration contract](../SPEC.md#s31).
+
+The historical verification dates, client lists, and result counts in
+[compatibility.json](compatibility.json) remain scoped to their recorded runs.
+Its `runtime_migration` entry describes the selected backend model without
+relabeling those historical runs as new verification. Current local versions
+and the status of real broker tests are recorded in
 [status.md](status.md). Transport-specific conditions are described in
 [kafka.md](kafka.md), [rabbitmq.md](rabbitmq.md), and
 [redis-streams.md](redis-streams.md). The optional local RabbitMQ
@@ -89,8 +110,13 @@ estimate, and 128 bytes per record. The Protobuf estimate uses an adjusted
 wire size and is not equivalent to native heap size. Native queues, snapshots,
 and user results are accounted for separately from the retained journal.
 
-One active sync watcher has one runtime thread; Kafka adds one serialized
-polling worker. An arbitrary blocking callback cannot be forcibly interrupted.
+One active sync watcher has one actor thread; Kafka and Redis Streams add
+owned serialized native I/O workers, while blocking RabbitMQ owns Pika on the
+actor. Native SDKs may create additional internal threads. Async sessions
+retain caller-loop ownership. User decoders, matchers, redactors, and payload
+copying run on the respective runtime owner; blocking results and Allure
+rendering return to the original test thread. An arbitrary blocking callback
+cannot be forcibly interrupted.
 If cleanup hangs, an incomplete/abandoned outcome is recorded; the library
 does not claim to have forcibly stopped the thread.
 

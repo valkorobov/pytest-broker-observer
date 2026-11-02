@@ -36,6 +36,13 @@ python -m pip install -e '.[pytest]'
 python -m pytest examples/pytest/test_sync.py -v
 ```
 
+Import the blocking factory explicitly from `event_observer.sync`; the
+asynchronous factory is available from `event_observer.aio`. Existing top-level
+imports remain supported. The blocking observer runs a dedicated actor without
+creating an asyncio event loop; it keeps admitting events while the test
+thread waits on the application action. Both runtimes share matching,
+completeness, deadline, and quota semantics.
+
 The `sync_events` fixture in `conftest.py` creates a lazy factory. The test opens
 observation with `with sync_events.watch(...)`. Entering the context waits for
 READY, so the service action belongs inside `with`, after creating the scope.
@@ -47,7 +54,15 @@ independent transport, watcher, and history for each parameter value.
 
 `perform_operation` is an ordinary callback fixture called by the test. Replace
 it with your service client in your own project. Library matchers and decoders
-should remain short callbacks without I/O.
+run on the owning actor or async loop and should remain short callbacks
+without I/O. Blocking callbacks must not reenter their own watcher.
+
+The built-in broker adapters expose lazy `sync_adapter()` providers, so the
+examples keep the same immutable connection configs for both native paths.
+Custom async-only adapters require an explicit blocking implementation or
+`SyncAdapterProvider` before they can be used by `SyncEventObserver`; no hidden
+event-loop fallback is provided. See the
+[adapter migration contract](../../SPEC.md#s31).
 
 ## Asynchronous tests
 
@@ -62,6 +77,10 @@ An ordinary `pytest.fixture` also provides the async factory: resources open in
 `async with` inside the test. Parallel expectations use `asyncio.create_task`
 and finish through `asyncio.gather`. They can observe the same record; a matched
 event is not removed from the Journal.
+
+`EventObserver` uses the caller's async loop; it does not share an active
+native session with a blocking watcher. The same admitted history produces
+the same assertion outcome through their shared expectation state.
 
 The shared `pytest.ini` in this directory contains only pytest options, so the
 raw examples also work without an async plugin. Async and full-suite commands
@@ -144,7 +163,9 @@ the test project: Observer itself does not discover connection settings.
 `KafkaAdapterHarness` provides an independent producer and waits for broker
 acknowledgement. An ordinary black-box test calls the application instead of
 `harness.publish(...)` and explicitly passes a `KafkaAdapter` with `KafkaConfig`
-to `SyncEventObserver`. See the [Kafka guide](../../docs/kafka.md) for TLS/SASL
+to `SyncEventObserver`. The provider selects a blocking bridge over the shared
+serialized Kafka worker without starting an asyncio loop. See the
+[Kafka guide](../../docs/kafka.md) for TLS/SASL
 configuration and replay policy.
 
 ## Examples with real RabbitMQ
@@ -163,10 +184,14 @@ docker compose stop rabbitmq
 
 Expect **2 passed** with the full development environment. For a separate test
 project, install `.[rabbitmq,pytest-asyncio]`; the async example explicitly skips
-without pytest-asyncio. The fixture creates a unique topic exchange and cleans
+without pytest-asyncio. The RabbitMQ extra installs both aio-pika for async
+observation and Pika 1.4.x for the blocking actor. The fixture creates a unique
+topic exchange and cleans
 up only that exchange. The harness opens independent connections per call, so
 the sync example can use `asyncio.run(...)`; the async example awaits publication
-directly without reusing a client tied to an earlier loop.
+directly without reusing a client tied to an earlier loop. Those explicit
+runner calls belong to the publisher/admin harness; the blocking observer
+itself uses Pika and creates no asyncio runtime.
 
 The source is an exchange. Each watcher binds a dedicated exclusive auto-delete
 queue and never consumes an application's queue. Entering `watch()` confirms
@@ -209,7 +234,10 @@ to a retained position; the adapter guide details the conservative bounds.
 
 The fixture creates a unique existing stream with an `XADD`/`XDEL` seed and
 deletes only its own key. Each harness operation has an independent native
-client, so separate `asyncio.run(...)` calls in sync fixtures are safe. A receipt
+client, so separate `asyncio.run(...)` calls in sync fixtures are safe. These
+explicit calls belong to the publisher/admin harness; blocking observation
+uses `redis.Redis` on its I/O worker, while the async path uses `redis.asyncio`
+on the caller loop. Both retain the same atomic cursor/continuity checks. A receipt
 contains the server-generated `redis.stream_id`, also exposed in observed
 event metadata. The default entry fields are `payload` and
 `header:operation-id`; `event.raw.key` is `None`.

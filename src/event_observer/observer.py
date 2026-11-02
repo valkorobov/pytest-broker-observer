@@ -3,34 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, replace
-from enum import Enum
-import inspect
+from dataclasses import replace
 import os
-from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Generic, Sequence, TypeVar, cast, overload
 from uuid import uuid4
 
 from ._runtime.clock import Clock, SystemClock
+from ._reporters import bind_observation_reporters
+from ._admission import admit_raw
+from ._expectations import ExpectationState, ExpectationStatus, effective_lower_bound, validate_expectation
+from ._views import LifecycleState, ScopeSnapshot
 
 from .config import (
-    DecodeErrorPolicy,
     DecodingPolicy,
     JournalPolicy,
     LifecyclePolicy,
     ObservationIdentity,
     RuntimeLimits,
     TransportBufferLimits,
-    positive,
 )
 from .decoders import Decoder, DefaultPayloadAccess, PayloadAccess, ProtobufDecoder, RawDecoder
 from .diagnostics import DiagnosticCollector, DiagnosticPolicy, DiagnosticReporter
 from .errors import (
     ConfigurationError,
-    EventDecodingError,
     EventLoopMismatchError,
-    EventTimeoutError,
     ExpectationResourceLimitError,
-    IncompleteObservationError,
     ObserverCleanupError,
     ObserverCleanupTimeoutError,
     ObserverClosedError,
@@ -40,16 +37,11 @@ from .errors import (
     ProcessAffinityError,
     ScopeResourceLimitError,
     TransportError,
-    UnknownMessageTypeError,
     UnexpectedStreamEndError,
     UnsupportedCapabilityError,
-    InvalidMatcherResultError,
-    MatcherEvaluationError,
-    EventObserverError,
-    EventAssertionError,
 )
 from .journal import EventJournal, JournalSnapshot
-from .matchers import EventMatcher, MatchStatus, bind_matcher
+from .matchers import EventMatcher, bind_matcher
 from .models import (
     ObservedEvent,
     ObservationMark,
@@ -59,54 +51,12 @@ from .models import (
     StartPosition,
     TransportSource,
 )
-from .trace import extract_trace_context
 from .transports.base import DeliveryOutcome, TransportAdapter, TransportSession
 
 T = TypeVar("T")
 
 if TYPE_CHECKING:
     from .transports.kafka import KafkaConfig
-
-
-class LifecycleState(str, Enum):
-    """Lifecycle states for a single-use observation context.
-
-    :ivar CREATED: Constructed without transport resources.
-    :ivar STARTING: Opening the transport and confirming readiness.
-    :ivar READY: Collecting events and accepting expectations.
-    :ivar FAILED: A terminal operation or cleanup failure is known.
-    :ivar STOPPING: Releasing tasks and transport resources.
-    :ivar CLOSED: Transport and runtime cleanup completed.
-    """
-
-    CREATED = "created"
-    STARTING = "starting"
-    READY = "ready"
-    FAILED = "failed"
-    STOPPING = "stopping"
-    CLOSED = "closed"
-
-
-@dataclass(frozen=True, slots=True)
-class ScopeSnapshot:
-    """Detached diagnostics for an immutable scope definition.
-
-    :ivar observer_id: Identity of the watcher owning this scope.
-    :ivar scope_id: Stable identity used to associate expectations with the scope.
-    :ivar lower_bound: Journal sequence at which the scope definition starts.
-    :ivar complete: Whether the scope definition contains no known retention loss.
-    :ivar expectations: Retained expectation summaries belonging to the scope.
-    :ivar name: Optional caller-supplied scope label.
-    :ivar filter_count: Number of filters inherited and added by the scope.
-    """
-
-    observer_id: str
-    scope_id: str
-    lower_bound: int
-    complete: bool
-    expectations: tuple[Any, ...]
-    name: str | None = None
-    filter_count: int = 0
 
 
 class EventObserver:
@@ -537,7 +487,6 @@ class EventWatcher(_EventView[T]):
     :ivar _waiter_tasks: Tasks currently running expectations.
     :ivar _scope_count: Number of registered child scope definitions.
     :ivar _result_bytes: Bytes reserved by all pending expectation results.
-    :ivar _defer_reporting: Whether the sync facade owns caller-thread report delivery.
     :ivar readiness: Confirmed transport capabilities and observation boundary.
     """
 
@@ -581,25 +530,13 @@ class EventWatcher(_EventView[T]):
             clock=self._clock,
             clone_payload=access.clone_for_user,
         )
-        bound_reporters = []
-        for reporter in factory.reporters:
-            try:
-                observation_binder = getattr(reporter, "bind_observation", None)
-                if callable(observation_binder):
-                    transport_name = type(factory.transport).__name__
-                    aliases = factory.diagnostic_policy.aliases
-                    bound_reporters.append(
-                        observation_binder(
-                            transport=aliases.get(transport_name, transport_name),
-                            source=aliases.get(source.name, source.name),
-                        )
-                    )
-                else:
-                    binder = getattr(reporter, "bind", None)
-                    bound_reporters.append(binder() if callable(binder) else reporter)
-            except Exception:
-                self._diagnostics.record("reporter_error", error_code="reporter_bind_failed")
-        self.reporters: tuple[DiagnosticReporter, ...] = tuple(bound_reporters)
+        self.reporters = bind_observation_reporters(
+            factory.reporters,
+            factory.diagnostic_policy,
+            self._diagnostics,
+            transport=type(factory.transport).__name__,
+            source=source.name,
+        )
         self._session: TransportSession | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._pid = os.getpid()
@@ -609,7 +546,6 @@ class EventWatcher(_EventView[T]):
         self._waiter_tasks: set[asyncio.Task] = set()
         self._scope_count = 0
         self._result_bytes = 0
-        self._defer_reporting = False
         self.readiness = None
 
     def _check_affinity(self) -> None:
@@ -734,6 +670,10 @@ class EventWatcher(_EventView[T]):
                     getattr(self._session, "settle", None)
                 ):
                     raise UnsupportedCapabilityError("Session advertises settlement without implementing it")
+                if self._clock.monotonic() >= deadline:
+                    # A pending caller cancellation keeps priority over startup expiry.
+                    await asyncio.sleep(0)
+                    raise TimeoutError("Observer startup deadline expired")
                 self._tasks = [
                     asyncio.create_task(self._receive(), name="event-observer-receive"),
                     asyncio.create_task(self._monitor(), name="event-observer-monitor"),
@@ -743,6 +683,8 @@ class EventWatcher(_EventView[T]):
                 await asyncio.sleep(0)
                 if self.terminal_error is not None:
                     raise self.terminal_error
+                if self._clock.monotonic() >= deadline:
+                    raise TimeoutError("Observer startup deadline expired")
             self._diagnostics.record(
                 "ready",
                 start_mode=self.start_position.mode.value,
@@ -773,7 +715,7 @@ class EventWatcher(_EventView[T]):
             except BaseException:
                 self._diagnostics.record("startup_cleanup_failure")
             if isinstance(error, TimeoutError):
-                raise ObserverStartupTimeoutError("Observer startup deadline expired") from error
+                raise ObserverStartupTimeoutError("Observer startup deadline expired", cause=error) from error
             raise
 
     async def _receive(self) -> None:
@@ -783,47 +725,20 @@ class EventWatcher(_EventView[T]):
             async for raw in self._session.receive():
                 if self.state not in (LifecycleState.READY, LifecycleState.STARTING):
                     return
-                size = self._journal.check_raw(raw)
-                try:
-                    payload = self.decoder.decode(raw)
-                    if inspect.isawaitable(payload):
-                        if inspect.iscoroutine(payload):
-                            payload.close()
-                        raise EventDecodingError("Decoder must return a value synchronously")
-                except UnknownMessageTypeError:
-                    if self.decoding.error_policy == DecodeErrorPolicy.SKIP_UNKNOWN_TYPE:
-                        self._journal.skip_filtered()
-                        self._diagnostics.record("filtered", reason_code="unknown_type")
-                        self._notify()
-                        await self._settle(raw, DeliveryOutcome.FILTERED)
-                        continue
-                    raise
-                except EventDecodingError:
-                    raise
-                except Exception as exc:
-                    raise EventDecodingError("Custom decoder failed") from exc
-                decoded_size = self.access.estimate_bytes(payload)
-                if isinstance(decoded_size, bool) or not isinstance(decoded_size, int) or decoded_size < 0:
-                    raise PayloadIsolationError("Payload size estimate must be a nonnegative integer")
-                event = ObservedEvent(
-                    self.observer_id,
-                    self._journal.next_sequence,
-                    payload,
+                outcome = admit_raw(
                     raw,
-                    self._clock.utcnow(),
-                    self._clock.monotonic(),
-                    getattr(getattr(payload, "DESCRIPTOR", None), "full_name", None),
-                    extract_trace_context(raw.headers),
+                    observer_id=self.observer_id,
+                    journal=self._journal,
+                    decoder=self.decoder,
+                    access=self.access,
+                    clock=self._clock,
+                    decoding=self.decoding,
+                    diagnostics=self._diagnostics,
                 )
-                admitted = self._journal.append(event, size + decoded_size + 128)
-                self._diagnostics.record("admission", event_sequence=event.sequence, retained=admitted)
                 self._notify()
-                await self._settle(
-                    raw,
-                    DeliveryOutcome.ADMITTED
-                    if admitted
-                    else DeliveryOutcome.DISCARDED_BY_EXPLICIT_JOURNAL_POLICY,
-                )
+                await self._settle(raw, outcome)
+                if outcome == DeliveryOutcome.FILTERED:
+                    continue
                 # Fast async iterators must not starve waiters and failure monitor.
                 if self._journal.next_sequence % self.factory.runtime_limits.scan_batch_events == 0:
                     await asyncio.sleep(0)
@@ -902,27 +817,15 @@ class EventWatcher(_EventView[T]):
         :raises ObserverFailedError: If background collection has failed.
         """
         self._check_open()
-        if since is not None:
-            if not isinstance(since, ObservationMark):
-                raise ConfigurationError("since must be an ObservationMark from this watcher")
-            if since.observer_id != self.observer_id or since.sequence > self._journal.next_sequence:
-                raise ConfigurationError("Observation mark belongs to another watcher or a future position")
-            # A wait-local view preserves the immutable scope and its identity.
-            # All scanning, completeness, and diagnostic paths use this bound.
-            scope = _EventView(
-                self,
-                lower=max(scope.lower_bound, since.sequence),
-                filters=scope._filters,
-                scope_id=scope.scope_id,
-                name=scope.name,
-            )
-        positive(timeout, "timeout")
-        if not isinstance(require_complete, bool):
-            raise ConfigurationError("require_complete must be bool")
+        lower_bound = effective_lower_bound(
+            observer_id=self.observer_id,
+            lower_bound=scope.lower_bound,
+            since=since,
+            next_sequence=self._journal.next_sequence,
+        )
         limits = self.factory.runtime_limits
-        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
-            raise ConfigurationError("count must be a positive integer")
-        if count > limits.max_result_events or len(self._waiter_tasks) >= limits.max_active_waiters:
+        validate_expectation(count, timeout, require_complete, max_result_events=limits.max_result_events)
+        if len(self._waiter_tasks) >= limits.max_active_waiters:
             raise ExpectationResourceLimitError("Expectation resource limit reached")
         began = self._clock.monotonic()
         deadline = absolute_deadline if absolute_deadline is not None else began + timeout
@@ -930,156 +833,86 @@ class EventWatcher(_EventView[T]):
         expectation_id = uuid4().hex
         task = asyncio.current_task()
         assert task is not None
-        self._waiter_tasks.add(task)
-        cursor = scope.lower_bound
-        results: list[ObservedEvent[T]] = []
-        reserved = 0
-        evaluated = excluded = not_applicable = mismatched = 0
-        outcome = "error"
-        final_upper: int | None = None
-        outcome_error: BaseException | None = None
 
         def check_state() -> None:
-            """Reject cancellation, terminal failure, closure, or required-range loss."""
+            """Check scheduler cancellation before the shared lifecycle and terminal state."""
             if task.cancelling():
                 raise asyncio.CancelledError
             self._check_open()
-            if require_complete and not self._journal.complete(
-                scope.lower_bound, final_upper, deadline=deadline
-            ):
-                raise IncompleteObservationError(
-                    "Required observation range contains known retention loss",
-                    observer_id=self.observer_id,
-                    expectation_id=expectation_id,
-                    diagnostics=self._diagnostics.snapshot(),
-                )
 
-        def evaluate(matcher, event):
-            """Evaluate a matcher on a detached event while preserving failure precedence.
+        def reserve_result(size: int) -> None:
+            """Reserve result memory across all unfinished owner-loop expectations.
 
-            :param matcher: Payload predicate or declarative matcher to bind and evaluate.
-            :param event: Canonical event whose payload must remain isolated from user callbacks.
-            :returns: The validated match result for the copied event.
+            :param size: Accounted size of the matched event to reserve.
+            :raises ExpectationResourceLimitError: Aggregate result bytes exceed the runtime budget.
             """
-            try:
-                return matcher.match_event(self._copy_event(event))
-            except (MatcherEvaluationError, InvalidMatcherResultError, PayloadIsolationError):
-                # A callback can expose a known observer failure before it fails itself.
-                check_state()
-                raise
+            if self._result_bytes + size > limits.max_result_bytes:
+                raise ExpectationResourceLimitError("Pending result bytes budget exhausted")
+            self._result_bytes += size
 
+        def release_result(size: int) -> None:
+            """Release the finished expectation's pending-result reservation.
+
+            :param size: Accounted bytes reserved by this expectation.
+            """
+            self._result_bytes -= size
+
+        state = ExpectationState(
+            observer_id=self.observer_id,
+            expectation_id=expectation_id,
+            scope_id=scope.scope_id,
+            journal=self._journal,
+            lower_bound=lower_bound,
+            filters=scope._filters,
+            matcher=bound,
+            count=count,
+            timeout=timeout,
+            began=began,
+            deadline=deadline,
+            require_complete=require_complete,
+            scan_batch_events=limits.scan_batch_events,
+            clock=self._clock,
+            copy_event=self._copy_event,
+            diagnostics=self._diagnostics,
+            check_state=check_state,
+            reserve_result=reserve_result,
+            release_result=release_result,
+        )
+        self._waiter_tasks.add(task)
+        outcome_error: BaseException | None = None
+        cancelled = False
         try:
             while True:
-                check_state()
-                if self._clock.monotonic() >= deadline and final_upper is None:
-                    final_upper = self._journal.next_sequence
-                version = self._journal.version
-                scanned_upper = self._journal.next_sequence
+                # Capturing the notifier before a synchronous step preserves the
+                # same version/notification protocol as the former inline scan.
                 changed = self._changed
-                batch = self._journal.batch(
-                    cursor,
-                    limits.scan_batch_events,
-                    final_upper if final_upper is not None else scanned_upper,
-                )
-                for event, size in batch:
-                    cursor = event.sequence + 1
-                    if event.recorded_monotonic > deadline:
-                        continue
-                    callback_start = self._clock.monotonic()
-                    included = True
-                    for scope_filter in scope._filters:
-                        status = evaluate(scope_filter, event).status
-                        if status != MatchStatus.MATCH:
-                            included = False
-                            excluded += 1
-                            break
-                    if not included:
-                        continue
-                    result = evaluate(bound, event)
-                    evaluated += 1
-                    duration = self._clock.monotonic() - callback_start
-                    if duration > 0.05:
-                        self._diagnostics.record("slow_callback", elapsed=duration)
-                    if result.status == MatchStatus.NOT_APPLICABLE:
-                        not_applicable += 1
-                    elif result.status == MatchStatus.MISMATCH:
-                        mismatched += 1
-                        self._diagnostics.record_mismatch(
-                            expectation_id, event.sequence, result.mismatches, payload=event.payload
-                        )
-                    elif result.status == MatchStatus.MATCH:
-                        if self._result_bytes + size > limits.max_result_bytes:
-                            raise ExpectationResourceLimitError("Pending result bytes budget exhausted")
-                        results.append(self._copy_event(event))
-                        reserved += size
-                        self._result_bytes += size
-                        self._diagnostics.record_match(expectation_id, event.sequence, payload=event.payload)
-                        if len(results) == count:
-                            check_state()
-                            outcome = "matched"
-                            return results
-                if batch:
-                    # Release pinned canonical references before cooperative yield.
-                    batch.clear()
+                step = state.step()
+                if step.status is ExpectationStatus.MATCHED:
+                    return state.results
+                if step.status is ExpectationStatus.TIMEOUT:
+                    raise state.timeout_error()
+                if step.scanned:
                     await asyncio.sleep(0)
                     continue
-                cursor = max(cursor, scanned_upper if final_upper is None else final_upper)
-                if final_upper is not None:
-                    check_state()
-                    outcome = "timeout"
-                    raise EventTimeoutError(
-                        "No sufficient matching events within the observation deadline",
-                        observer_id=self.observer_id,
-                        expectation_id=expectation_id,
-                        diagnostics=self._diagnostics.snapshot(),
-                    )
                 remaining = deadline - self._clock.monotonic()
                 if remaining <= 0:
                     continue
-                # Single loop: compare version and capture event without an intervening yield.
-                if version == self._journal.version and changed is self._changed:
+                if step.version == self._journal.version and changed is self._changed:
                     try:
                         assert changed is not None
                         await asyncio.wait_for(changed.wait(), remaining)
                     except TimeoutError:
                         pass
         except asyncio.CancelledError:
-            outcome = "cancelled"
+            cancelled = True
             raise
-        except BaseException as exc:
-            outcome_error = exc
-            if isinstance(exc, (EventObserverError, EventAssertionError)):
-                exc.observer_id = self.observer_id
-                exc.expectation_id = expectation_id
-                exc.sequence = cursor - 1 if cursor > scope.lower_bound else None
+        except BaseException as error:
+            outcome_error = error
             raise
         finally:
             self._waiter_tasks.discard(task)
-            self._result_bytes -= reserved
-            self._diagnostics.record_expectation(
-                expectation_id=expectation_id,
-                scope_id=scope.scope_id,
-                outcome=outcome,
-                evaluated=evaluated,
-                matched=len(results),
-                mismatch_count=mismatched,
-                scope_excluded=excluded,
-                not_applicable=not_applicable,
-                deadline=deadline,
-                timeout=timeout,
-                elapsed=self._clock.monotonic() - began,
-                deadline_overrun=max(0.0, self._clock.monotonic() - deadline),
-                requested_count=count,
-                lower_bound=scope.lower_bound,
-                error_code=getattr(outcome_error, "code", None),
-                error_type=type(outcome_error).__name__ if outcome_error is not None else None,
-                require_complete=require_complete,
-                complete=self._journal.complete(scope.lower_bound, final_upper, deadline=deadline),
-            )
-            if isinstance(outcome_error, (EventObserverError, EventAssertionError)):
-                outcome_error.diagnostics = self._diagnostics.snapshot()
-            if not self._defer_reporting:
-                self._diagnostics.emit(self.reporters)
+            state.finish(outcome_error, cancelled=cancelled)
+            self._diagnostics.emit(self.reporters)
 
     async def close(self) -> None:
         """Await shared shielded cleanup within the configured lifecycle budget."""
@@ -1120,8 +953,7 @@ class EventWatcher(_EventView[T]):
         finally:
             self._notify()
             self._diagnostics.record("closed", cleanup_state=self.cleanup_state)
-            if not self._defer_reporting:
-                self._diagnostics.emit(self.reporters)
+            self._diagnostics.emit(self.reporters)
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
         """Finish observation while preserving a context or primary background failure.

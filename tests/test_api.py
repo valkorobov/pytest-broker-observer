@@ -243,7 +243,7 @@ import threading
 from types import SimpleNamespace
 
 sys.path.insert(0, sys.argv[1])
-blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "redis", "google.protobuf", "allure", "opentelemetry")
+blocked = ("pytest", "pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "pika", "redis", "google.protobuf", "allure", "opentelemetry")
 class NoOptionalDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if any(fullname == name or fullname.startswith(name + ".") for name in blocked):
@@ -269,7 +269,8 @@ async def not_opened(*args, **kwargs):
     raise AssertionError("factory unexpectedly opened a transport")
 adapter = SimpleNamespace(open=not_opened, capabilities=TransportCapabilities())
 event_observer.EventObserver(transport=adapter).watch(source="events")
-event_observer.SyncEventObserver(transport=adapter).watch(source="events")
+sync_adapter = SimpleNamespace(open=forbidden, capabilities=TransportCapabilities())
+event_observer.SyncEventObserver(transport=sync_adapter).watch(source="events")
 assert not any(name in sys.modules for name in blocked)
 assert not any(name.startswith("pytest_") for name in vars(plugin))
 print("stdlib core and passive plugin verified")
