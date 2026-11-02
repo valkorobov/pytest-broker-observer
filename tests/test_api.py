@@ -233,6 +233,35 @@ def test_both_public_watch_factories_have_raw_decoder_and_message_overloads():
     assert files("event_observer").joinpath("py.typed").is_file()
 
 
+def test_public_codec_namespaces_preserve_decoder_and_payload_extension_types():
+    from event_observer.codecs.base import Decoder, DefaultPayloadAccess, PayloadAccess
+    from event_observer.codecs.raw import RawDecoder
+    from event_observer import decoders
+
+    assert Decoder is decoders.Decoder
+    assert PayloadAccess is decoders.PayloadAccess
+    assert DefaultPayloadAccess is decoders.DefaultPayloadAccess
+    assert RawDecoder is decoders.RawDecoder
+    decoder = RawDecoder()
+    for payload in (None, b"", b"completed"):
+        assert decoder.decode(RawEvent(payload, "events")) == payload
+
+
+def test_public_blocking_namespace_exposes_the_canonical_contracts_and_native_adapters():
+    from event_observer.transports import sync, sync_base
+    from event_observer.transports.sync_kafka import SyncKafkaAdapter
+    from event_observer.transports.sync_rabbitmq import SyncRabbitMQAdapter
+    from event_observer.transports.sync_redis_streams import SyncRedisStreamsAdapter
+
+    assert sync.SyncTransportAdapter is sync_base.SyncTransportAdapter
+    assert sync.SyncTransportSession is sync_base.SyncTransportSession
+    assert sync.SyncSettlementSession is sync_base.SyncSettlementSession
+    assert sync.SyncAdapterProvider is sync_base.SyncAdapterProvider
+    assert sync.SyncKafkaAdapter is SyncKafkaAdapter
+    assert sync.SyncRabbitMQAdapter is SyncRabbitMQAdapter
+    assert sync.SyncRedisStreamsAdapter is SyncRedisStreamsAdapter
+
+
 def test_clean_core_and_passive_plugin_import_need_only_the_standard_library():
     source = str(Path(__file__).resolve().parents[1] / "src")
     script = r"""
@@ -258,10 +287,15 @@ import event_observer
 import event_observer.integrations.pytest_plugin as plugin
 from event_observer.models import TransportCapabilities
 from event_observer.transports.rabbitmq import RabbitMQAdapter, RabbitMQConfig
+from event_observer.transports.kafka import KafkaConfig
 from event_observer.testing import RabbitMQAdapterHarness
 from event_observer.transports.redis_streams import RedisStreamsAdapter, RedisStreamsConfig
 from event_observer.testing import RedisStreamsAdapterHarness
+from event_observer.transports.sync import SyncKafkaAdapter, SyncRabbitMQAdapter, SyncRedisStreamsAdapter
 RabbitMQAdapter(RabbitMQConfig(url="amqp://observer:observer@127.0.0.1:5672/"))
+SyncKafkaAdapter(KafkaConfig("127.0.0.1:9092"))
+SyncRabbitMQAdapter(RabbitMQConfig(url="amqp://observer:observer@127.0.0.1:5672/"))
+SyncRedisStreamsAdapter(RedisStreamsConfig(url="redis://:observer@127.0.0.1:6379/0"))
 RabbitMQAdapterHarness("amqp://observer:observer@127.0.0.1:5672/")
 RedisStreamsAdapter(RedisStreamsConfig(url="redis://:observer@127.0.0.1:6379/0"))
 RedisStreamsAdapterHarness("redis://:observer@127.0.0.1:6379/0")

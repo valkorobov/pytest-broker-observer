@@ -34,7 +34,7 @@ dev = [
     "pre-commit>=4.7.0",
     "pyrefly>=1.4.0",
 ]
-test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "protobuf>=5.29,<8", "confluent-kafka>=2.6,<3", "aio-pika>=9.5,<10", "pika>=1.4.4,<1.5", "redis>=7.1,<9"]
+test = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "pytest-xdist>=3.6,<4", "pytest-cov>=6,<8", "coverage[toml]>=7.10.6,<8", "protobuf>=5.29,<8", "confluent-kafka>=2.6,<3", "aio-pika>=9.5,<10", "pika>=1.4.4,<1.5", "redis>=7.1,<9"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/event_observer"]
@@ -48,6 +48,25 @@ asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "--strict-markers --import-mode=importlib"
 markers = ["contract: adapter conformance", "integration: requires a real broker", "reliability: resource and fault checks", "benchmark: performance measurements"]
+
+[tool.coverage.run]
+branch = true
+source = ["event_observer"]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 80
+precision = 2
+show_missing = true
+
+[tool.coverage.html]
+directory = "artifacts/coverage/html"
+
+[tool.coverage.xml]
+output = "artifacts/coverage/coverage.xml"
+
+[tool.coverage.json]
+output = "artifacts/coverage/coverage.json"
 
 [tool.ruff]
 target-version = "py311"

@@ -1,5 +1,49 @@
 # Adapter verification
 
+## Unit coverage
+
+The minimum unit coverage is **80%** of the entire `src/event_observer` package,
+including native adapters and public testing helpers. The configuration in
+`pyproject.toml` enables branch measurement and applies the threshold to
+Coverage.py's combined executable-statement and branch percentage. Reports
+also expose line and branch coverage separately. No project-specific source
+omissions or coverage exclusions are configured.
+
+Run the broker-free suite and enforce the same threshold as CI:
+
+```shell
+uv run --locked coverage run -m pytest tests -m 'not integration'
+uv run --locked coverage report
+```
+
+Start measurement with `coverage run`, before pytest loads entrypoints. The
+library's passive pytest plugin imports Core during pytest startup; starting
+instrumentation afterward with `pytest --cov` misses that import-time execution
+and can emit `module-not-measured`. Coverage flags are deliberately absent
+from global pytest options, preserving plain pytest-only installations.
+
+The measurement is fresh on each run. It includes unit/native-double contracts
+in `tests`, while integration-marked nodes and runnable examples execute
+separately. No broker or example coverage is combined into the unit result.
+The thread-based sync runtime is included in the measurement.
+
+Generate detailed local reports:
+
+```shell
+uv run --locked coverage html
+uv run --locked coverage xml
+uv run --locked coverage json
+```
+
+Open `artifacts/coverage/html/index.html` to inspect uncovered lines and branches.
+XML and JSON are written alongside the HTML directory. Generated reports are
+ignored by Git. Each Python 3.11–3.14 Core CI job enforces the threshold and
+uploads `unit-coverage-python-<version>` for seven days. CI exports diagnostics
+even when tests or the coverage check fail; the independent threshold check
+still fails the job below 80%.
+
+## Transport contracts
+
 Core does not depend on pytest. Public testing helpers are enabled explicitly:
 
 ```python

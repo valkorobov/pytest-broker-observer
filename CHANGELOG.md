@@ -7,6 +7,11 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- An enforced 80% unit coverage threshold for the complete library with branch
+  measurement, checked on Python 3.11–3.14 with HTML/XML/JSON CI artifacts.
+  Coverage starts before pytest loads the passive plugin; examples and real
+  brokers run separately. Broker-free Kafka harness and public API regressions
+  cover confirmed publication, owned-resource cleanup, and lazy imports.
 - A shared asynchronous core and synchronous facade with a continuously running runtime loop.
 - Lazy factories, readiness, lifecycle, controlled cleanup, and typed errors.
 - Independent Kafka sessions through `confluent-kafka`, explicit start boundaries,

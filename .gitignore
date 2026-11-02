@@ -10,5 +10,6 @@ dist/
 .DS_Store
 .idea/
 /artifacts/allure-*/
+/artifacts/coverage/
 /allure-results/
 /allure-report/

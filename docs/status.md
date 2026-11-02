@@ -18,6 +18,45 @@ scope definitions or broker positions.
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
 
+## Unit coverage gate
+
+The complete `event_observer` package now has an enforced **80%** unit coverage
+threshold, including transport adapters and public testing helpers. Coverage.py
+measures both statements and branches; its combined percentage is the gate.
+Each Python 3.11–3.14 Core CI job runs only broker-free `tests` for this
+measurement, then runs usage examples separately and uploads HTML/XML/JSON
+reports. See [the coverage guide](testing.md#unit-coverage).
+
+Local verification on November 2, 2026 with CPython 3.14.7 and Coverage.py 7.17.0:
+
+| Metric | Corrected baseline | After new unit tests |
+| --- | --- | --- |
+| Combined statements/branches | 86.98% | **88.68%** |
+| Executable statements | 89.38% | **91.10%** (5,250 / 5,763) |
+| Branch destinations | 79.42% | **81.06%** (1,485 / 1,832) |
+| Broker-free unit tests | 763 passed | **800 passed** |
+
+Coverage starts before pytest loads entrypoints, measuring the passive
+plugin's Core imports. A preliminary `pytest --cov` run missed that execution
+and emitted `module-not-measured`; its 75% result is not the baseline above.
+No custom source omissions/exclusions were added. Existing Coverage.py default
+exclusions remain unchanged, and broker/example data is not combined into the
+unit measurement.
+
+The added 35 Kafka harness tests cover acknowledgement and ambiguous/failed
+publication, binary/null/duplicate headers, native budgets and off-loop work,
+unique owned topics, partial creation, timeout, cleanup retry, and protection
+of foreign resources. That helper now covers all 112 statements and 30 branch
+destinations. Two public API regressions also cover canonical re-exports and
+raw decoding; isolated import checks verify lazy blocking-adapter construction.
+
+The configured gate rejected a deliberately incomplete 16.51% measurement with
+exit code 2. The complete 800-case suite passed under coverage and with two
+xdist workers; separate usage examples passed 15 cases with one opt-in
+demonstration skipped. Pre-commit and Pyright passed. HTML/XML/JSON generation
+passed locally. The CI configuration was reviewed independently; execution on
+GitHub remains unconfirmed because the repository has no configured remote.
+
 ## Separate execution backends (SPEC 1.5)
 
 The [six-stage migration plan](sync-async-migration-plan.md) is complete.

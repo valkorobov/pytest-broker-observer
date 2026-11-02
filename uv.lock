@@ -1124,6 +1124,7 @@ dev = [
 test = [
     { name = "aio-pika" },
     { name = "confluent-kafka" },
+    { name = "coverage" },
     { name = "pika" },
     { name = "protobuf" },
     { name = "pytest" },
@@ -1170,6 +1171,7 @@ dev = [
 test = [
     { name = "aio-pika", specifier = ">=9.5,<10" },
     { name = "confluent-kafka", specifier = ">=2.6,<3" },
+    { name = "coverage", extras = ["toml"], specifier = ">=7.10.6,<8" },
     { name = "pika", specifier = ">=1.4.4,<1.5" },
     { name = "protobuf", specifier = ">=5.29,<8" },
     { name = "pytest", specifier = ">=8.3,<10" },

@@ -33,7 +33,29 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install "uv==${UV_VERSION}"
       - run: uv sync --locked --all-groups --all-extras
-      - run: uv run pytest tests examples/pytest examples/allure -m 'not integration' --junitxml=core-results.xml -o junit_family=xunit1
+      - name: Run unit tests with coverage
+        id: unit_tests
+        run: uv run --locked coverage run -m pytest tests -m 'not integration' --junitxml=core-results.xml -o junit_family=xunit1
+      - name: Generate unit coverage reports
+        if: ${{ !cancelled() && (steps.unit_tests.outcome == 'success' || steps.unit_tests.outcome == 'failure') }}
+        run: |
+          # Export diagnostics even below the threshold; the next step enforces it.
+          uv run --locked coverage xml --fail-under=0
+          uv run --locked coverage html --fail-under=0
+          uv run --locked coverage json --fail-under=0
+      - name: Enforce minimum 80% unit coverage
+        if: ${{ !cancelled() && (steps.unit_tests.outcome == 'success' || steps.unit_tests.outcome == 'failure') }}
+        run: uv run --locked coverage report
+      - name: Upload unit coverage reports
+        if: ${{ !cancelled() && (steps.unit_tests.outcome == 'success' || steps.unit_tests.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-coverage-python-${{ matrix.python }}
+          path: artifacts/coverage/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Run pytest and Allure usage examples
+        run: uv run --locked pytest examples/pytest examples/allure -m 'not integration'
 
   allure-example:
     name: Allure example / Python 3.14

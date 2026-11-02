@@ -60,6 +60,8 @@ acknowledgements. See [the execution guide](docs/sync-async.md).
 ```shell
 uv run --locked pre-commit run --all-files
 uv run python tools/check_docstrings.py
+uv run --locked coverage run -m pytest tests -m 'not integration'
+uv run --locked coverage report
 uv run pytest -m 'not integration'
 uv run pytest -n 2 -m 'not integration'
 uv run ruff check .
@@ -69,6 +71,13 @@ uv run pyright
 uv build --no-sources
 uv run twine check dist/*
 ```
+
+Unit coverage must reach **80%** across the complete `event_observer` package,
+including transport adapters and public testing helpers. Branch measurement is
+enabled; the gate uses Coverage.py's combined statement/branch percentage.
+Run coverage before pytest so the passive pytest entrypoint's imports are
+measured too. Keep examples and real-broker runs separate from this measurement.
+See [the coverage guide](docs/testing.md#unit-coverage) for reports and CI behavior.
 
 Use `uv run ruff format .` to fix formatting. For Kafka integration tests and the
 Kafka pytest example, start the local broker from `compose.yaml`
