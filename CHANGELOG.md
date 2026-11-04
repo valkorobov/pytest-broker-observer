@@ -7,6 +7,13 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- Five lazy, session-scoped pytest factory fixtures: Kafka, RabbitMQ, and Redis
+  Streams adapter constructors plus sync/async observer constructors. Projects
+  configure their own fixtures and own watch lifetimes; no broker clients,
+  connections, threads, event loops, or reporters are enabled by autoload.
+  Runnable examples compose the factories, including a new async Kafka scenario.
+  Specification revision 1.6 records the contract; packaging checks exercise
+  installed-wheel fixture discovery in a pytest-only environment.
 - An enforced 80% unit coverage threshold for the complete library with branch
   measurement, checked on Python 3.11–3.14 with HTML/XML/JSON CI artifacts.
   Coverage starts before pytest loads the passive plugin; examples and real

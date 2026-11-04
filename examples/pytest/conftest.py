@@ -1,4 +1,4 @@
-"""Fixtures belong to the test project; the library plugin does not create them."""
+"""Project fixtures compose the plugin's stateless observer factories."""
 
 from collections.abc import Callable, Iterator
 
@@ -15,14 +15,16 @@ def transport() -> FakeTransport:
 
 
 @pytest.fixture
-def sync_events(transport: FakeTransport) -> SyncEventObserver:
+def sync_events(
+    sync_observer_factory: type[SyncEventObserver], transport: FakeTransport
+) -> SyncEventObserver:
     # The factory is lazy. The test's watch() context opens and closes resources.
-    return SyncEventObserver(transport=transport)
+    return sync_observer_factory(transport=transport)
 
 
 @pytest.fixture
-def async_events(transport: FakeTransport) -> EventObserver:
-    return EventObserver(transport=transport)
+def async_events(async_observer_factory: type[EventObserver], transport: FakeTransport) -> EventObserver:
+    return async_observer_factory(transport=transport)
 
 
 @pytest.fixture

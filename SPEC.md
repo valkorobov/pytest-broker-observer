@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.5\
-**Date:** November 2, 2026\
-**Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, and reusable observation marks.\
+**Revision:** 1.6\
+**Date:** November 4, 2026\
+**Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, reusable observation marks, and lazy pytest factory fixtures.\
 **First target release:** 0.1.0.\
 **Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -76,7 +76,7 @@ The numeric defaults below are project settings, not measured performance or a g
 | ADR-012 | A | One distribution, optional extras, and unified versioning |
 | ADR-013 supplement | New requirement | Complete sync API in 0.1 with explicit runtimes and shared semantic state; architectural details in section 16 |
 
-The user separately confirmed synchronous tests and the revision 1.5 migration to a true blocking runtime. `SyncEventObserver` uses a dedicated actor thread without an asyncio event loop; the async API retains its explicit caller-loop model. Section 31 records the adapter compatibility boundary.
+The user separately confirmed synchronous tests and the revision 1.5 migration to a true blocking runtime. `SyncEventObserver` uses a dedicated actor thread without an asyncio event loop; the async API retains its explicit caller-loop model. Section 31 records the adapter compatibility boundary. Revision 1.6 authorizes pytest constructor fixtures while retaining project-owned configuration and resource lifetimes in section 19.
 
 <a id="s02"></a>
 ## 2. Purpose, product boundaries, and MVP
@@ -1393,9 +1393,23 @@ An async watcher belongs to one loop. The fixture scope of an active async sessi
 
 ### 19.4. Pytest plugin
 
-A passive `pytest11` entry point is permitted by ADR-012. Pytest discovers installed entry points regardless of which extra was used during installation. [S11]
+A lazy `pytest11` entry point is permitted by ADR-012. Pytest discovers installed entry points regardless of which extra was used during installation. [S11] Revision 1.6 extends the formerly fixture-free plugin with these ordinary, session-scoped constructor fixtures:
 
-The plugin therefore MUST load safely when pytest is present without requiring Kafka/Protobuf/Allure; it MUST NOT create an `events` fixture, open connections, install an autouse observer, or change the event loop policy.
+| Fixture | Returned constructor |
+|---|---|
+| `kafka_transport_factory` | `KafkaAdapter(config: KafkaConfig)` |
+| `rabbitmq_transport_factory` | `RabbitMQAdapter(config: RabbitMQConfig)` |
+| `redis_streams_transport_factory` | `RedisStreamsAdapter(config: RedisStreamsConfig)` |
+| `sync_observer_factory` | `SyncEventObserver(transport=..., ...)` |
+| `async_observer_factory` | `EventObserver(transport=..., ...)` |
+
+Fixtures MUST return the existing public classes, preserving their signatures, validation, and lazy optional-dependency behavior. They MUST NOT cache constructed instances or retain per-test context. Each constructor call creates a separate object. Both observer fixtures are synchronous; requesting the async constructor MUST NOT require pytest-asyncio or an active loop. Built-in transport constructors retain their existing `sync_adapter()` providers, so separate per-broker sync/async fixture sets are not required.
+
+The plugin MUST load safely when pytest is present without requiring Kafka, RabbitMQ, Redis, Protobuf, Allure, or pytest-asyncio. The entry-point module itself MUST remain importable with only the stdlib, deferring fixture-module loading to pytest. Fixture resolution, adapter construction, and observer construction MUST NOT open connections, launch background threads, or create an event loop. The plugin MUST NOT create an `events` fixture, install an autouse observer, change event loop settings, discover broker configuration, or automatically enable reporters.
+
+Projects create and name their own configuration, transport, and observer fixtures using these constructors. Project fixtures may override a factory to supply defaults; constructor keyword arguments remain the only configuration API. User test contexts or yield fixtures own active watchers and cleanup. Custom adapters remain usable without plugin registration. Test identities remain explicit `watch(identity=...)` arguments, rather than state captured by session-scoped factories.
+
+The existing `event_observer` entry-point name is retained. `-p event_observer` explicitly loads it when autoload is disabled; `-p no:event_observer` disables its fixture registration. Installing an extra does not control entry-point discovery. No runtime dependency on pytest is added to Core.
 
 Explicit integration MAY pass nodeid, worker_id, and run_id to `ObservationIdentity` and add safe diagnostics to the report. The library is fully functional without the plugin. Core does not read the "current pytest test" from global mutable state.
 
@@ -1802,7 +1816,7 @@ Internal modules prefixed with `_` are not stable extension points. The document
 | `rabbitmq` | `aio-pika` and blocking `pika` | No connection; dedicated subscription only when a watcher opens |
 | `redis` | `redis` (redis-py) for the implemented Streams adapter | No connection or consumer-group changes |
 | `protobuf` | `protobuf` | No automatic schema loading |
-| `pytest` | `pytest` | Only a passive plugin entry point during pytest startup |
+| `pytest` | `pytest` | Lazy constructor fixtures during pytest startup; no active resources |
 | `pytest-asyncio` | `pytest`, `pytest-asyncio` | Does not change the project's loop mode |
 | `allure` | `allure-pytest` and its transitive dependencies | Reporter is enabled only explicitly |
 | `contract-tests` | pytest/pytest-asyncio/Testcontainers Kafka tooling | Containers only when the harness runs |
@@ -2109,8 +2123,8 @@ The repository MUST contain a machine-readable mapping `requirement_id → tests
 | AC-78 | Contract test applicability | A claimed capability cannot be hidden through skip |
 | AC-79 | Clean wheel/sdist installs | Public imports and py.typed work |
 | AC-80 | Missing optional dependencies | Clear MissingOptionalDependencyError |
-| AC-81 | pytest plugin autoload | Passive, without a hidden fixture/connection |
-| AC-82 | Pure sync pytest environment | Works without pytest-asyncio |
+| AC-81 | pytest plugin autoload | Five session-scoped constructor fixtures; no hidden transport, observer, connection, or background work |
+| AC-82 | Pure sync pytest environment | All constructor fixtures register and sync observation works without pytest-asyncio or native broker clients |
 | AC-83 | xdist logs/resources | Unique IDs, no shared mutable runtime |
 | AC-84 | Runtime memory/load | The library's own queues and pending work are bounded |
 | AC-85 | Artifact/release integrity | Verified files, consistent version/tag/hash |
@@ -2163,7 +2177,7 @@ This is an explicit reconciliation log for earlier examples. It does not add hid
 | Scope diagnostics add up messages | Separate per-expectation evaluations, without a false unique count |
 | Future broker extras declared in advance | Only actually implemented extras are published |
 | Example dependency versions treated as tested | Dependency floors and the matrix are verified before release |
-| pytest extra enables an entry point only on request | The entry point is distribution metadata; the plugin must be passive |
+| pytest extra enables an entry point only on request | The entry point is distribution metadata; constructor fixtures register without creating active resources |
 | Apache-2.0 in a draft | It was a proposal; the license requires a separate owner decision |
 | Temporal API placed in 0.1 in earlier sections | Final boundary: temporal after 0.1; both facades when shipped |
 | Sync supports every user threading mode | Owner-thread handle in the MVP; parallel assertions through the async API |
@@ -2174,7 +2188,7 @@ If implementation reveals that a specific client's/broker's mandatory contract c
 
 ### 26.2. Final status
 
-The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. Revision 1.4 adds reusable observation marks in section 30. Revision 1.5 replaces the hidden sync loop with a blocking actor and explicit native protocols in sections 16 and 31. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
+The ADR-001–012 architecture is consolidated. Synchronous test support is included through the additional ADR-013; revisions 1.2 and 1.3 add the authorized RabbitMQ and Redis Streams extensions in sections 28 and 29. Revision 1.4 adds reusable observation marks in section 30. Revision 1.5 replaces the hidden sync loop with a blocking actor and explicit native protocols in sections 16 and 31. Revision 1.6 adds lazy pytest constructor fixtures in section 19 without changing Core or watcher ownership. The boundaries of 0.1, subsequent temporal/transport stages, and administrative publication blockers are separated.
 
 The specification is ready for implementation. This does not mean that the library has been written, performance figures measured, compatibility verified, or a release published.
 

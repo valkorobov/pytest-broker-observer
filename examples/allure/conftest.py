@@ -23,8 +23,10 @@ def transport() -> FakeTransport:
 
 
 @pytest.fixture
-def sync_events(transport: FakeTransport) -> SyncEventObserver:
-    return SyncEventObserver(
+def sync_events(
+    sync_observer_factory: type[SyncEventObserver], transport: FakeTransport
+) -> SyncEventObserver:
+    return sync_observer_factory(
         transport=transport,
         reporters=[AllureReporter()],
         # SUMMARY also creates attachments for successful expectations.
@@ -33,8 +35,8 @@ def sync_events(transport: FakeTransport) -> SyncEventObserver:
 
 
 @pytest.fixture
-def async_events(transport: FakeTransport) -> EventObserver:
-    return EventObserver(
+def async_events(async_observer_factory: type[EventObserver], transport: FakeTransport) -> EventObserver:
+    return async_observer_factory(
         transport=transport,
         reporters=[AllureReporter()],
         diagnostics=DiagnosticPolicy(mode=ReportingMode.SUMMARY),

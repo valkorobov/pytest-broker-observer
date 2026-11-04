@@ -25,9 +25,10 @@ uv sync --all-groups --all-extras
 
 Core has no runtime dependencies and works outside pytest. Extras enable the
 implemented features: `kafka`, `rabbitmq`, `redis`, `protobuf`, `pytest`, `pytest-asyncio`, `allure`,
-`contract-tests`, and `all`. The pytest plugin is passive: autoloading it creates
-no fixtures, connections, or background threads. Synchronous tests do not need
-`pytest-asyncio`.
+`contract-tests`, and `all`. The pytest plugin registers lazy constructor fixtures;
+autoloading it creates no transports, observers, connections, or background
+threads. Synchronous tests do not need `pytest-asyncio`. See
+[pytest factory fixtures](#pytest-factory-fixtures) for project setup.
 
 ## Synchronous example without a broker
 
@@ -240,6 +241,61 @@ identity ends the observation before its entries reach Core, even if the native
 client opened that socket internally. See the
 [adapter guide](docs/redis-streams.md), [local profile](docs/local-redis.md),
 and [sync/async examples](examples/pytest/test_redis_streams.py).
+
+## Pytest factory fixtures
+
+Installing the package makes these session-scoped fixtures available automatically:
+
+| Fixture | Returns the constructor |
+| --- | --- |
+| `kafka_transport_factory` | `KafkaAdapter(config: KafkaConfig)` |
+| `rabbitmq_transport_factory` | `RabbitMQAdapter(config: RabbitMQConfig)` |
+| `redis_streams_transport_factory` | `RedisStreamsAdapter(config: RedisStreamsConfig)` |
+| `sync_observer_factory` | `SyncEventObserver(transport=..., ...)` |
+| `async_observer_factory` | `EventObserver(transport=..., ...)` |
+
+The factories are the existing classes, not wrappers. Their signatures,
+validation, and optional-dependency behavior stay unchanged. Use them to define
+your own fixtures, choosing configuration and scope in the test project:
+
+```python
+# conftest.py
+import pytest
+
+from event_observer.transports.kafka import KafkaConfig
+
+
+@pytest.fixture(scope="session")
+def kafka_transport(kafka_transport_factory):
+    return kafka_transport_factory(KafkaConfig(bootstrap_servers="localhost:9092"))
+
+
+@pytest.fixture
+def events(sync_observer_factory, kafka_transport):
+    return sync_observer_factory(transport=kafka_transport)
+```
+
+```python
+def test_operation(events, service_client):
+    with events.watch(source="operations") as watcher:
+        service_client.perform()
+        assert watcher.wait_for(lambda payload: payload == b"completed", timeout=5) == b"completed"
+```
+
+`service_client` and the source belong to your application; retain operation
+correlation on shared streams. Use `async_observer_factory` with `async with`
+and awaited waits for async tests. Both observer factories are ordinary sync
+fixtures; neither requires pytest-asyncio just to create an observer.
+
+Only entering `watch()` acquires resources. The plugin does not read broker
+environment variables, resolve secrets, enable Allure, or set test identity.
+Configure those explicitly in your fixtures. The plugin itself loads without
+any broker extra; install the relevant extra to open a real observation.
+With `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`, load it using `pytest -p event_observer`;
+disable it using `pytest -p no:event_observer`.
+
+See [the runnable fixture recipes](examples/pytest/README.md#factory-fixtures-and-project-configuration)
+for sync/async, all three brokers, custom transports, and factory overrides.
 
 ## Pytest and Allure
 

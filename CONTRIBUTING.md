@@ -75,8 +75,8 @@ uv run twine check dist/*
 Unit coverage must reach **80%** across the complete `event_observer` package,
 including transport adapters and public testing helpers. Branch measurement is
 enabled; the gate uses Coverage.py's combined statement/branch percentage.
-Run coverage before pytest so the passive pytest entrypoint's imports are
-measured too. Keep examples and real-broker runs separate from this measurement.
+Run coverage before pytest so entrypoint imports and factory-fixture registration
+are measured too. Keep examples and real-broker runs separate from this measurement.
 See [the coverage guide](docs/testing.md#unit-coverage) for reports and CI behavior.
 
 Use `uv run ruff format .` to fix formatting. For Kafka integration tests and the

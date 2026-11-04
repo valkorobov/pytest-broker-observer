@@ -7,7 +7,12 @@ the presence of a workflow does not mean that this matrix has passed.
 Application dependencies are optional. The async runtime and blocking actor
 use only the stdlib. Extension code imports Kafka, RabbitMQ, Redis, Protobuf,
 and Allure lazily.
-The passive pytest plugin does not open connections or change the asyncio mode.
+The pytest plugin registers five session-scoped constructor fixtures without
+creating transports, observers, connections, or changing the asyncio mode.
+All fixtures register without broker clients or pytest-asyncio; both observer
+factories are ordinary synchronous fixtures. Native clients are needed only
+when a real watch context is entered. The entry-point module itself remains
+stdlib-only. See the [fixture recipes](../examples/pytest/README.md#factory-fixtures-and-project-configuration).
 The `rabbitmq` extra declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`;
 the current environment resolves `aio-pika` 9.6.2 with `aiormq` 6.9.4 and
 `pamqp` 3.3.0, and Pika 1.4.4 for the blocking path. The 1.5 series is outside

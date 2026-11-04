@@ -262,7 +262,7 @@ def test_public_blocking_namespace_exposes_the_canonical_contracts_and_native_ad
     assert sync.SyncRedisStreamsAdapter is SyncRedisStreamsAdapter
 
 
-def test_clean_core_and_passive_plugin_import_need_only_the_standard_library():
+def test_clean_core_and_plugin_entry_point_import_need_only_the_standard_library():
     source = str(Path(__file__).resolve().parents[1] / "src")
     script = r"""
 import importlib.abc
@@ -306,8 +306,10 @@ event_observer.EventObserver(transport=adapter).watch(source="events")
 sync_adapter = SimpleNamespace(open=forbidden, capabilities=TransportCapabilities())
 event_observer.SyncEventObserver(transport=sync_adapter).watch(source="events")
 assert not any(name in sys.modules for name in blocked)
-assert not any(name.startswith("pytest_") for name in vars(plugin))
-print("stdlib core and passive plugin verified")
+assert plugin.pytest_plugins == ["event_observer.integrations._pytest_factories"]
+assert {name for name in vars(plugin) if name.startswith("pytest_")} == {"pytest_plugins"}
+assert "event_observer.integrations._pytest_factories" not in sys.modules
+print("stdlib core and lazy plugin entry point verified")
 """
     completed = subprocess.run(
         [sys.executable, "-I", "-S", "-c", script, source],
@@ -316,4 +318,4 @@ print("stdlib core and passive plugin verified")
         timeout=10,
     )
     assert completed.returncode == 0, completed.stderr
-    assert completed.stdout.strip() == "stdlib core and passive plugin verified"
+    assert completed.stdout.strip() == "stdlib core and lazy plugin entry point verified"

@@ -2,21 +2,62 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.5 separates async and
-blocking execution, building on reusable observation marks, Kafka, RabbitMQ,
-Redis Streams, and policy-controlled message diagnostics.
+The specification is maintained in English. Revision 1.6 adds lazy pytest
+constructor fixtures on top of separate async/blocking execution, reusable
+observation marks, Kafka, RabbitMQ, Redis Streams, and policy-controlled message
+diagnostics.
 
 Implemented features include separate async and blocking thread runtimes sharing
 expectation/admission policies, a bounded
 Journal and loss ledger, independent expectations/scopes, raw and Protobuf
 decoders/resolvers, three-valued matchers, Kafka, RabbitMQ, and Redis Streams adapters, safe diagnostics
-and an explicit Allure reporter, a passive pytest plugin, reusable transport
+and an explicit Allure reporter, lazy pytest factory fixtures, reusable transport
 contracts, packaging, and CI.
 `ObservationMark` and `since` add per-wait Journal boundaries without changing
 scope definitions or broker positions.
 
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
+
+## Pytest constructor fixtures (SPEC 1.6)
+
+The existing `event_observer` entry point now registers five session-scoped
+fixtures: `kafka_transport_factory`, `rabbitmq_transport_factory`,
+`redis_streams_transport_factory`, `sync_observer_factory`, and
+`async_observer_factory`. They return the existing public constructors.
+Projects configure their own fixtures; watch contexts still own active resources.
+The entry-point module remains stdlib-only, broker adapter imports are deferred
+until fixture resolution, and native clients remain deferred until observation.
+
+Local verification on November 4, 2026 used CPython 3.14.7 on macOS arm64,
+pytest 9.2.0, the locked optional clients, and the pinned Compose Kafka 3.9.2,
+RabbitMQ 4.4.0, and Redis 8.2.11 services:
+
+| Check | Result |
+| --- | --- |
+| Broker-free unit suite | 812 passed; includes 12 new plugin regression cases |
+| Combined unit statement/branch coverage | 88.86%; both pytest integration modules have 100% coverage |
+| Unit suite with two xdist workers | 812 passed |
+| Broker-free pytest/Allure examples | 15 passed, 1 opt-in demonstration skipped |
+| Updated sync/async factory examples on all three brokers | 6 passed |
+| Full broker integration suite plus pytest/Allure integration examples | 112 passed, 14 explicit capability skips |
+| Clean wheel/sdist installation without extras | Stdlib-only imports, typing marker, and blocking wheel observation passed |
+| Installed-wheel fixtures with pytest 9.2.0 only | 2 passed; all factories resolve and construct objects without optional clients or background work |
+| Installed-sdist fixtures with pytest 8.3.0 only | Same 2 smoke tests passed |
+| Pytest-only runnable examples from the installed wheel | 5 passed, 2 optional async/Protobuf modules skipped |
+| Pre-commit, Pyright, source docstring audit | Passed; 709 definitions and 679 attributes documented |
+| Wheel/sdist build and Twine metadata | Passed |
+
+`tests/test_pytest_plugin.py` covers constructor identity and policies, fixture
+scope composition, overrides, explicit load/disable, autoload, custom transports,
+and isolated no-resource construction with optional imports blocked. Packaging
+CI now exercises fixture discovery from an installed wheel rather than source
+imports alone. Factory recipes are in the
+[pytest examples](../examples/pytest/README.md#factory-fixtures-and-project-configuration).
+
+These local runs do not establish the full Python/platform/dependency-floor
+matrix or a GitHub Actions result. The historical results below remain scoped
+to their original runs.
 
 ## Unit coverage gate
 

@@ -11,6 +11,7 @@ import pytest
 from event_observer import EventObserver, SyncEventObserver, TransportSource
 from event_observer.matchers import header_equals
 from event_observer.testing import RabbitMQAdapterHarness
+from event_observer.transports.rabbitmq import RabbitMQAdapter, RabbitMQConfig
 
 pytestmark = [
     pytest.mark.integration,
@@ -26,11 +27,37 @@ async_example = (
 )
 
 
+@pytest.fixture(scope="session")
+def rabbitmq_config() -> RabbitMQConfig:
+    return RabbitMQConfig(url=os.environ["RABBITMQ_URL"])
+
+
+@pytest.fixture(scope="session")
+def rabbitmq_transport(
+    rabbitmq_transport_factory: type[RabbitMQAdapter], rabbitmq_config: RabbitMQConfig
+) -> RabbitMQAdapter:
+    return rabbitmq_transport_factory(rabbitmq_config)
+
+
+@pytest.fixture
+def rabbitmq_events(
+    sync_observer_factory: type[SyncEventObserver], rabbitmq_transport: RabbitMQAdapter
+) -> SyncEventObserver:
+    return sync_observer_factory(transport=rabbitmq_transport)
+
+
+@pytest.fixture
+def async_rabbitmq_events(
+    async_observer_factory: type[EventObserver], rabbitmq_transport: RabbitMQAdapter
+) -> EventObserver:
+    return async_observer_factory(transport=rabbitmq_transport)
+
+
 @pytest.fixture
 def rabbitmq_source(
-    request: pytest.FixtureRequest,
+    request: pytest.FixtureRequest, rabbitmq_config: RabbitMQConfig
 ) -> Iterator[tuple[RabbitMQAdapterHarness, TransportSource]]:
-    harness = RabbitMQAdapterHarness(os.environ["RABBITMQ_URL"])
+    harness = RabbitMQAdapterHarness(rabbitmq_config.url)
     try:
         # The source is a unique exchange, separate from application queues.
         source = asyncio.run(harness.create_source(case_id=request.node.name))
@@ -40,12 +67,13 @@ def rabbitmq_source(
         asyncio.run(harness.cleanup())
 
 
-def test_rabbitmq_event_after_test_action(rabbitmq_source: tuple[RabbitMQAdapterHarness, TransportSource]):
+def test_rabbitmq_event_after_test_action(
+    rabbitmq_source: tuple[RabbitMQAdapterHarness, TransportSource], rabbitmq_events: SyncEventObserver
+):
     harness, source = rabbitmq_source
     operation_id = uuid4().hex.encode()
-    events = SyncEventObserver(transport=harness.adapter)
 
-    with events.watch(source=source) as watcher:
+    with rabbitmq_events.watch(source=source) as watcher:
         operation = watcher.scope(header_equals("operation-id", operation_id))
         mark = operation.mark()
 
@@ -65,12 +93,12 @@ def test_rabbitmq_event_after_test_action(rabbitmq_source: tuple[RabbitMQAdapter
 @async_example
 async def test_rabbitmq_async_event_after_test_action(
     rabbitmq_source: tuple[RabbitMQAdapterHarness, TransportSource],
+    async_rabbitmq_events: EventObserver,
 ):
     harness, source = rabbitmq_source
     operation_id = uuid4().hex.encode()
-    events = EventObserver(transport=harness.adapter)
 
-    async with events.watch(source=source) as watcher:
+    async with async_rabbitmq_events.watch(source=source) as watcher:
         operation = watcher.scope(header_equals("operation-id", operation_id))
         mark = operation.mark()
         receipt = await harness.publish(source, b"completed", headers=(("operation-id", operation_id),))

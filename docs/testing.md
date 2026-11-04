@@ -16,11 +16,13 @@ uv run --locked coverage run -m pytest tests -m 'not integration'
 uv run --locked coverage report
 ```
 
-Start measurement with `coverage run`, before pytest loads entrypoints. The
-library's passive pytest plugin imports Core during pytest startup; starting
-instrumentation afterward with `pytest --cov` misses that import-time execution
-and can emit `module-not-measured`. Coverage flags are deliberately absent
-from global pytest options, preserving plain pytest-only installations.
+Start measurement with `coverage run`, before pytest loads entrypoints, to
+include plugin and fixture registration as well as early Core imports through
+the package's public namespace. Starting instrumentation afterward with
+`pytest --cov` can miss startup execution and emit `module-not-measured`.
+The constructor fixtures defer broker adapter imports until requested; native
+clients remain lazy until observation starts. Coverage flags are deliberately
+absent from global pytest options, preserving plain pytest-only installations.
 
 The measurement is fresh on each run. It includes unit/native-double contracts
 in `tests`, while integration-marked nodes and runnable examples execute

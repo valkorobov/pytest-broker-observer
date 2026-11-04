@@ -154,20 +154,62 @@ jobs:
           python -m venv /tmp/observer-sdist
           /tmp/observer-sdist/bin/python -m pip install --no-deps dist/*.tar.gz
           /tmp/observer-sdist/bin/python -I -c 'from event_observer import EventObserver, SyncEventObserver'
-      - name: Pure synchronous pytest without pytest-asyncio
+      - name: Installed-wheel factory fixtures with pytest only
         run: |
           /tmp/observer-wheel/bin/python -m pip install 'pytest>=8.3,<10'
           cat > /tmp/test_observer_minimal.py <<'PY'
-          from event_observer import SyncEventObserver
+          import asyncio
+          import importlib.util
+          import socket
+          import sys
+          import threading
+          import pytest
           from event_observer.testing import FakeTransport
+          from event_observer.transports.kafka import KafkaConfig
+          from event_observer.transports.rabbitmq import RabbitMQConfig
+          from event_observer.transports.redis_streams import RedisStreamsConfig
 
-          def test_sync_observer():
-              adapter = FakeTransport()
-              with SyncEventObserver(transport=adapter).watch(source="events") as watcher:
-                  adapter.publish(b"hello")
+          def forbidden(*args, **kwargs):
+              raise AssertionError("factory construction must not acquire resources")
+
+          def test_all_factories_are_lazy(kafka_transport_factory, rabbitmq_transport_factory,
+                                         redis_streams_transport_factory, sync_observer_factory,
+                                         async_observer_factory, monkeypatch):
+              monkeypatch.setattr(threading.Thread, "start", forbidden)
+              monkeypatch.setattr(socket.socket, "connect", forbidden)
+              monkeypatch.setattr(asyncio, "new_event_loop", forbidden)
+              monkeypatch.setattr(asyncio, "run", forbidden)
+              monkeypatch.setattr(asyncio, "Runner", forbidden)
+              for factory, config in (
+                  (kafka_transport_factory, KafkaConfig(bootstrap_servers="localhost:9092")),
+                  (rabbitmq_transport_factory, RabbitMQConfig(url="amqp://localhost/")),
+                  (redis_streams_transport_factory, RedisStreamsConfig(url="redis://localhost/0")),
+              ):
+                  adapter = factory(config)
+                  sync_observer_factory(transport=adapter).watch(source="events")
+                  async_observer_factory(transport=adapter).watch(source="events")
+              for name in ("pytest_asyncio", "confluent_kafka", "aio_pika", "aiormq", "pika", "redis", "google", "allure"):
+                  assert name not in sys.modules
+                  assert importlib.util.find_spec(name) is None
+
+          @pytest.fixture(scope="session")
+          def transport():
+              return FakeTransport()
+
+          @pytest.fixture(scope="session")
+          def events(sync_observer_factory, transport):
+              return sync_observer_factory(transport=transport)
+
+          def test_sync_observer(events, transport, monkeypatch):
+              monkeypatch.setattr(asyncio, "new_event_loop", forbidden)
+              monkeypatch.setattr(asyncio, "run", forbidden)
+              monkeypatch.setattr(asyncio, "Runner", forbidden)
+              with events.watch(source="events") as watcher:
+                  transport.publish(b"hello")
                   assert watcher.wait_for(lambda payload: payload == b"hello", timeout=1) == b"hello"
+              assert transport.open_count == transport.close_count == 1
           PY
-          /tmp/observer-wheel/bin/python -I -m pytest -c /dev/null /tmp/test_observer_minimal.py -q
+          /tmp/observer-wheel/bin/python -I -m pytest -p no:cacheprovider -c /dev/null /tmp/test_observer_minimal.py -q
 
   kafka:
     runs-on: ubuntu-latest

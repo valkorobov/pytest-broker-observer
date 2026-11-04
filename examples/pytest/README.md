@@ -18,13 +18,104 @@ JSON attachments, and commands to generate and view HTML reports.
 
 | File | Demonstrates |
 | --- | --- |
-| [conftest.py](conftest.py) | Function-scoped factory fixtures, a yield fixture for an active watcher, and a simulated service action. |
+| [conftest.py](conftest.py) | Project observer fixtures composed from the plugin's factories, a yield fixture for an active watcher, and a simulated service action. |
 | [test_sync.py](test_sync.py) | Ordinary `def test_*` functions, header correlation, reusable marks, an envelope with key/headers, and `pytest.mark.parametrize`. |
 | [test_async.py](test_async.py) | `pytest.mark.asyncio`, `async with`, ordinary `mark()` calls, parallel waiters, and reading history with `wait_for_count`. |
 | [test_protobuf.py](test_protobuf.py) | `message_type`, `field_equals`, an explicit resolver for mixed types, and the `on_type` guard. |
-| [test_kafka.py](test_kafka.py) | A real broker, a unique topic, an independent producer, and cleanup through a yield fixture. |
-| [test_rabbitmq.py](test_rabbitmq.py) | Sync and async observation of an exchange through dedicated observer queues, header correlation, and publisher confirmation. |
-| [test_redis_streams.py](test_redis_streams.py) | Sync latest observation and async reads strictly after a native stream ID, unique byte headers, and independent Redis reads. |
+| [test_kafka.py](test_kafka.py) | Kafka transport/observer fixtures, sync/async observation, a unique topic, an independent producer, and cleanup through a yield fixture. |
+| [test_rabbitmq.py](test_rabbitmq.py) | RabbitMQ transport/observer fixtures, sync/async dedicated exchange subscriptions, header correlation, and publisher confirmation. |
+| [test_redis_streams.py](test_redis_streams.py) | Redis Streams transport/observer fixtures, sync latest observation, async native-ID boundaries, and independent Redis reads. |
+
+## Factory fixtures and project configuration
+
+The installed `event_observer` pytest plugin automatically provides five
+session-scoped constructor fixtures:
+
+| Fixture | Constructor | Configuration |
+| --- | --- | --- |
+| `kafka_transport_factory` | `KafkaAdapter` | `KafkaConfig` |
+| `rabbitmq_transport_factory` | `RabbitMQAdapter` | `RabbitMQConfig` |
+| `redis_streams_transport_factory` | `RedisStreamsAdapter` | `RedisStreamsConfig` |
+| `sync_observer_factory` | `SyncEventObserver` | `transport=` and the existing policy/reporter keywords |
+| `async_observer_factory` | `EventObserver` | `transport=` and the existing policy/reporter keywords |
+
+They return existing classes, not preconfigured objects or shared clients.
+Factories have no test-bound state, so session-scoped project fixtures can
+depend on them. Each call creates a new object. Adapter and observer creation
+perform no broker I/O; resources open only in `with` / `async with watch()`.
+The plugin does not provide an `events` fixture or manage an active watcher.
+
+For example, define these fixtures in your project's `conftest.py`:
+
+```python
+import os
+
+import pytest
+
+from event_observer import LifecyclePolicy
+from event_observer.transports.kafka import KafkaConfig
+
+
+@pytest.fixture(scope="session")
+def kafka_config():
+    # This environment variable is a project convention, not plugin discovery.
+    return KafkaConfig(bootstrap_servers=os.environ["KAFKA_BOOTSTRAP_SERVERS"])
+
+
+@pytest.fixture(scope="session")
+def kafka_transport(kafka_transport_factory, kafka_config):
+    return kafka_transport_factory(kafka_config)
+
+
+@pytest.fixture
+def events(sync_observer_factory, kafka_transport):
+    return sync_observer_factory(
+        transport=kafka_transport,
+        lifecycle=LifecyclePolicy(startup_timeout=10),
+    )
+
+
+@pytest.fixture
+def async_events(async_observer_factory, kafka_transport):
+    return async_observer_factory(transport=kafka_transport)
+```
+
+Tests use these objects with `events.watch(...)` or `async_events.watch(...)`,
+as the runnable broker examples do. Configuration and credential resolution
+remain in the project; no broker settings are inferred from environment names.
+The same pattern works with `RabbitMQConfig` and `RedisStreamsConfig` and their
+corresponding transport factories. Stateless adapters may be session-scoped,
+but active watchers should be function-scoped or owned by a test context.
+An active async watcher must use a compatible pytest-asyncio loop scope.
+
+For broker-free tests, `conftest.py` creates a function-scoped `FakeTransport`
+directly and passes it to both observer factories. Custom transports need no
+plugin registration: pass any supported adapter to the observer factory.
+Each parametrized case gets a fresh fake transport and independent history.
+
+For multiple brokers, define separately named transport and observer fixtures.
+Policies and reporters are explicit constructor arguments. To reuse project-wide
+defaults, a project can override a factory using pytest's parent-fixture lookup:
+
+```python
+from functools import partial
+
+
+@pytest.fixture(scope="session")
+def sync_observer_factory(sync_observer_factory):
+    return partial(sync_observer_factory, lifecycle=LifecyclePolicy(startup_timeout=10))
+```
+
+Call arguments can override those defaults. Factories do not capture a test's
+nodeid or enable Allure automatically. Pass `ObservationIdentity` explicitly
+to `watch(identity=...)` when needed, and reporters to the observer constructor.
+
+With plugin autoload disabled, run `pytest -p event_observer ...`; to disable
+these fixtures, use `pytest -p no:event_observer ...`. Do not also register the
+same entry-point module through `pytest_plugins` when autoload is enabled.
+All fixtures register without broker extras. Using the real transport requires
+its extra; constructor validation and missing-dependency errors are not silently
+converted into skips.
 
 ## Ordinary synchronous tests
 
@@ -36,15 +127,16 @@ python -m pip install -e '.[pytest]'
 python -m pytest examples/pytest/test_sync.py -v
 ```
 
-Import the blocking factory explicitly from `event_observer.sync`; the
-asynchronous factory is available from `event_observer.aio`. Existing top-level
-imports remain supported. The blocking observer runs a dedicated actor without
+Outside the plugin, import the blocking factory from `event_observer.sync` or
+the asynchronous factory from `event_observer.aio`. Existing top-level imports
+remain supported. The blocking observer runs a dedicated actor without
 creating an asyncio event loop; it keeps admitting events while the test
 thread waits on the application action. Both runtimes share matching,
 completeness, deadline, and quota semantics.
 
-The `sync_events` fixture in `conftest.py` creates a lazy factory. The test opens
-observation with `with sync_events.watch(...)`. Entering the context waits for
+The `sync_events` fixture in `conftest.py` calls `sync_observer_factory` to
+create a lazy observer. The test opens observation with
+`with sync_events.watch(...)`. Entering the context waits for
 READY, so the service action belongs inside `with`, after creating the scope.
 
 The `watched_events` fixture shows another approach: it opens `watch()` before
@@ -73,8 +165,8 @@ python -m pip install -e '.[pytest-asyncio]'
 python -m pytest -c pyproject.toml examples/pytest/test_async.py -v
 ```
 
-An ordinary `pytest.fixture` also provides the async factory: resources open in
-`async with` inside the test. Parallel expectations use `asyncio.create_task`
+An ordinary project `pytest.fixture` calls `async_observer_factory`: resources
+open in `async with` inside the test. Parallel expectations use `asyncio.create_task`
 and finish through `asyncio.gather`. They can observe the same record; a matched
 event is not removed from the Journal.
 
@@ -162,11 +254,16 @@ the test project: Observer itself does not discover connection settings.
 
 `KafkaAdapterHarness` provides an independent producer and waits for broker
 acknowledgement. An ordinary black-box test calls the application instead of
-`harness.publish(...)` and explicitly passes a `KafkaAdapter` with `KafkaConfig`
-to `SyncEventObserver`. The provider selects a blocking bridge over the shared
+`harness.publish(...)`. The project fixtures explicitly create `KafkaAdapter`
+from `KafkaConfig` through `kafka_transport_factory`, then create sync/async
+observers through their factories. The provider selects a blocking bridge over the shared
 serialized Kafka worker without starting an asyncio loop. See the
 [Kafka guide](../../docs/kafka.md) for TLS/SASL
 configuration and replay policy.
+
+Both sync and async Kafka scenarios run with `.[kafka,pytest-asyncio]`; the
+async scenario skips when pytest-asyncio is absent. Harness calls remain an
+independent publisher/admin path rather than supplying the observed adapter.
 
 ## Examples with real RabbitMQ
 
@@ -205,7 +302,8 @@ binding/read access plus declaration, consumption, and deletion of observer-owne
 queues. The harness also needs to create/delete its temporary exchanges and
 publish to them. Without the variable, the examples skip; a specified but
 unreachable broker fails. The library does not read this variable itself.
-Use `RabbitMQAdapter(RabbitMQConfig(url=...))` in your own factory and replace
+The project's `rabbitmq_transport` fixture uses `rabbitmq_transport_factory`
+with `RabbitMQConfig(url=...)`; observer fixtures use the sync/async factories. Replace
 `harness.publish(...)` with the application's action.
 See the [adapter guide](../../docs/rabbitmq.md) and
 [local broker guide](../../docs/local-rabbitmq.md) for details.

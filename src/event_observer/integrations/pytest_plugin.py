@@ -1,6 +1,8 @@
-"""Expose a passive pytest entry point without installing fixtures or hooks.
+"""Expose lazy factory fixtures through a stdlib-only pytest entry point.
 
-Importing the plugin changes neither event-loop settings nor test collection.
-Tests explicitly create observers and own their transport and watcher lifetimes;
-optional integrations are loaded only when their APIs are requested.
+Pytest loads the fixture module; importing this entry point alone imports no
+optional dependencies. Projects configure their own transports and observers,
+and watch contexts retain ownership of active resources.
 """
+
+pytest_plugins = ["event_observer.integrations._pytest_factories"]

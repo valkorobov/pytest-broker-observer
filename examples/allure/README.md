@@ -28,6 +28,13 @@ The Python `allure` extra installs the pytest plugin; install the CLI separately
 If you already have `allure` version 3.22.1, replace `npx --yes allure@3.22.1` with
 `allure` in the commands below.
 
+The project's [conftest.py](conftest.py) creates `sync_events` and `async_events`
+using the library's `sync_observer_factory` and `async_observer_factory`
+fixtures. It passes `AllureReporter` and `DiagnosticPolicy` explicitly; the
+observer plugin never enables reporting automatically. Transport and active
+watcher lifetimes still belong to project fixtures and test contexts. See the
+[factory fixture recipes](../pytest/README.md#factory-fixtures-and-project-configuration).
+
 ## Run and view the report
 
 ```shell
