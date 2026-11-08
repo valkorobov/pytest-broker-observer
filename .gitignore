@@ -11,5 +11,6 @@ dist/
 .idea/
 /artifacts/allure-*/
 /artifacts/coverage/
+/artifacts/release-gates/
 /allure-results/
 /allure-report/

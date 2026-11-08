@@ -19,6 +19,81 @@ scope definitions or broker positions.
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
 
+## Release publication interlock (plan stage 0)
+
+The [release gate inventory](release-gates.json), stdlib-only validator
+`tools/check_release_gates.py`, and unprivileged `release-gates` CI job now
+protect the pending publication workflow. The inventory has RG-01–RG-15,
+15 required checks, and 89 profiles. They remain planned until later stages
+register executable checks and supply actual candidate evidence.
+
+The verifier binds the repository, source SHA, workflow run/attempt, version/tag,
+successful GitHub producer job, exact distribution hashes, and hashed JUnit
+cases. Hidden rerun failures, unexecuted cases, unregistered skips, missing cases,
+ambiguous documents, traversal/symlinks and altered files block publication.
+Registered capability skips retain ordered precondition evidence. An unrelated
+passing case cannot replace all required cases being skipped.
+
+Release runs require strict success and publish only `verified-release`, with
+the original distribution bytes, compatibility data, raw declared evidence,
+evaluated gate report and hash manifest. Non-release runs audit the expected
+open checks without creating that bundle; malformed evidence still fails.
+See [the evidence contract](release-gate-evidence.md).
+
+Local verification on November 8, 2026, CPython 3.14.7 / macOS arm64:
+
+- 79 release-validator CLI regressions passed. Complete green fixtures are
+  explicitly synthetic schema tests and do not close real gates.
+- The actual planned inventory with simulated green legacy job results remained
+  blocked for all 15 gates / 89 profiles. Audit exited 0, strict verification
+  exited 1, and neither created a publication bundle.
+- The full broker-free unit suite passed 891 cases under coverage; two-worker
+  xdist also passed 891. Combined package coverage was 88.86%.
+- Pre-commit, Pyright, and the source audit passed (709 definitions / 679 attributes).
+- Wheel/sdist build and Twine checks passed. The source archive includes the
+  validator/inventory/evidence documentation/tests and excludes generated results.
+- Both clean installed artifacts passed stdlib-only, typing-marker, loop-free
+  observation and pytest-only factory smoke checks (2 cases per installation).
+- Local workflow inspection verified the strict dependency path, same-run bundle
+  selection, SHA-pinned actions and isolated publishing permissions.
+
+Independent review findings around hidden first failures, skipped required cases,
+runtime/profile identity and ordered capability metadata were corrected. No
+GitHub run or PyPI upload was performed; completing this interlock does not
+complete the remaining release gates or authorize publication.
+
+## PyPI release workflow
+
+The `CI` workflow now handles published GitHub Releases. A release tag must
+match `v<project.version>`. Publication depends on every existing CI job,
+including the Python 3.11–3.14 unit/coverage matrix, packaging smoke tests,
+quality checks, Allure examples, and all three broker suites. The `publish`
+job uses the `pypi` environment and OIDC Trusted Publishing; its input is the
+packaging job's verified wheel/sdist artifact with checked SHA-256 hashes.
+The publishing action generates distribution attestations.
+
+Local verification on November 8, 2026 with CPython 3.14.7:
+
+- YAML structure, release-only upload, all-job dependencies, isolated OIDC
+  permissions, and valid/invalid tag checks passed.
+- Original distribution checksums passed; deliberate artifact modification
+  was rejected by the same checksum command used in CI.
+- Wheel/sdist builds and Twine metadata checks passed. The first offline build
+  used an empty temporary cache; the successful build used the available
+  standard local cache.
+- Both isolated wheel and sdist installations passed stdlib-only imports,
+  typing-marker and loop-free observation checks. With only pytest 9.2.0 added,
+  each installation passed both installed factory smoke tests.
+- The focused pytest plugin suite passed 12 cases; two-worker xdist passed
+  812 broker-free cases. Pre-commit, Pyright, and the 709-definition /
+  679-attribute Sphinx audit passed.
+
+No package was uploaded. The PyPI project name, license decision, GitHub
+environment protections, and external Trusted Publisher configuration still
+require owner setup; an actual release CI/OIDC result is unverified. Follow
+[the publishing guide](publishing.md), using workflow filename `ci.yml` and
+environment `pypi`. The remaining publication gates below still apply.
+
 ## Pytest constructor fixtures (SPEC 1.6)
 
 The existing `event_observer` entry point now registers five session-scoped
@@ -301,7 +376,15 @@ of its interface and are identified separately from real-broker tests.
 
 ## Remaining work before publication
 
-- Owner's choice of license and verification of the PyPI name.
+The [release gate execution plan](release-gates-plan.md) maps these remaining
+items to RG-01–RG-15, implementation stages, and measurable completion criteria.
+The November 8, 2026 interview selected MIT with Valerii Korobov as copyright
+holder, the complete mandatory checks on every PR, and GitHub-hosted benchmark
+baselines with actual runner characteristics recorded. These decisions do not
+constitute implementation or completed candidate verification.
+
+- Implement the owner-selected MIT license in source/distributions and verify
+  the PyPI name.
 - Verified dependency floors and a full Python/OS/client/broker matrix.
 - Full fault suites: ACL/auth in a real environment, advertised endpoints
   through Toxiproxy, broker restart, retention, topic recreation, and compaction.

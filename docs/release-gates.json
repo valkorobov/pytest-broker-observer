@@ -1,0 +1,646 @@
+{
+  "schema_version": 1,
+  "distribution": "pytest-broker-observer",
+  "gates": [
+    {
+      "id": "RG-01",
+      "title": "Every MVP MUST requirement has a test/check in the traceability matrix",
+      "checks": [
+        {
+          "id": "traceability",
+          "producer": "traceability",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "mvp-must-and-ac-inventory",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-02",
+      "title": "Core and sync/async parity pass across the claimed Python and platform range",
+      "checks": [
+        {
+          "id": "python-platform-matrix",
+          "producer": "python-platform-matrix",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-cpython-3.11",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.12",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.13",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.14",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.11",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.12",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.13",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.14",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.11",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.12",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.13",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.14",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-03",
+      "title": "Real brokers pass base and claimed capability contract tests",
+      "checks": [
+        {
+          "id": "broker-contracts",
+          "producer": "broker-contracts",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-kafka-3.9.2-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-3.9.2-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-3.8.1-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-3.8.1-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-4.4.0-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-4.4.0-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-4.3.7-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-4.3.7-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-8.2.11-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-8.2.11-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-7.0.15-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-7.0.15-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-04",
+      "title": "Readiness, concurrent waiters, loss accounting, fault handling, and cleanup reliability pass",
+      "checks": [
+        {
+          "id": "fault-reliability",
+          "producer": "fault-reliability",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-kafka-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-05",
+      "title": "The sync runtime receives during blocking actions and releases normal lifecycle resources",
+      "checks": [
+        {
+          "id": "sync-lifecycle",
+          "producer": "sync-lifecycle",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-core-sync-process-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-core-sync-process-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-core-sync-process-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-sync-native-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-sync-native-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-sync-native-lifecycle",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-06",
+      "title": "Credentials and payload redaction fixtures do not leak into built-in safe artifacts",
+      "checks": [
+        {
+          "id": "safe-artifacts",
+          "producer": "safe-artifacts",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "default-safe-export",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "redacted-safe-export",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "failed-redactor-and-reporter",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "sanitized-container-logs",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-07",
+      "title": "Explicit Allure reporting preserves outcomes and independent test contexts",
+      "checks": [
+        {
+          "id": "allure-matrix",
+          "producer": "allure-matrix",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "minimum-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "minimum-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "minimum-xdist",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "locked-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "locked-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "locked-xdist",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-08",
+      "title": "Candidate wheel and sdist install cleanly and Core imports without extras",
+      "checks": [
+        {
+          "id": "clean-install",
+          "producer": "clean-install",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-cpython-3.11-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.12-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.13-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-cpython-3.14-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.11-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.12-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.13-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-cpython-3.14-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.11-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.12-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.13-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-cpython-3.14-wheel-sdist-minimal-extras",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-09",
+      "title": "Typing marker, public signatures, and installed documentation examples are verified",
+      "checks": [
+        {
+          "id": "public-api",
+          "producer": "public-api",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-installed-typing-signatures-examples",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "macos-installed-typing-signatures-examples",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "windows-installed-typing-signatures-examples",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-10",
+      "title": "Dependency minima and the actual tested matrix contain no untested support claims",
+      "checks": [
+        {
+          "id": "dependency-matrix",
+          "producer": "dependency-matrix",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "confluent-kafka-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "confluent-kafka-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "aio-pika-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "aio-pika-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "pika-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "pika-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "redis-py-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "redis-py-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "pytest-stack-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "pytest-stack-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "protobuf-gencode-minimum",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "protobuf-gencode-locked",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-11",
+      "title": "Queues and pending work remain bounded and memory/resource caps are verified",
+      "checks": [
+        {
+          "id": "resource-bounds",
+          "producer": "resource-bounds",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "linux-core-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-core-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-kafka-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-rabbitmq-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-sync",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "linux-redis-streams-async",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-12",
+      "title": "Tag, version, and changelog agree and archives contain no secrets or private artifacts",
+      "checks": [
+        {
+          "id": "source-integrity",
+          "producer": "source-integrity",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "release-tag-version-changelog",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "wheel-inventory",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "sdist-inventory",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-13",
+      "title": "Owner identity, name, license, publishing rights, publisher, and environment are resolved",
+      "checks": [
+        {
+          "id": "release-identity",
+          "producer": "release-identity",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "owner-license-name",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            },
+            {
+              "id": "publisher-environment-protections",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-14",
+      "title": "Publishing uses verified distributions from the same run and candidate with matching hashes",
+      "checks": [
+        {
+          "id": "same-run-artifacts",
+          "producer": "same-run-artifacts",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "same-run-candidate-distributions",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "RG-15",
+      "title": "Mandatory failures, unexpected skips, flaky cases, and release stubs are not hidden",
+      "checks": [
+        {
+          "id": "mandatory-suite-audit",
+          "producer": "mandatory-suite-audit",
+          "implementation": "planned",
+          "profiles": [
+            {
+              "id": "required-suite-applicability-and-first-failures",
+              "required_cases": [],
+              "allowed_not_applicable": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -195,3 +195,6 @@ silently weakening readiness, copying, or completeness.
 Before release, candidate artifacts and the SPEC release gates need reproducible
 verification. The public name, license, publishing identity, and Trusted Publishing
 require separate owner confirmation. A local build does not publish the package.
+
+For the GitHub Release trigger, tag/version matching, `pypi` environment, and
+PyPI Trusted Publisher setup, follow [the publishing guide](docs/publishing.md).

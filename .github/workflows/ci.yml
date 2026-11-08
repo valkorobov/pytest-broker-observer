@@ -4,13 +4,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
 
 env:
   UV_VERSION: "0.12.19"
@@ -120,6 +122,21 @@ jobs:
           python-version: "3.14"
       - run: python -m pip install "uv==${UV_VERSION}"
       - run: uv sync --locked --all-groups --all-extras
+      - name: Validate release version
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          expected_tag = f"v{project['version']}"
+          if project["name"] != "pytest-broker-observer" or os.environ["RELEASE_TAG"] != expected_tag:
+              raise SystemExit(f"Release tag must match the distribution version: {expected_tag}")
+          PY
       - run: uv build --no-sources
       - run: uv run twine check dist/*
       - name: Clean wheel import without optional dependencies
@@ -210,6 +227,18 @@ jobs:
               assert transport.open_count == transport.close_count == 1
           PY
           /tmp/observer-wheel/bin/python -I -m pytest -p no:cacheprovider -c /dev/null /tmp/test_observer_minimal.py -q
+
+      - name: Calculate release checksums
+        run: sha256sum dist/* > SHA256SUMS
+      - name: Upload verified release distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-distributions
+          path: |
+            dist/
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
 
   kafka:
     runs-on: ubuntu-latest
@@ -346,3 +375,102 @@ jobs:
       - name: Stop Redis Streams
         if: always()
         run: docker compose --profile redis down --volumes
+
+  release-gates:
+    name: Evaluate release gates
+    if: ${{ always() && !cancelled() }}
+    needs: [core, quality, packaging, kafka, rabbitmq, redis-streams, allure-example]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+      JOB_RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.14"
+      - name: Download candidate distributions
+        if: needs.packaging.result == 'success'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-distributions
+          path: candidate-artifacts
+      - name: Download producer evidence from this run
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: release-gate-evidence-*
+          path: gate-inputs
+      - name: Record GitHub job results
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          jobs = json.loads(os.environ["JOB_RESULTS"])
+          Path("job-results.json").write_text(json.dumps({
+              name: {"result": value["result"]} for name, value in jobs.items()
+          }))
+          PY
+      - name: Audit open release gates on non-release runs
+        if: github.event_name != 'release'
+        run: >-
+          python tools/check_release_gates.py --mode audit
+          --evidence-dir gate-inputs --dist-dir candidate-artifacts/dist
+          --job-results job-results.json --report artifacts/release-gates/report.json
+      - name: Enforce every gate and assemble the publication bundle
+        if: github.event_name == 'release'
+        run: >-
+          python tools/check_release_gates.py
+          --evidence-dir gate-inputs --dist-dir candidate-artifacts/dist
+          --job-results job-results.json --report artifacts/release-gates/report.json
+          --bundle-dir approved-release
+      - name: Upload release gate report
+        if: ${{ !cancelled() && (success() || failure()) }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-gates-report
+          path: artifacts/release-gates/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the authorized publication bundle
+        if: github.event_name == 'release' && success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verified-release
+          path: approved-release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release to PyPI
+    if: github.event_name == 'release'
+    needs: [core, quality, packaging, kafka, rabbitmq, redis-streams, allure-example, release-gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pytest-broker-observer/
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: verified-release
+          path: release-artifacts
+      - name: Verify distribution checksums
+        working-directory: release-artifacts
+        run: sha256sum --check SHA256SUMS
+      - name: Publish distributions to PyPI with attestations
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          packages-dir: release-artifacts/dist/
+          attestations: true

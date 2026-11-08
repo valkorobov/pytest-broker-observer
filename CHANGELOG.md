@@ -7,6 +7,14 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- A fail-closed release-gate inventory and candidate/run-bound evidence validator.
+  Publication requires every RG-01–RG-15 check/profile, successful producer jobs,
+  hashed JUnit outcomes, exact distribution bytes, and a same-run verified bundle;
+  planned or missing checks keep production uploads blocked.
+- PyPI publication on a published GitHub Release, after the full CI matrix,
+  packaging and broker checks. Tag/version validation, SHA-256 verification,
+  a dedicated `pypi` environment, OIDC Trusted Publishing, and distribution
+  attestations preserve the verified build through upload.
 - Five lazy, session-scoped pytest factory fixtures: Kafka, RabbitMQ, and Redis
   Streams adapter constructors plus sync/async observer constructors. Projects
   configure their own fixtures and own watch lifetimes; no broker clients,
