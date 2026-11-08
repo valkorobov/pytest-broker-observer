@@ -19,6 +19,72 @@ scope definitions or broker positions.
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
 
+## License, identity, and traceability (plan stage 1)
+
+The owner-selected MIT license is now present in `LICENSE`, with copyright
+`2026 Valerii Korobov`, SPDX metadata, explicit license-file inclusion, and public
+repository/issue URLs. The SPEC administrative addendum replaces the working
+distribution name with `pytest-broker-observer`; its behavioral revision stays 1.6.
+The [preflight record](release-preflight.json) distinguishes owner decisions,
+observed remote settings, historical CI, and unexecuted production checks.
+
+Authenticated inspection on November 8, 2026 confirmed:
+
+- A pending PyPI publisher bound to `valkorobov/pytest-broker-observer`, workflow
+  `ci.yml`, environment `pypi`. The public project JSON returned 404. A pending
+  publisher does not reserve a name or demonstrate a successful OIDC upload.
+- GitHub environment `pypi` now requires reviewer `valkorobov`, allows self-review,
+  and permits deployment only from tags matching `v*`, as authorized by the owner.
+  A REST API readback confirmed the settings. These are deployment restrictions;
+  the repository rulesets endpoint returned no repository tag-protection rules.
+- The latest observed green GitHub run was
+  [42476213696](https://github.com/valkorobov/pytest-broker-observer/actions/runs/42476213696),
+  for earlier SHA `f507dd298cd4f0e3a2fe91ada931a6de4a936035`.
+  It does not verify the current stage 0/1 changes.
+
+The [traceability inventory](traceability.json) covers all 88 AC criteria and
+128 physical MUST lines: 125 MVP obligations, two vocabulary entries, and one
+deferred temporal entry. Each MVP row identifies directly defined tests or
+explicit staged missing checks, expected outcomes, modes, and target platforms.
+The [readable mapping](acceptance.md) preserves both historical Kafka first
+failures as unresolved stage 4 work; passing diagnostic reruns do not erase them.
+CI now checks the inventory and candidate identity, and analyzes a copied public
+consumer against both clean installed distributions with no source-checkout path.
+
+Local verification on November 8, 2026, CPython 3.14.7 / macOS arm64:
+
+- 69 identity and 28 traceability CLI regressions passed, including omitted/stale
+  requirements, invalid selectors, changed MIT terms, mismatched Python/optional
+  dependency metadata, duplicate identity fields, missing typing markers,
+  unexpected artifacts, links, and unsafe archive paths.
+- The two-worker broker-free suite passed 988 cases. Combined package unit
+  statement/branch coverage remained 88.86%, measured before plugin loading.
+- The focused pytest plugin suite passed all 12 cases. Broker-free pytest/Allure
+  examples passed 15 cases; the intentional demonstration failure was explicitly
+  skipped and 12 broker examples were deselected.
+- Pre-commit, Pyright, and the Sphinx audit passed (709 definitions / 679 attributes).
+- Wheel built from sdist, Twine, and exact source/archive MIT/identity checks passed.
+  Clean wheel/sdist installations each passed stdlib-only imports, `py.typed`,
+  installed origin, loop-free sync observation, and both pytest-only factory smokes.
+- Installed consumer analysis passed for raw/custom-decoder/message-type overloads,
+  sync/async contexts, scopes, payload/event/count results. Each artifact analyzed
+  one consumer file; an intentionally incorrect `assert_type` produced the expected
+  error. Analysis uses the project's `basic` mode. An exploratory `strict` run
+  reported 24 unknown-member diagnostics from incomplete public parameter
+  annotations; stricter typing and the full profile matrix remain stage 2 work.
+
+Independent review identified missing optional dependency/range comparison and
+`Requires-Python` comparison in the first checker draft. Both were corrected and
+covered by negative tests. Clean-install checks also caught venv-interpreter
+symlink resolution and macOS path-alias issues in the new typing helper; both
+were corrected before final verification.
+
+Stage 1 completes license/identity preparation and the existing-or-missing check
+inventory. It does not close RG-01–RG-15: candidate-bound producer evidence,
+the full matrix, fault/resource/report checks, final administrative rechecks,
+and an owner-authorized release are still required. No release, push, or PyPI
+upload was performed.
+
 ## Release publication interlock (plan stage 0)
 
 The [release gate inventory](release-gates.json), stdlib-only validator
@@ -88,9 +154,9 @@ Local verification on November 8, 2026 with CPython 3.14.7:
   812 broker-free cases. Pre-commit, Pyright, and the 709-definition /
   679-attribute Sphinx audit passed.
 
-No package was uploaded. The PyPI project name, license decision, GitHub
-environment protections, and external Trusted Publisher configuration still
-require owner setup; an actual release CI/OIDC result is unverified. Follow
+No package was uploaded. This historical workflow verification preceded the
+stage 1 license and administrative preflight above; an actual release CI/OIDC
+result remains unverified. Follow
 [the publishing guide](publishing.md), using workflow filename `ci.yml` and
 environment `pypi`. The remaining publication gates below still apply.
 
@@ -380,11 +446,12 @@ The [release gate execution plan](release-gates-plan.md) maps these remaining
 items to RG-01–RG-15, implementation stages, and measurable completion criteria.
 The November 8, 2026 interview selected MIT with Valerii Korobov as copyright
 holder, the complete mandatory checks on every PR, and GitHub-hosted benchmark
-baselines with actual runner characteristics recorded. These decisions do not
-constitute implementation or completed candidate verification.
+baselines with actual runner characteristics recorded. Stage 1 implemented the
+license and recorded the administrative preflight; full candidate verification
+remains incomplete.
 
-- Implement the owner-selected MIT license in source/distributions and verify
-  the PyPI name.
+- Recheck the observed pending publisher, name status, and deployment protections
+  before final publication; configuration can change independently of the code.
 - Verified dependency floors and a full Python/OS/client/broker matrix.
 - Full fault suites: ACL/auth in a real environment, advertised endpoints
   through Toxiproxy, broker restart, retention, topic recreation, and compaction.
@@ -394,12 +461,12 @@ constitute implementation or completed candidate verification.
 - Remaining Allure reporting contexts: examples verified locally with the real
   pytest plugin and HTML, a separate CI job prepared; the full runner matrix
   still requires confirmation.
-- Protected release environment, confirmed OIDC Trusted Publisher,
-  attestations, tag/version/hash verification, and publication of verified artifacts.
+- Actual release CI/OIDC execution, distribution attestations, published hashes,
+  and installed smoke checks from the owner-authorized release.
 
 CI is prepared, but local checks do not replace a successful CI run.
-The LICENSE file is intentionally absent pending the owner's decision; public
-publication was not performed as part of this task.
+The MIT license is included in both distributions. Public publication remains
+blocked by the open release gates.
 
 Mapping SPEC areas to tests: [acceptance.md](acceptance.md). Extending and running
 transport contracts: [testing.md](testing.md).

@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "observed_on": "2026-11-08",
+  "purpose": "Administrative preflight record, not candidate-bound release-gate evidence",
+  "owner_decisions": {
+    "distribution": "pytest-broker-observer",
+    "repository": "valkorobov/pytest-broker-observer",
+    "license_expression": "MIT",
+    "copyright_holder": "Valerii Korobov",
+    "copyright_year": 2026,
+    "environment_reviewer": "valkorobov",
+    "allow_self_review": true,
+    "environment_deployment_policy": {"name": "v*", "type": "tag"},
+    "production_upload_authorized": false
+  },
+  "observed_remote_configuration": {
+    "github": {
+      "method": "Authenticated GitHub REST API; read back after the owner-authorized environment update",
+      "repository": "valkorobov/pytest-broker-observer",
+      "visibility": "public",
+      "default_branch": "main",
+      "environment": "pypi",
+      "required_reviewers": ["valkorobov"],
+      "prevent_self_review": false,
+      "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true},
+      "deployment_policies": [{"name": "v*", "type": "tag"}],
+      "repository_rulesets": [],
+      "scope_note": "Environment rules restrict deployment; they do not prevent creating, moving, or deleting repository tags.",
+      "historical_ci": {
+        "url": "https://github.com/valkorobov/pytest-broker-observer/actions/runs/42476213696",
+        "event": "push",
+        "source_sha": "f507dd298cd4f0e3a2fe91ada931a6de4a936035",
+        "conclusion": "success",
+        "scope_note": "Earlier source revision; does not verify the stage 0 or stage 1 working-tree changes."
+      }
+    },
+    "pypi": {
+      "method": "Read-only inspection of the authenticated account publishing page in the owner's existing browser session",
+      "settings_url": "https://pypi.org/manage/account/publishing/",
+      "publisher_state": "pending",
+      "provider": "GitHub",
+      "project": "pytest-broker-observer",
+      "repository": "valkorobov/pytest-broker-observer",
+      "workflow": "ci.yml",
+      "environment": "pypi",
+      "public_json_url": "https://pypi.org/pypi/pytest-broker-observer/json",
+      "public_json_http_status": 404,
+      "scope_note": "No public project was returned. A pending publisher does not reserve the name or prove an actual OIDC upload."
+    }
+  },
+  "not_executed": [
+    "CI verification of the stage 1 source candidate",
+    "Production OIDC token exchange and PyPI upload",
+    "Verification of published distribution hashes and attestations",
+    "Installation smoke tests from the published PyPI release"
+  ]
+}

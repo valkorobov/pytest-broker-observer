@@ -15,8 +15,8 @@ perform verification without uploading a version.
    | Field | Value |
    | --- | --- |
    | PyPI project | `pytest-broker-observer` |
-   | Owner | Your GitHub user or organization |
-   | Repository | The actual GitHub repository name |
+   | Owner | `valkorobov` |
+   | Repository | `pytest-broker-observer` |
    | Workflow filename | `ci.yml` |
    | Environment | `pypi` |
 
@@ -33,6 +33,26 @@ job. No PyPI API-token secret is needed. The publishing action also generates
 attestations for both distributions; see
 [Trusted Publishing](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
 
+## Verified preflight configuration
+
+On November 8, 2026, authenticated inspection confirmed a **pending** PyPI
+publisher with the exact binding above. The public project JSON returned 404;
+this observation is not a reservation or proof that a first upload will succeed.
+No package was uploaded.
+
+At the owner's request, GitHub environment `pypi` was configured with required
+reviewer `valkorobov`, self-review allowed, and one deployment policy accepting
+only tags matching `v*`. A REST API readback confirmed these settings.
+These deployment restrictions do not protect repository tags against creation,
+movement, or deletion; the repository rulesets endpoint returned an empty list.
+Exact release tag/version matching remains enforced by CI.
+
+The [preflight record](release-preflight.json) separates owner decisions,
+observed settings, historical CI, and unexecuted publication checks. Recheck
+remote settings before the final release because they can change independently
+of source control. The latest observed green CI belongs to an earlier source
+revision and does not validate the current changes.
+
 ## Publishing a release
 
 The publishing job waits for all CI jobs and the strict `release-gates`
@@ -41,14 +61,15 @@ checks as planned, so production publication is blocked. Complete the
 [release gates plan](release-gates-plan.md) and generate actual candidate evidence
 as described in the [evidence contract](release-gate-evidence.md).
 
-1. Complete the release gates in [status.md](status.md#remaining-work-before-publication),
-   including the owner's license and project-name decisions.
+1. Complete the release gates in [status.md](status.md#remaining-work-before-publication)
+   and recheck the administrative preflight. The owner-selected MIT license is
+   included in source and both candidate distributions.
 2. Set `project.version` in `pyproject.toml`, update `uv.lock` with `uv lock`,
    and update the changelog and recorded verification. Commit and push changes.
 3. Create a tag matching that version, for example `v0.1.0`, at the intended
    commit. Publish a GitHub Release for that tag.
-4. Watch the `CI` run triggered by the `release` event and approve deployment
-   if the `pypi` environment requires it.
+4. Watch the `CI` run triggered by the `release` event. Once all gates pass,
+   approve the `pypi` deployment as `valkorobov`; self-review is allowed.
 
 Every release runs the Python 3.11–3.14 unit/coverage matrix, quality checks,
 packaging smoke tests, and all three broker jobs. A mismatched tag or failed

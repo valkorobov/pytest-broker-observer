@@ -107,6 +107,8 @@ jobs:
       - run: uv sync --locked --all-groups --all-extras
       - run: uv run pre-commit run --all-files
       - run: uv run python tools/check_docstrings.py
+      - name: Validate complete SPEC traceability inventory
+        run: uv run --locked python tools/check_traceability.py
       - run: uv run pyright
       - run: uv run pytest -n 2 -m 'not integration'
 
@@ -138,6 +140,8 @@ jobs:
               raise SystemExit(f"Release tag must match the distribution version: {expected_tag}")
           PY
       - run: uv build --no-sources
+      - name: Verify source and distribution license identity
+        run: uv run --locked python tools/check_release_identity.py
       - run: uv run twine check dist/*
       - name: Clean wheel import without optional dependencies
         run: |
@@ -171,6 +175,10 @@ jobs:
           python -m venv /tmp/observer-sdist
           /tmp/observer-sdist/bin/python -m pip install --no-deps dist/*.tar.gz
           /tmp/observer-sdist/bin/python -I -c 'from event_observer import EventObserver, SyncEventObserver'
+      - name: Check installed public consumer typing for both artifacts
+        run: |
+          uv run --locked python tools/check_installed_typing.py --python /tmp/observer-wheel/bin/python
+          uv run --locked python tools/check_installed_typing.py --python /tmp/observer-sdist/bin/python
       - name: Installed-wheel factory fixtures with pytest only
         run: |
           /tmp/observer-wheel/bin/python -m pip install 'pytest>=8.3,<10'

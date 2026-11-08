@@ -18,9 +18,9 @@ evidence. All mandatory release evidence must identify the candidate it tested.
 | Incompatible dependency minimum | May raise it only after a reproducible failing check, updating SPEC and documentation |
 
 The final name and repository are `pytest-broker-observer` and
-`valkorobov/pytest-broker-observer`. The owner reports that GitHub/PyPI publisher
-setup is complete. Its configured protections and actual execution remain
-separate evidence to verify. Preparing this plan does not authorize a production
+`valkorobov/pytest-broker-observer`. Stage 1 records the observed pending publisher
+and configured environment protections in [release-preflight.json](release-preflight.json).
+Actual publication remains unexecuted. Preparing this plan does not authorize a production
 PyPI upload. The final release is an explicit owner action after gate closure.
 
 ## Working rules and evidence
@@ -99,24 +99,29 @@ no real candidate gate has been marked passed by completing this stage.
 
 **Gates:** RG-01, RG-09, RG-12, RG-13. **Depends on:** stage 0 schema.
 
-- [ ] Add MIT `LICENSE` with `Copyright (c) 2026 Valerii Korobov`, SPDX metadata,
+- [x] Add MIT `LICENSE` with `Copyright (c) 2026 Valerii Korobov`, SPDX metadata,
   explicit license-file inclusion, and verified wheel/sdist license contents.
-- [ ] Record the owner's name/repository/license decisions and reported publisher
+- [x] Record the owner's name/repository/license decisions and reported publisher
   setup separately from actual remote verification and name availability.
-- [ ] Check the actual publisher identity, `ci.yml` / `pypi` binding, required
+- [x] Check the actual publisher identity, `ci.yml` / `pypi` binding, required
   environment approval and tag protections; record administrative owner
   confirmations and remotely verified facts separately.
-- [ ] Expand grouped acceptance rows into exact AC-01–AC-88 and MVP MUST/check
+- [x] Expand grouped acceptance rows into exact AC-01–AC-88 and MVP MUST/check
   mappings, including RabbitMQ, Redis, marks, split runtimes, and pytest fixtures.
-- [ ] Identify existing and missing checks, native versus synthetic evidence,
+- [x] Identify existing and missing checks, native versus synthetic evidence,
   expected applicability, and every current reliability failure needing follow-up.
-- [ ] Validate metadata, public exports/overloads, `py.typed`, installed consumer
+- [x] Validate metadata, public exports/overloads, `py.typed`, installed consumer
   typing examples, and public documentation against candidate artifacts.
 
 **Done when:** every mandatory requirement has an existing check or an explicit
 missing-check work item with an expected result; unmapped obligations are rejected;
 license metadata and archive contents agree. The complete executable evidence
 is required at stage 7. External preflight gaps stay recorded until resolved.
+
+Implementation, actual local checks, and remaining evidence limits are recorded
+in [status.md](status.md#license-identity-and-traceability-plan-stage-1).
+Remote preflight is recorded separately from candidate CI evidence; no release
+gate has been marked passed by completing this stage.
 
 ## Stage 2 — Python, OS, dependency, and runner compatibility
 

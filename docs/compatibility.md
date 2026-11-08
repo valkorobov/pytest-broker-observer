@@ -110,8 +110,11 @@ affinity rules. See [scopes and marks](scopes.md#reusable-observation-marks).
 
 `max_bytes` is a deterministic estimate of retained data, not an RSS limit.
 It includes raw payload/key/UTF-8 source lengths, 128 bytes for the envelope,
-32 bytes per header/metadata pair, encoded metadata size, a decoded payload
-estimate, and 128 bytes per record. The Protobuf estimate uses an adjusted
+32 bytes per header/metadata pair, UTF-8 header-name lengths and raw header-value
+lengths, UTF-8 metadata-name lengths and metadata-value lengths (raw bytes or
+UTF-8 `str(value)`), a decoded payload estimate, and 128 bytes per record.
+Null payloads, keys, and header values contribute zero content bytes.
+The Protobuf estimate uses an adjusted
 wire size and is not equivalent to native heap size. Native queues, snapshots,
 and user results are accounted for separately from the retained journal.
 

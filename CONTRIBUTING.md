@@ -193,8 +193,18 @@ Changing a mandatory contract requires an explicit SPEC/ADR revision rather than
 silently weakening readiness, copying, or completeness.
 
 Before release, candidate artifacts and the SPEC release gates need reproducible
-verification. The public name, license, publishing identity, and Trusted Publishing
-require separate owner confirmation. A local build does not publish the package.
+verification. The owner selected `pytest-broker-observer`, the MIT license, and
+Valerii Korobov as copyright holder. The [preflight record](docs/release-preflight.json)
+separates those decisions from observed GitHub/PyPI settings and unexecuted
+publication checks. A local build does not publish the package.
+
+Run `uv run --locked python tools/check_traceability.py` after updating SPEC or
+referenced tests. Each MVP MUST line and AC-01–AC-88 needs a directly defined
+test selector or an explicit staged work item in `docs/traceability.json`.
+This structural check does not execute those tests or close a release gate.
+After `uv build --no-sources`, run
+`uv run --locked python tools/check_release_identity.py` to verify the approved
+source identity, MIT terms, archive metadata, and typing markers.
 
 For the GitHub Release trigger, tag/version matching, `pypi` environment, and
 PyPI Trusted Publisher setup, follow [the publishing guide](docs/publishing.md).

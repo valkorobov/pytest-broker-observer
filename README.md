@@ -443,3 +443,7 @@ Integration tests are skipped when the environment variable is missing. If a
 broker is configured, connection errors fail the tests. A command or CI workflow
 alone does not establish that an environment has been verified; results are
 recorded in the [status document](docs/status.md).
+
+The project is licensed under the [MIT License](LICENSE), copyright 2026
+Valerii Korobov. The candidate is not yet published; see the
+[publishing guide](docs/publishing.md) and [release gate plan](docs/release-gates-plan.md).

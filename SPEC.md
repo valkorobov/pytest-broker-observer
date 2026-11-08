@@ -4,10 +4,10 @@
 **Date:** November 4, 2026\
 **Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, reusable observation marks, and lazy pytest factory fixtures.\
 **First target release:** 0.1.0.\
-**Working distribution name:** `event-observer`; working import namespace: `event_observer`.\
+**Distribution name:** `pytest-broker-observer`; import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
 
-PyPI name availability, the right to use the name, the license, and verified dependency ranges must be checked before publication. Installation commands using the working name are not a recommendation to install an existing third-party package with the same name.
+The owner selected the distribution name above and the MIT license with copyright held by Valerii Korobov on November 8, 2026. This administrative addendum does not change the revision 1.6 behavioral contract. PyPI name availability, publishing identity, and dependency ranges still require actual verification before publication; a pending publisher does not reserve a project name.
 
 This document describes a standalone library. It contains no source code, message schemas, infrastructure addresses, credentials, or other materials from a private project. Domain examples are fictional. Implementation must not require access to a private repository.
 
@@ -1730,7 +1730,7 @@ All gates are requirements for a future release. This specification does not cla
 One repository, version, and wheel/sdist; runtime extras install dependencies only for implemented features. Empty future adapters are not published. A third-party adapter may be a separate distribution depending on the documented Core API; there is no automatic plugin discovery.
 
 ```text
-event-observer/
+pytest-broker-observer/
 ├── pyproject.toml
 ├── uv.lock
 ├── SPEC.md
@@ -1738,7 +1738,7 @@ event-observer/
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── SECURITY.md
-├── LICENSE                       # added after the license is selected
+├── LICENSE                       # owner-selected MIT license
 ├── src/event_observer/
 │   ├── __init__.py
 │   ├── py.typed
@@ -1836,7 +1836,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "event-observer"
+name = "pytest-broker-observer"
 version = "0.1.0"
 description = "Typed event observation and assertions for synchronous and asynchronous Python tests"
 readme = "README.md"
@@ -1852,8 +1852,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-# license and license-files are added after a separate license decision.
-# Apache-2.0 was previously a proposal, not a choice confirmed by the owner.
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Valerii Korobov"}]
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]

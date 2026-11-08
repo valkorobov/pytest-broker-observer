@@ -7,6 +7,11 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- The owner-selected MIT license and SPDX metadata, verified against both
+  distribution archives. A complete AC-01–AC-88/MUST traceability inventory
+  records existing checks and staged gaps; CI rejects stale or unmapped rows.
+  Clean wheel/sdist consumer typing checks cover public sync/async overloads
+  and include an intentionally incorrect type as a negative control.
 - A fail-closed release-gate inventory and candidate/run-bound evidence validator.
   Publication requires every RG-01–RG-15 check/profile, successful producer jobs,
   hashed JUnit outcomes, exact distribution bytes, and a same-run verified bundle;
