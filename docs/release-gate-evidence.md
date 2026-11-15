@@ -108,6 +108,13 @@ direct dependency of `release-gates`, and its GitHub result must be `success`.
 Each check binds the exact distribution hashes: future producers therefore
 receive the packaging artifact before generating candidate evidence.
 
+The `broker-contracts` matrix implements the RG-03 producer. Each server
+profile uploads `release-gate-evidence-broker-<profile>` with the async and
+blocking JUnit files and an image and dependency manifest. Kafka also attaches
+the JUnit proof for its advertised endpoint. The producer checks the installed
+wheel's origin and the packaging manifest before and after the tests.
+[Producer job](../.github/workflows/ci.yml) · [Broker profiles](../tools/broker_profiles.json)
+
 Runtime versions must be concrete; unknown/latest values are rejected. Explicit
 Linux/macOS/Windows and CPython labels must agree with the environment. Python
 versions include a patch number; platform values are `Linux`, `Darwin`, or

@@ -20,13 +20,59 @@ scope definitions or broker positions.
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
 
+## Isolated real broker contracts (plan stage 3)
+
+On November 15, 2026, all six profiles passed against one installed candidate
+wheel on macOS arm64 with CPython 3.14.7 and Docker Desktop Engine 29.8.0
+(`linux/arm64`). The current profiles used Testcontainers 4.15.0 and the locked
+clients. The older broker profiles used Testcontainers 4.9.0 and the exact
+minimum Python 3.14 dependency pins. [Pinned image inventory](../tools/broker_profiles.json)
+
+| Broker | Dependency profile | Async passed | Blocking passed | Declared capability exclusions across both modes |
+| --- | --- | ---: | ---: | ---: |
+| Kafka 3.9.2 | Current | 15 | 15 | 0 |
+| Kafka 3.8.1 | Minimum | 15 | 15 | 0 |
+| RabbitMQ 4.4.0 | Current | 11 | 11 | 8 |
+| RabbitMQ 4.3.7 | Minimum | 11 | 11 | 8 |
+| Redis 8.2.11 | Current | 12 | 12 | 6 |
+| Redis 7.0.15 | Minimum | 12 | 12 | 6 |
+
+The 180 registered cases produced 152 passes and 28 matching capability
+exclusions. All four additional Kafka routing checks passed with Toxiproxy
+2.13.0. Both Kafka versions ran the upstream Apache KRaft entrypoint. Docker
+published no Kafka host port, and metadata returned the proxy address.
+Disabling the proxy interrupted a warmed native metadata request and each
+active reader. Re-enabling it restored discovery before topic cleanup.
+[Routing test](../tests/integration/test_kafka_proxy_routing.py)
+
+Registry inspection confirmed each pinned index has Linux amd64 and arm64
+manifests. The local runner verified the actual server versions, Docker
+image identities, architecture, and assigned loopback ports. Docker Desktop
+omitted the live platform manifest descriptor. A separate partial-start
+probe on Testcontainers 4.9.0 forced an invalid entrypoint, retained its
+diagnostic, and confirmed removal of only the failed fixture container.
+The final six-profile run found zero owned containers left behind and identical
+sets of pre-existing running containers, Docker networks, and volumes. Local
+JUnit, manifests, sanitized log tails, and the summary are under
+`artifacts/broker-contracts/stage3/final/`.
+
+CI has a six-cell Linux x64 producer for the 12 RG-03 backend profiles. The
+inventory lists every case and the allowed capability exclusions. The jobs
+install the same-run wheel and attach the checksummed JUnit and image manifests
+to release-gate evidence. A local schema rehearsal replayed the real JUnit with
+synthetic CI identity and confirmed the validator accepted all 12 RG-03 inputs
+and blocked publication on the other 77 profiles. The first GitHub Actions run
+with this producer is pending. The remaining fault, reporting, and resource
+gates stay open.
+[CI workflow](../.github/workflows/ci.yml) · [Gate inventory](release-gates.json)
+
 ## Python, platform, and dependency compatibility (plan stage 2)
 
 The [compatibility CI job](ci-compatibility.md) defines 24 required cells:
 CPython 3.11–3.14 on Linux x64, macOS arm64, and Windows x64 with both exact
 [minimum and locked-current profiles](compatibility-profiles.json). Every cell
 uses the same wheel/sdist pair from its packaging job and checks the hashes
-before and after execution. The results below are from local macOS runs.
+before and after execution.
 
 The November 8 [floor evidence](dependency-floor-evidence.json) preserves the
 failed originals and passing replacements. Allure 2.13.0 failed with pytest
@@ -70,9 +116,30 @@ both artifact hashes in every manifest and independently checked each JUnit hash
 and result count. Manifests, reports, and `summary.json` are retained locally under
 `artifacts/compatibility/local-2026-11-15/final/`.
 
-These runs did not use real brokers or GitHub-hosted runners. The 24-cell workflow
-still needs a successful GitHub Actions run, including Linux x64 and Windows x64.
-The local runs do not close release gates.
+### GitHub Actions verification
+
+All **24 cells** passed on the first attempt on November 15, 2026, for commit
+`db3913fdf8f4463e24748cb861cac0c0e4f7e249`. Both dependency profiles passed
+on each listed interpreter. [CI run 43734651319](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43734651319)
+
+| Runner | CPython patch versions | Passed cells |
+| --- | --- | ---: |
+| Linux x64 | 3.11.18, 3.12.16, 3.13.18, 3.14.10 | 8/8 |
+| macOS arm64 | 3.11.9, 3.12.10, 3.13.17, 3.14.10 | 8/8 |
+| Windows x64 | 3.11.9, 3.12.10, 3.13.17, 3.14.10 | 8/8 |
+
+All 24 manifests matched the commit, run, attempt, and SHA-256 hashes of the
+wheel and sdist produced by the packaging job. The artifact audit verified
+432 JUnit files with 53,592 passing case executions and confirmed the typing
+check and its negative control for both package forms in every cell. The Core,
+packaging, quality, Allure example, Kafka, RabbitMQ, and Redis Streams jobs also
+passed. Downloaded evidence is retained locally under
+`artifacts/compatibility/actions-43734651319-attempt-1/`.
+
+The push workflow completed successfully. Its `release-gates-report` recorded
+`ready: false` with 89 outstanding profiles across 15 gates. Stage 2 matrix
+verification is complete. Registering the mandatory cases and producing the
+release evidence still belong to stage 7.
 
 ## License, identity, and traceability (plan stage 1)
 
@@ -144,9 +211,9 @@ upload was performed.
 
 The [release gate inventory](release-gates.json), stdlib-only validator
 `tools/check_release_gates.py`, and unprivileged `release-gates` CI job now
-protect the pending publication workflow. The inventory has RG-01–RG-15,
-15 required checks, and 89 profiles. They remain planned until later stages
-register executable checks and supply actual candidate evidence.
+protect the pending publication workflow. The initial inventory had 15
+planned checks and 89 profiles across RG-01–RG-15. Stage 3 registered the
+12 RG-03 profiles for execution.
 
 The verifier binds the repository, source SHA, workflow run/attempt, version/tag,
 successful GitHub producer job, exact distribution hashes, and hashed JUnit
@@ -507,12 +574,12 @@ remains incomplete.
 
 - Recheck the observed pending publisher, name status, and deployment protections
   before final publication; configuration can change independently of the code.
-- A successful 24-cell GitHub Actions compatibility run and real-broker
-  matrix evidence. The eight local macOS cells passed as recorded above.
+- Register the successful compatibility checks as release evidence and verify
+  the new isolated broker matrix on GitHub-hosted Linux x64.
 - Full fault suites: ACL/auth in a real environment, advertised endpoints
   through Toxiproxy, broker restart, retention, topic recreation, and compaction.
-- A full Testcontainers harness with a pinned digest and mandatory mapping of
-  each declared capability to a separate contract node on a real broker.
+- Cover remaining broker-specific fault and capability scenarios with
+  independently controlled real-broker cases.
 - RSS/throughput/latency benchmarks with a fixed environment and budgets.
 - Remaining Allure reporting contexts: examples verified locally with the real
   pytest plugin and HTML, a separate CI job prepared; the full runner matrix
@@ -520,7 +587,6 @@ remains incomplete.
 - Actual release CI/OIDC execution, distribution attestations, published hashes,
   and installed smoke checks from the owner-authorized release.
 
-CI is prepared, but local checks do not replace a successful CI run.
 The MIT license is included in both distributions. Public publication remains
 blocked by the open release gates.
 

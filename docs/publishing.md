@@ -50,8 +50,8 @@ Exact release tag/version matching remains enforced by CI.
 The [preflight record](release-preflight.json) separates owner decisions,
 observed settings, historical CI, and unexecuted publication checks. Recheck
 remote settings before the final release because they can change independently
-of source control. The latest observed green CI belongs to an earlier source
-revision and does not validate the current changes.
+of source control. Subsequent GitHub Actions runs are tracked in the project
+status. [GitHub Actions verification](status.md#github-actions-verification)
 
 ## Publishing a release
 

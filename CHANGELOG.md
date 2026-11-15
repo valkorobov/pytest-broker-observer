@@ -7,6 +7,10 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- An isolated Testcontainers matrix for two digest-pinned versions of Kafka,
+  RabbitMQ, and Redis Streams. It runs sync and async contracts against the
+  packaged wheel with current and minimum dependency profiles, verifies Kafka
+  advertised-endpoint routing through Toxiproxy, and produces RG-03 evidence.
 - A mandatory 24-cell compatibility CI matrix for Python 3.11–3.14,
   Linux/macOS/Windows, and exact minimum/locked-current dependency profiles.
   It reuses candidate archives, checks isolated extras and both package forms,

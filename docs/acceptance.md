@@ -139,7 +139,7 @@ stages refer to [release-gates-plan.md](release-gates-plan.md).
 | [AC-74](../SPEC.md#s25) | Safe status; Protobuf continues working | `tests/test_diagnostics.py::test_trace_valid_missing_ambiguous_and_zero_ids`<br>`tests/test_diagnostics.py::test_invalid_trace_context_does_not_raise` | No additional check-design gap recorded; candidate execution still required |
 | [AC-75](../SPEC.md#s25) | Correct IDs; export only through opt-in | `tests/test_diagnostics.py::test_trace_ids_require_explicit_export_opt_in`<br>`tests/test_diagnostics.py::test_trace_valid_missing_ambiguous_and_zero_ids` | No additional check-design gap recorded; candidate execution still required |
 | [AC-76](../SPEC.md#s25) | Custom adapter integrates without modifying Core | `tests/test_sync_contracts.py::test_blocking_contract_execution_does_not_create_or_run_asyncio`<br>`tests/test_sync_contracts.py::test_undeclared_optional_cases_are_explicit_not_applicable_before_source_creation` | No additional check-design gap recorded; candidate execution still required |
-| [AC-77](../SPEC.md#s25) | Traffic does not bypass the proxy through advertised endpoints | No existing executable selector | [advertised-endpoint-proxy](#advertised-endpoint-proxy) (stage 3) |
+| [AC-77](../SPEC.md#s25) | Traffic does not bypass the proxy through advertised endpoints | `tests/integration/test_kafka_proxy_routing.py::test_advertised_kafka_route_cannot_bypass_disabled_proxy` | Hosted and release candidate evidence remains required |
 | [AC-78](../SPEC.md#s25) | A claimed capability cannot be hidden through skip | `tests/test_sync_contracts.py::test_undeclared_optional_cases_are_explicit_not_applicable_before_source_creation`<br>`tests/test_release_gates.py::test_declared_capability_precondition_is_explicitly_not_applicable` | No additional check-design gap recorded; candidate execution still required |
 | [AC-79](../SPEC.md#s25) | Public imports and py.typed work | `tests/test_api.py::test_clean_core_and_plugin_entry_point_import_need_only_the_standard_library`<br>`tests/test_api.py::test_both_public_watch_factories_have_raw_decoder_and_message_overloads`<br>`tests/test_release_identity.py::test_each_artifact_requires_its_typing_marker` | [candidate-installed-artifact-matrix](#candidate-installed-artifact-matrix) (stage 7) |
 | [AC-80](../SPEC.md#s25) | Clear MissingOptionalDependencyError | `tests/test_diagnostics.py::test_core_import_and_missing_optional_dependencies_in_clean_process`<br>`tests/test_rabbitmq.py::test_missing_optional_client_has_actionable_error` | No additional check-design gap recorded; candidate execution still required |
@@ -306,7 +306,7 @@ exhaustive list of extension obligations.
 | Requirement | Expected behavior/check boundary | Existing exact selectors | Additional missing checks |
 | --- | --- | --- | --- |
 | `MUST-s21-001` | Synthetic barriers reproduce readiness, end/failure, oversize and startup/cleanup races without hiding adapter behavior. | `tests/test_reliability.py::test_cancellation_while_transport_open_is_pending_rolls_back`<br>`tests/test_observer.py::test_failure_without_waiter_visible_at_exit`<br>`tests/test_protobuf_runtime.py::test_hard_event_size_is_checked_before_decoder` | No additional check-design gap recorded; candidate execution still required |
-| `MUST-s21-002` | Kafka proxy tests prove there is no advertised-endpoint bypass. | No existing executable selector | [advertised-endpoint-proxy](#advertised-endpoint-proxy) (stage 3) |
+| `MUST-s21-002` | Kafka proxy tests prove there is no advertised-endpoint bypass. | `tests/integration/test_kafka_proxy_routing.py::test_advertised_kafka_route_cannot_bypass_disabled_proxy` | Hosted and release candidate evidence remains required |
 | `MUST-s21-003` | Known markers exercise safe export/redactor behavior; consolidate every required marker location and artifact scan. | `tests/test_diagnostics.py::test_default_diagnostics_omit_sensitive_content`<br>`tests/test_diagnostics.py::test_redactor_failures_do_not_expose_original_payload` | [safe-artifact-secret-scan](#safe-artifact-secret-scan) (stage 5) |
 
 ### [SPEC section 22](../SPEC.md#s22)
@@ -487,13 +487,6 @@ Affected entries: `AC-25`.
 Execute isolated declared-minimum/current dependency profiles, retain incompatibility evidence and align metadata/SPEC support claims.
 
 Affected entries: `MUST-s23-001`, `MUST-s26-001`, `MUST-s28-003`, `MUST-s29-001`.
-
-<a id="advertised-endpoint-proxy"></a>
-### `advertised-endpoint-proxy` — stage 3
-
-Demonstrate that Kafka traffic uses Toxiproxy after metadata discovery, including advertised endpoints, with no direct bypass.
-
-Affected entries: `MUST-s21-002`, `AC-77`.
 
 <a id="kafka-isolation-startup-first-failure"></a>
 ### `kafka-isolation-startup-first-failure` — stage 4

@@ -204,5 +204,50 @@ with cancellations, conservative loss compaction, process/thread/loop affinity,
 and repeated sync lifecycle. Callbacks run in the runtime, rather than the
 sync test thread.
 
-Full broker faults, Toxiproxy, and benchmarks are listed as remaining gates in
-[status.md](status.md); CI configuration is not evidence that they have run.
+## Isolated real broker contracts
+
+The `broker-contracts` CI job tests each combination in the pinned image inventory.
+The current dependency profile runs with Kafka 3.9.2, RabbitMQ 4.4.0, and Redis
+8.2.11. The exact minimum profile on Python 3.14 runs with Kafka 3.8.1,
+RabbitMQ 4.3.7, and Redis 7.0.15. Each job installs the wheel produced by packaging
+and verifies both downloaded distribution hashes. [Image inventory](../tools/broker_profiles.json)
+
+Each run starts owned Testcontainers resources. Docker assigns loopback host
+ports, native readiness probes have deadlines, and teardown removes only the
+created containers, their anonymous volumes, and the Kafka fixture network.
+The fixtures disable Ryuk and explicitly handle cleanup after partial startup.
+The existing Compose workflow remains available for development and example runs.
+
+Both contract classes run for every broker profile. Each capability exclusion
+must match its registered JUnit node, reason, and final `NOT_APPLICABLE`
+precondition. Missing dependencies, unexpected skips, and unreachable brokers
+fail an explicitly selected profile. [Gate inventory](release-gates.json)
+
+Kafka uses the upstream Apache image entrypoint in KRaft mode inside its own
+Docker network. Docker publishes the proxy's listener and control ports.
+The broker's only external advertised endpoint is the listener on Toxiproxy.
+The routing check opens both reader types, confirms delivery and the advertised
+metadata, disables the owned route, and verifies that an already connected admin
+client and an active reader lose broker access. It restores the route and verifies
+discovery again before cleanup. [Routing test](../tests/integration/test_kafka_proxy_routing.py)
+
+Run the current Kafka profile from an all-extras development environment with
+an available Docker daemon. Choose a fresh output directory for each run.
+
+```sh
+uv run --locked --all-groups --all-extras python -m tools.run_broker_contracts \
+  --profile kafka-3.9.2 --output artifacts/broker-contracts/kafka-local
+```
+
+For Docker Desktop, set `DOCKER_HOST` to the local Unix socket shown by
+`docker context inspect --format '{{.Endpoints.docker.Host}}'`. For a minimum
+profile, generate the requirements and constraints with
+`tools/compatibility_profiles.py` and install them into a fresh environment.
+Use that interpreter to invoke the runner. The CI job shows the full procedure
+with a candidate wheel and exact hashes. [CI workflow](../.github/workflows/ci.yml)
+
+The runner retains bounded sanitized logs, JUnit, and a manifest of the actual
+image, architecture, broker version, dependency versions, and contract counts.
+The CI job emits RG-03 evidence with the current source SHA, run, attempt, and
+wheel/sdist hashes. Local results and remaining fault and benchmark work are
+tracked in the project status. [Status](status.md)

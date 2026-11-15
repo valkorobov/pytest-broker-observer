@@ -134,37 +134,39 @@ gate has been marked passed by completing this stage.
 - [x] Test Protobuf runtime/gencode combinations and both broker client paths.
 - [x] Resolve incompatible floors with reproducible evidence and approved policy;
   preserve the initial failure and update declared support consistently.
-- [ ] Run installed wheel/sdist, optional-import, pytest-only/factory, typing,
+- [x] Run installed wheel/sdist, optional-import, pytest-only/factory, typing,
   public examples, and sync/async parity checks in applicable profiles.
-- [ ] Emit exact-version manifests and JUnit evidence for every required cell.
+- [x] Emit exact-version manifests and JUnit evidence for every required cell.
 
 **Done when:** every claimed matrix cell has successful candidate evidence and
 the published dependency/support declarations match the measured combinations.
 
-The 24-cell job and all per-cell commands are implemented; see
-[ci-compatibility.md](ci-compatibility.md). All eight local macOS arm64 cells passed;
-the [status record](status.md#python-platform-and-dependency-compatibility-plan-stage-2)
-records the results and links the original floor failures. The two execution/evidence
-items above and the stage completion criterion remain open until the full
-GitHub-hosted matrix actually succeeds. Configuring jobs does not close gates.
+All 24 hosted cells passed for `db3913f` with matching wheel and sdist hashes.
+The evidence covers all four interpreters in both dependency profiles on Linux,
+macOS, and Windows. Stage 7 still requires registering and aggregating the
+results for the release candidate. [Verification record](status.md#github-actions-verification)
 
 ## Stage 3 — isolated real-broker infrastructure
 
 **Gates:** RG-03, RG-04, RG-10, RG-15. **Depends on:** stages 0–1; informs stage 2.
 
-- [ ] Implement Testcontainers fixtures with digest-pinned images, unique names,
+- [x] Implement Testcontainers fixtures with digest-pinned images, unique names,
   dynamic mapped ports, bounded readiness, and cleanup after partial startup.
-- [ ] Verify the actual KRaft image/class/entrypoint combination; use an explicit
+- [x] Verify the actual KRaft image/class/entrypoint combination; use an explicit
   generic container configuration where a Kafka-specific class is incompatible.
-- [ ] Resolve and verify the proposed older broker profiles and platform manifests.
-- [ ] Run all applicable async and blocking contract nodes on each required profile.
-- [ ] Add an isolated Toxiproxy network; route Kafka's advertised broker endpoints
+- [x] Resolve and verify the proposed older broker profiles and platform manifests.
+- [x] Run all applicable async and blocking contract nodes on each required profile.
+- [x] Add an isolated Toxiproxy network, route Kafka's advertised broker endpoints
   through it and prove there is no direct client bypass after metadata discovery.
-- [ ] Capture bounded sanitized logs and fault scripts/seeds. Do not stop a shared
+- [x] Capture bounded sanitized logs and fault scripts/seeds. Do not stop a shared
   developer broker or delete application topics, queues, exchanges, or streams.
 
 **Done when:** all applicable real contracts pass on the required profiles,
 resource ownership/cleanup is proved, and network-fault routing is demonstrated.
+
+All six profiles passed locally on Docker Linux arm64. CI now produces
+candidate-bound RG-03 evidence from the same packaged wheel. The first hosted
+Linux x64 run and subsequent release verification remain pending. [Stage 3 results](status.md#isolated-real-broker-contracts-plan-stage-3)
 
 ## Stage 4 — real failures, process interruptions, and leak checks
 

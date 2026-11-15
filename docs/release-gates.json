@@ -100,67 +100,407 @@
         {
           "id": "broker-contracts",
           "producer": "broker-contracts",
-          "implementation": "planned",
+          "implementation": "ready",
           "profiles": [
             {
               "id": "linux-kafka-3.9.2-sync",
-              "required_cases": [],
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[kafka]"
+              ],
               "allowed_not_applicable": []
             },
             {
               "id": "linux-kafka-3.9.2-async",
-              "required_cases": [],
+              "required_cases": [
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_preserves_message_key"
+              ],
               "allowed_not_applicable": []
             },
             {
               "id": "linux-kafka-3.8.1-sync",
-              "required_cases": [],
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[kafka]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[kafka]"
+              ],
               "allowed_not_applicable": []
             },
             {
               "id": "linux-kafka-3.8.1-async",
-              "required_cases": [],
+              "required_cases": [
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_kafka_contracts.TestKafkaAdapterContracts::test_readiness_preserves_message_key"
+              ],
               "allowed_not_applicable": []
             },
             {
               "id": "linux-rabbitmq-4.4.0-sync",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[rabbitmq]"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare start_modes=earliest",
+                  "precondition": "start_modes=earliest"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-rabbitmq-4.4.0-async",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_message_key"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_earliest_replays_available_history",
+                  "reason": "NOT_APPLICABLE: adapter does not declare start_modes=earliest",
+                  "precondition": "start_modes=earliest"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_message_key",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-rabbitmq-4.3.7-sync",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[rabbitmq]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[rabbitmq]"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare start_modes=earliest",
+                  "precondition": "start_modes=earliest"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[rabbitmq]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-rabbitmq-4.3.7-async",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_message_key"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_earliest_replays_available_history",
+                  "reason": "NOT_APPLICABLE: adapter does not declare start_modes=earliest",
+                  "precondition": "start_modes=earliest"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_rabbitmq_contracts.TestRabbitMQAdapterContracts::test_readiness_preserves_message_key",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-redis-streams-8.2.11-sync",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[redis]"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-redis-streams-8.2.11-async",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_message_key"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_message_key",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-redis-streams-7.0.15-sync",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_closing_one_session_preserves_another[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sessions_both_observe_one_publication[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_isolation_sources_do_not_cross_deliver[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_is_idempotent[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_close_releases_failure_signal[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_failure_probes_do_not_consume_or_damage_deliveries[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_open_has_resolved_readiness[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_lifecycle_poll_is_bounded_and_declared_settlement_is_safe[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_earliest_replays_available_history[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_empty_source_needs_no_probe_message[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_immediate_publish_is_observed[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_latest_excludes_published_history[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[redis]",
+                "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[redis]"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_duplicate_and_null_headers[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_sync_contracts.TestNativeBlockingAdapterContracts::test_readiness_preserves_message_key[redis]",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             },
             {
               "id": "linux-redis-streams-7.0.15-async",
-              "required_cases": [],
-              "allowed_not_applicable": []
+              "required_cases": [
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_closing_one_session_preserves_another",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_sessions_both_observe_one_publication",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_isolation_sources_do_not_cross_deliver",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_cancel_monitor_does_not_damage_session",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_close_is_idempotent",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_close_releases_failure_monitor",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_open_has_resolved_readiness",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_lifecycle_second_receive_iterator_is_rejected",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_earliest_replays_available_history",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_empty_source_needs_no_probe_message",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_immediate_publish_is_observed",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_latest_excludes_published_history",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_message_key"
+              ],
+              "allowed_not_applicable": [
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_null_payload_is_distinct_from_empty_bytes",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_null_payload=True",
+                  "precondition": "supports_null_payload=True"
+                },
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_duplicate_and_null_headers",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_duplicate_headers=True",
+                  "precondition": "supports_duplicate_headers=True"
+                },
+                {
+                  "node_id": "tests.integration.test_redis_streams_contracts.TestRedisStreamsAdapterContracts::test_readiness_preserves_message_key",
+                  "reason": "NOT_APPLICABLE: adapter does not declare supports_key=True",
+                  "precondition": "supports_key=True"
+                }
+              ]
             }
           ]
         }

@@ -1,13 +1,12 @@
 # Candidate 0.1.0 compatibility
 
-The code targets Python 3.11–3.14. Both dependency profiles passed locally on
-all four CPython versions on macOS arm64; see the
-[verification record](status.md#python-platform-and-dependency-compatibility-plan-stage-2).
-CI defines a 24-cell Python 3.11–3.14,
-Linux/macOS/Windows, minimum/locked-current matrix. Its
-[profile inputs](compatibility-profiles.json) and [execution contract](ci-compatibility.md)
-separate configured targets from actual results; a workflow definition does not
-mean that every cell has passed.
+Both dependency profiles passed on CPython 3.11–3.14 on Linux x64, macOS arm64,
+and Windows x64 in run 43734651319 for `db3913f`. The status record includes
+the exact observed patch versions. The eight local macOS cells also passed.
+[Verification record](status.md#python-platform-and-dependency-compatibility-plan-stage-2)
+
+CI reruns all 24 cells against the distributions built for each candidate.
+[Profile inputs](compatibility-profiles.json) · [CI compatibility guide](ci-compatibility.md)
 
 Application dependencies are optional. The async runtime and blocking actor
 use only the stdlib. Extension code imports Kafka, RabbitMQ, Redis, Protobuf,

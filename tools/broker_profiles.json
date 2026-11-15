@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "kafka": [
+      {
+        "id": "kafka-3.9.2",
+        "version": "3.9.2",
+        "image": "apache/kafka:3.9.2@sha256:05b4616e0702ef2729327705d54ad6b50ea70b271c4b730fabd2320789fb7b02",
+        "platform_manifests": {
+          "linux/amd64": "sha256:f5f8605794dce59d1d566f63667682771c2fec9e96088b0d6a5ef0f8476dd4b2",
+          "linux/arm64": "sha256:ddc235acd57d0fec5b21eedd46dcaf4e89a7569ff1c9890c5597c6d9561c59b0"
+        },
+        "dependencies": "current"
+      },
+      {
+        "id": "kafka-3.8.1",
+        "version": "3.8.1",
+        "image": "apache/kafka:3.8.1@sha256:22c4bea38875408e8f9fe52aca8e3a6ee67f9aa0090db59af99a2f6647558db5",
+        "platform_manifests": {
+          "linux/amd64": "sha256:be37a49a4466f6620e2b67614dc2185e35d0e02e5cdc04ad5735ddd368a76b3e",
+          "linux/arm64": "sha256:c96874d9afc600c3cade17835a999a328c20917d0969c13afb9a91f0ba9c1e31"
+        },
+        "dependencies": "minimum"
+      }
+    ],
+    "rabbitmq": [
+      {
+        "id": "rabbitmq-4.4.0",
+        "version": "4.4.0",
+        "image": "rabbitmq:4.4.0-management@sha256:af6f50d38098d8bd52fef7f3fa85015dd8b2bf6def58e995bf584ae9ba0f6407",
+        "platform_manifests": {
+          "linux/amd64": "sha256:9f48a2c0a501c5a7cf520d69eb3369ba85e614a195dde071f3dfa20077e54d26",
+          "linux/arm64": "sha256:d8b4bcab35fa9311c48d749e748b7c248a9425471c6ecc2b5fde9925acf5e46f"
+        },
+        "dependencies": "current"
+      },
+      {
+        "id": "rabbitmq-4.3.7",
+        "version": "4.3.7",
+        "image": "rabbitmq:4.3.7-management@sha256:8e913a7748f808be4ce117c3df11817935775bcd83934d4de92441a7e93e9899",
+        "platform_manifests": {
+          "linux/amd64": "sha256:7b9c736b426e252c761fe0523315da84dda8ec7c96eb1a197121ab860a286d96",
+          "linux/arm64": "sha256:f1a36ea103059a53ad5d84c38e3d4861e3d058776d539a69daafa9aa56007500"
+        },
+        "dependencies": "minimum"
+      }
+    ],
+    "redis-streams": [
+      {
+        "id": "redis-streams-8.2.11",
+        "version": "8.2.11",
+        "image": "redis:8.2.11-alpine@sha256:489a769e0a54dc245896132a15c72d2bc7296719954da99398f43a3877e5f8eb",
+        "platform_manifests": {
+          "linux/amd64": "sha256:b2c4284c49ca288f36c113a14cad4a770da8ad9d04c906b18fee4660b56ed4d9",
+          "linux/arm64": "sha256:49ad9a4346968c52ba4f2bd1349b165f71e3db70a281819358a958a85f275b73"
+        },
+        "dependencies": "current"
+      },
+      {
+        "id": "redis-streams-7.0.15",
+        "version": "7.0.15",
+        "image": "redis:7.0.15-alpine@sha256:c9d92d840fd011c908f040592857c724ae6d877f2aba5c40ad963276507386b2",
+        "platform_manifests": {
+          "linux/amd64": "sha256:0a34d7c44fe60c6ba273c0cddc26d1571a5ccd69280623a66b70393231a9eed9",
+          "linux/arm64": "sha256:4c609b1ccae44c2a0f7b3eca475af5d0f1f02f8fb7df3970ee4d7ab6a5590f56"
+        },
+        "dependencies": "minimum"
+      }
+    ]
+  },
+  "toxiproxy": {
+    "version": "2.13.0",
+    "image": "ghcr.io/shopify/toxiproxy:2.13.0@sha256:5d3dae09bc185dcc5ff6cf43abf6062a4a720aff0c4306a471e773acdcd107aa",
+    "platform_manifests": {
+      "linux/amd64": "sha256:9941f0357759e6c9bfe0ad45e20c415100505113da0f5c436cfd0a4d27579fdc",
+      "linux/arm64": "sha256:aa4f72e0983a9ad09b6af8c6854d3cece734836d208c989b7bf894212cb4d8b1"
+    }
+  }
+}

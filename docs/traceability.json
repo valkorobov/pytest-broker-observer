@@ -2426,14 +2426,21 @@
         "sha256": "e23cba32a9654c3b04ddc26c2643e41429241b9edac63f1254d142103e9be5de"
       },
       "summary": "Kafka proxy tests prove there is no advertised-endpoint bypass.",
-      "checks": [],
-      "gaps": [
+      "checks": [
         {
-          "id": "advertised-endpoint-proxy",
-          "stage": 3,
-          "expected": "Demonstrate that Kafka traffic uses Toxiproxy after metadata discovery, including advertised endpoints, with no direct bypass."
+          "selector": "tests/integration/test_kafka_proxy_routing.py::test_advertised_kafka_route_cannot_bypass_disabled_proxy",
+          "kind": "integration",
+          "modes": [
+            "sync",
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sole advertised endpoint matches Toxiproxy. Disabling the route interrupts warmed native metadata requests and active observation."
         }
-      ]
+      ],
+      "gaps": []
     },
     {
       "id": "MUST-s21-003",
@@ -5538,14 +5545,21 @@
         "sha256": "7b4f1598de9fc60f7f0dce2c80bd6ef17ef12826bbf095ff92a76b400864a6e3"
       },
       "summary": "Kafka fault proxy",
-      "checks": [],
-      "gaps": [
+      "checks": [
         {
-          "id": "advertised-endpoint-proxy",
-          "stage": 3,
-          "expected": "Demonstrate that Kafka traffic uses Toxiproxy after metadata discovery, including advertised endpoints, with no direct bypass."
+          "selector": "tests/integration/test_kafka_proxy_routing.py::test_advertised_kafka_route_cannot_bypass_disabled_proxy",
+          "kind": "integration",
+          "modes": [
+            "sync",
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sole advertised endpoint matches Toxiproxy. Disabling the route interrupts warmed native metadata requests and active observation."
         }
-      ]
+      ],
+      "gaps": []
     },
     {
       "id": "AC-78",
