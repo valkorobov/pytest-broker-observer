@@ -13,6 +13,7 @@ dist/
 /artifacts/coverage/
 /artifacts/compatibility/
 /artifacts/broker-contracts/
+/artifacts/broker-faults/
 /artifacts/release-gates/
 /allure-results/
 /allure-report/

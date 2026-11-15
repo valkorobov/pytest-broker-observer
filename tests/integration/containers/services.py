@@ -12,6 +12,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 from tests.integration.containers.common import (
     BrokerService,
     container_metadata,
+    fault_container_env,
     loopback_ports,
     mapped_port,
     running_container,
@@ -20,20 +21,26 @@ from tests.integration.containers.common import (
 
 
 @contextmanager
-def rabbitmq_service(image: str, *, log_dir: Path, timeout: float = 90) -> Iterator[BrokerService]:
+def rabbitmq_service(
+    image: str, *, log_dir: Path, timeout: float = 90, faults: bool = False
+) -> Iterator[BrokerService]:
     """Start authenticated AMQP and management listeners for the same RabbitMQ node."""
     import pika
     from testcontainers.core.container import DockerContainer
 
     username = f"observer_{token_hex(8)}"
     password = token_hex(16)
+    fault_password = token_hex(16) if faults else ""
     token = base64.b64encode(f"{username}:{password}".encode("ascii")).decode("ascii")
     container = DockerContainer(image, docker_client_kw={"timeout": 30})
     container.with_env("RABBITMQ_DEFAULT_USER", username)
     container.with_env("RABBITMQ_DEFAULT_PASS", password)
-    loopback_ports(container, 5672, 15672)
+    loopback_ports(container, 5672, 15672, restartable=faults)
     with running_container(
-        container, log_path=log_dir / "rabbitmq.log", redactions=(username, password, token)
+        container,
+        log_path=log_dir / "rabbitmq.log",
+        redactions=(username, password, token, fault_password),
+        broker="rabbitmq" if faults else None,
     ):
         amqp_port, management_port = (mapped_port(container, port) for port in (5672, 15672))
         management = f"http://127.0.0.1:{management_port}"
@@ -71,13 +78,23 @@ def rabbitmq_service(image: str, *, log_dir: Path, timeout: float = 90) -> Itera
             env={
                 "RABBITMQ_URL": f"amqp://{username}:{password}@127.0.0.1:{amqp_port}/",
                 "RABBITMQ_MANAGEMENT_URL": management,
+                **(
+                    {
+                        **fault_container_env(container, "rabbitmq"),
+                        "EVENT_OBSERVER_FAULT_PASSWORD": fault_password,
+                    }
+                    if faults
+                    else {}
+                ),
             },
             metadata={**container_metadata(container, image), "version": version},
         )
 
 
 @contextmanager
-def redis_service(image: str, *, log_dir: Path, timeout: float = 90) -> Iterator[BrokerService]:
+def redis_service(
+    image: str, *, log_dir: Path, timeout: float = 90, faults: bool = False
+) -> Iterator[BrokerService]:
     """Start authenticated ephemeral Redis, including its actual server version."""
     import redis
     from redis.backoff import NoBackoff
@@ -85,10 +102,16 @@ def redis_service(image: str, *, log_dir: Path, timeout: float = 90) -> Iterator
     from testcontainers.core.container import DockerContainer
 
     password = token_hex(16)
+    fault_password = token_hex(16) if faults else ""
     container = DockerContainer(image, docker_client_kw={"timeout": 30})
     container.with_command(["redis-server", "--save", "", "--appendonly", "no", "--requirepass", password])
-    loopback_ports(container, 6379)
-    with running_container(container, log_path=log_dir / "redis.log", redactions=(password,)):
+    loopback_ports(container, 6379, restartable=faults)
+    with running_container(
+        container,
+        log_path=log_dir / "redis.log",
+        redactions=(password, fault_password),
+        broker="redis-streams" if faults else None,
+    ):
         port = mapped_port(container, 6379)
 
         def probe(budget: float) -> str | None:
@@ -112,6 +135,16 @@ def redis_service(image: str, *, log_dir: Path, timeout: float = 90) -> Iterator
 
         version = wait_until_ready("Redis RESP", probe, timeout=timeout)
         yield BrokerService(
-            env={"REDIS_URL": f"redis://:{password}@127.0.0.1:{port}/0"},
+            env={
+                "REDIS_URL": f"redis://:{password}@127.0.0.1:{port}/0",
+                **(
+                    {
+                        **fault_container_env(container, "redis-streams"),
+                        "EVENT_OBSERVER_FAULT_PASSWORD": fault_password,
+                    }
+                    if faults
+                    else {}
+                ),
+            },
             metadata={**container_metadata(container, image), "version": version},
         )

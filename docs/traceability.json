@@ -187,13 +187,35 @@
             "windows"
           ],
           "expected": "Constructors/providers remain resource-free and runtime sessions remain independently owned."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_async_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The async xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_sync_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sync xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
         }
       ],
       "gaps": [
         {
           "id": "real-multiprocess-native-isolation",
           "stage": 4,
-          "expected": "Verify independent native readers and resources in separate pytest-xdist processes on one owned source."
+          "expected": "Confirm the two xdist workers reach READY in distinct processes with distinct observer IDs, receive the same independently confirmed publication, and close on each hosted broker profile. Retain the first result and readiness evidence with candidate identity."
         }
       ]
     },
@@ -426,13 +448,49 @@
             "windows"
           ],
           "expected": "Failed/cancelled startup rolls back each allocated native resource."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_startup_unavailable_rolls_back",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The unavailable isolated route causes a typed startup failure and returns owned worker counts to baseline. A new reader can open after route restoration."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "A temporary account without binding permission produces a typed authorization failure and leaves no native connection for that account."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Denial of XINFO STREAM produces typed authorization failure and leaves no connection owned by the temporary test user."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -500,13 +558,37 @@
             "windows"
           ],
           "expected": "Offset/control gaps do not by themselves imply event loss."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_retained_low_rejects_trimmed_offset",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "DeleteRecords advances the broker low watermark. The removed explicit offset fails without reset, and earliest starts at the first retained offset."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_compaction_and_transaction_markers_leave_readable_offset_gaps",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The broker confirms compaction and an actual transaction control marker. Both runtimes read the expected sparse offsets without falsely inferring loss."
         }
       ],
       "gaps": [
         {
           "id": "real-kafka-retention-compaction",
           "stage": 4,
-          "expected": "Prove retained-offset availability and compaction/control-gap semantics on a real Kafka broker without offset-arithmetic loss inference."
+          "expected": "Retain candidate results for the real DeleteRecords and compacted/control-gap cases on both Kafka versions and client profiles. The cases establish the new low watermark and readable sparse offsets independently of observer output."
         }
       ]
     },
@@ -865,6 +947,28 @@
             "windows"
           ],
           "expected": "Native sessions and resources have one explicit loop/thread owner and independent cleanup."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_async_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The async xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_sync_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sync xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
         }
       ],
       "gaps": []
@@ -905,13 +1009,62 @@
             "windows"
           ],
           "expected": "Startup rollback and repeated cleanup are explicit and idempotent."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_startup_unavailable_rolls_back",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The unavailable isolated route causes a typed startup failure and returns owned worker counts to baseline. A new reader can open after route restoration."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_stalled_close_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Pausing the owned broker prevents confirmed cleanup. Both native paths surface a cleanup-timeout error instead of claiming a successful close."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Denial of XINFO STREAM produces typed authorization failure and leaves no connection owned by the temporary test user."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_async_close_budget_is_honest_and_releases_tasks",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "A yielding stalled close exceeds its budget without leaving owned tasks or falsely marking the watcher closed. A primary body failure retains priority."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -1000,7 +1153,7 @@
         "text": "MUST test: empty topic readiness; multiple partitions; data between boundary capture and READY; production immediately after READY; retained committed offsets are not used; offset==high; out-of-range without reset; compacted gaps; transactional visibility; detected topic recreation/topology change; EOF does not stop the observer; bridge pressure; close under load; auth/ACL failures; two independent sessions on one topic.",
         "sha256": "d652b9eb859632d2c9f961f997fc0a82dc3fd48135154ccb2a2cc8461f2901ae"
       },
-      "summary": "Kafka baseline readiness/replay/topology scenarios exist; the complete specified native fault set remains open.",
+      "summary": "Kafka readiness, retention, sparse offsets, topology, detected recreation, security and restart have targeted tests. Some native combinations still need checks.",
       "checks": [
         {
           "selector": "tests/integration/test_kafka.py::test_empty_topic_ready_then_two_independent_readers_receive_immediate_publication",
@@ -1034,28 +1187,166 @@
             "linux"
           ],
           "expected": "Kafka baseline readiness/replay/topology scenarios exist; the complete specified native fault set remains open."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_retained_low_rejects_trimmed_offset",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "DeleteRecords advances the broker low watermark. The removed explicit offset fails without reset, and earliest starts at the first retained offset."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_compaction_and_transaction_markers_leave_readable_offset_gaps",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The broker confirms compaction and an actual transaction control marker. Both runtimes read the expected sparse offsets without falsely inferring loss."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_partition_expansion_fails_closed",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Both runtimes fail closed after detecting real partition expansion."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_recreated_topic_cannot_resume_failed_reader",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Detected deletion becomes a terminal failure. The old reader remains failed after same-name recreation; a fresh reader observes the replacement."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_startup_unavailable_rolls_back",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The unavailable isolated route causes a typed startup failure and returns owned worker counts to baseline. A new reader can open after route restoration."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_downstream_fault_does_not_extend_active_wait",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Downstream latency or blackhole begins after matcher evaluation starts. The waiter still uses its original deadline and recorded match counts."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_restart_cannot_resume_failed_reader",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The old native reader terminates on isolated broker restart. A new reader can observe a confirmed publication after recovery."
+        },
+        {
+          "selector": "tests/integration/test_kafka_auth_faults.py::test_kafka_startup_security_is_typed",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Invalid SASL credentials and missing topic ACLs produce distinct typed startup errors on the private authenticated broker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_async_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The async xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_sync_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sync xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         },
         {
           "id": "real-kafka-retention-compaction",
           "stage": 4,
-          "expected": "Prove retained-offset availability and compaction/control-gap semantics on a real Kafka broker without offset-arithmetic loss inference."
+          "expected": "Retain candidate results for the real DeleteRecords and compacted/control-gap cases on both Kafka versions and client profiles. The cases establish the new low watermark and readable sparse offsets independently of observer output."
         },
         {
           "id": "kafka-isolation-startup-first-failure",
           "stage": 4,
-          "expected": "Reproduce and diagnose the historical reader-startup TransportConnectionError (code=None) in the two-session isolation test; preserve the original failure and separate diagnostic reruns."
+          "expected": "Preserve the November 2 startup failure and its separate diagnostic recheck. Keep the dedicated AdminClient metadata-first regression and two-reader contract in candidate runs; the original cause was not directly established."
         },
         {
           "id": "kafka-partition-leader-first-timeout",
           "stage": 4,
-          "expected": "Diagnose the historical future-timestamp partition-leader _TIMED_OUT (-185); retain the initial failure separately from passing isolated/full diagnostic reruns."
+          "expected": "Preserve the November 2 native timeout and subsequent hosted leader-query failure. Verify the dedicated AdminClient metadata-first regression and candidate native matrix without retrying a failed mandatory result into a pass."
+        },
+        {
+          "id": "kafka-retained-committed-offsets",
+          "stage": 4,
+          "expected": "Seed committed offsets via an independent group client and prove the real observer still uses the requested start policy."
+        },
+        {
+          "id": "kafka-explicit-high-boundary",
+          "stage": 4,
+          "expected": "Exercise an explicitly selected offset equal to the actual broker high watermark and confirm both runtimes stay live after EOF."
+        },
+        {
+          "id": "kafka-rapid-same-name-recreation",
+          "stage": 4,
+          "expected": "Check which identity changes a delete/recreate completed between native metadata checks can expose. Preserve the detected-deletion regression and document the detection limit where no identity change is observable."
+        },
+        {
+          "id": "native-full-handoff-close",
+          "stage": 4,
+          "expected": "Close each native adapter while delivery remains saturated. Confirm bounded resource release and retain cleanup failures. Disconnect-before-delivery and close calls under separate faults cover only parts of this combination."
         }
       ]
     },
@@ -1236,13 +1527,39 @@
             "windows"
           ],
           "expected": "Slow callbacks remain controlled pending work; bounded timing diagnostics and documentation need explicit audit."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_async_call_requires_external_containment",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally non-yielding matcher or session close stalls the caller loop. An external watchdog reaps that specific subprocess."
         }
       ],
       "gaps": [
         {
           "id": "platform-subprocess-interruption",
           "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
+          "expected": "Confirm real SIGINT on hosted POSIX runners and CTRL_C_EVENT in a private console on Windows with the packaged candidate. Report graceful active-body cleanup separately from noncooperative hang containment. Active-body interruption does not establish immediate interruption of a pending native lock wait on Windows."
         },
         {
           "id": "callback-contract-and-timing",
@@ -1287,13 +1604,89 @@
             "windows"
           ],
           "expected": "Exit stops new work, finishes owned waits and cleans up resources under bounded ownership."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_ctrl_c_interrupts_active_watch_and_cleans_up",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An operating-system interrupt inside an active READY watch propagates KeyboardInterrupt and closes its session without leftover actor threads or event-loop tasks."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_async_close_budget_is_honest_and_releases_tasks",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "A yielding stalled close exceeds its budget without leaving owned tasks or falsely marking the watcher closed. A primary body failure retains priority."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
         }
       ]
     },
@@ -1488,17 +1881,45 @@
         "sha256": "3ff086fc257e78707c371c28a2c0cfd805c08c58325350a3bc139a5533fd96a7"
       },
       "summary": "Native thread/task/handle counts remain observable and agree with documented per-backend ownership.",
-      "checks": [],
+      "checks": [
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        }
+      ],
       "gaps": [
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
         },
         {
           "id": "bounded-resource-benchmark",
           "stage": 6,
           "expected": "Record warmed repeated Core/native load and RSS/resource measurements with hardware, limits, versions, and raw JSON; assert bounded library-owned structures."
+        },
+        {
+          "id": "native-resource-diagnostics",
+          "stage": 6,
+          "expected": "Verify backend-specific resource and thread ownership in published diagnostics. Linux JUnit process counts measure the test process and do not verify this public diagnostic schema."
         }
       ]
     },
@@ -1578,6 +1999,19 @@
             "windows"
           ],
           "expected": "Only actual command completion releases reservations and permits the next request."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
         }
       ],
       "gaps": []
@@ -1704,13 +2138,39 @@
             "windows"
           ],
           "expected": "Thread-affine/reentrant blocking API misuse is rejected and arbitrary callbacks are not preempted."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_async_call_requires_external_containment",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally non-yielding matcher or session close stalls the caller loop. An external watchdog reaps that specific subprocess."
         }
       ],
       "gaps": [
         {
           "id": "platform-subprocess-interruption",
           "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
+          "expected": "Confirm real SIGINT on hosted POSIX runners and CTRL_C_EVENT in a private console on Windows with the packaged candidate. Report graceful active-body cleanup separately from noncooperative hang containment. Active-body interruption does not establish immediate interruption of a pending native lock wait on Windows."
         }
       ]
     },
@@ -1777,6 +2237,19 @@
             "windows"
           ],
           "expected": "Domain deadlines differ from control responsiveness, and cancellation acknowledgement tracks actual completion."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
         }
       ],
       "gaps": []
@@ -1790,7 +2263,7 @@
         "text": "The renderer receives an already redacted bounded export prepared by the actor. A reporter error does not turn a match into a failure. Reporting MUST NOT overlap an unacknowledged command by submitting unchecked follow-up work, and normal close MUST NOT repeat already acknowledged expectation summaries.",
         "sha256": "36006fc8df5f132756bdf3784310207bd433e360c0d5657c016ffb21f2ddf3f6"
       },
-      "summary": "Prepared reporting cannot mask results or duplicate acknowledged waits; blocked-command reporting needs dedicated coverage.",
+      "summary": "Prepared reporting preserves results and acknowledges waits once. Concurrent reporter behavior during an unacknowledged command needs focused coverage.",
       "checks": [
         {
           "selector": "tests/test_allure_context.py::test_one_successful_wait_creates_one_allure_step_even_after_close",
@@ -1823,14 +2296,14 @@
       ],
       "gaps": [
         {
-          "id": "platform-subprocess-interruption",
-          "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
-        },
-        {
           "id": "allure-runner-golden-matrix",
           "stage": 5,
           "expected": "Run real pytest/Allure golden checks on selected versions and concurrency contexts while preserving outcomes and parent/test ownership."
+        },
+        {
+          "id": "blocked-command-reporting",
+          "stage": 5,
+          "expected": "Exercise a reporter while an operation remains unacknowledged and prove that it queues no overlapping worker request. Hang-containment cases alone do not exercise reporting."
         }
       ]
     },
@@ -1891,7 +2364,7 @@
         "text": "Separate checks MUST cover collection during a blocking service call; readiness before the body; already-arrived events; bounded final scans; cancellation before dispatch and during matching/copying; actual cancellation acknowledgement and rejection of overlapping work; Ctrl-C in a subprocess; contextvars placement; foreign process/thread misuse; exception chaining; cleanup after failed enter; repeated close; repeated watcher creation/destruction without accumulating threads; and Allure only in the caller context. Blocking-runtime checks MUST prove that observation creates no asyncio event loop. Existing shared contract, native integration, release, and compatibility gates remain applicable; configured checks do not substitute for recorded successful runs.",
         "sha256": "05818ac5d94f5ee488c3d7029913368558e7823b846f746ae6444fc9ef8189dc"
       },
-      "summary": "Deterministic sync lifecycle/cancellation cases exist; process-level and real-native coverage remains required.",
+      "summary": "Caller interruption, hang containment and repeated teardown have executable process/Core checks. Hosted and native resource verification remain necessary.",
       "checks": [
         {
           "selector": "tests/test_sync_runtime.py::test_blocking_observation_never_creates_or_drives_an_asyncio_loop",
@@ -1931,18 +2404,68 @@
             "windows"
           ],
           "expected": "Deterministic sync lifecycle/cancellation cases exist; process-level and real-native coverage remains required."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_ctrl_c_interrupts_active_watch_and_cleans_up",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An operating-system interrupt inside an active READY watch propagates KeyboardInterrupt and closes its session without leftover actor threads or event-loop tasks."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "platform-subprocess-interruption",
           "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
+          "expected": "Confirm real SIGINT on hosted POSIX runners and CTRL_C_EVENT in a private console on Windows with the packaged candidate. Report graceful active-body cleanup separately from noncooperative hang containment. Active-body interruption does not establish immediate interruption of a pending native lock wait on Windows."
         },
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
         },
         {
           "id": "compatibility-matrix",
@@ -2412,6 +2935,33 @@
             "windows"
           ],
           "expected": "Synthetic barriers reproduce readiness, end/failure, oversize and startup/cleanup races without hiding adapter behavior."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_async_close_budget_is_honest_and_releases_tasks",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "A yielding stalled close exceeds its budget without leaving owned tasks or falsely marking the watcher closed. A primary body failure retains priority."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
         }
       ],
       "gaps": []
@@ -3044,9 +3594,9 @@
       ],
       "gaps": [
         {
-          "id": "real-broker-faults",
+          "id": "kafka-retained-committed-offsets",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Seed committed offsets via an independent group client and prove the real observer still uses the requested start policy."
         }
       ]
     },
@@ -3071,6 +3621,18 @@
             "linux"
           ],
           "expected": "Earliest/explicit history replay retains only available broker data without fabricating deleted history."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_retained_low_rejects_trimmed_offset",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "DeleteRecords advances the broker low watermark. The removed explicit offset fails without reset, and earliest starts at the first retained offset."
         }
       ],
       "gaps": []
@@ -3102,9 +3664,9 @@
       ],
       "gaps": [
         {
-          "id": "real-kafka-retention-compaction",
+          "id": "kafka-explicit-high-boundary",
           "stage": 4,
-          "expected": "Prove retained-offset availability and compaction/control-gap semantics on a real Kafka broker without offset-arithmetic loss inference."
+          "expected": "Exercise an explicitly selected offset equal to the actual broker high watermark and confirm both runtimes stay live after EOF."
         }
       ]
     },
@@ -3142,6 +3704,18 @@
             "linux"
           ],
           "expected": "Unavailable offsets raise a typed start-position error without reset."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_retained_low_rejects_trimmed_offset",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "DeleteRecords advances the broker low watermark. The removed explicit offset fails without reset, and earliest starts at the first retained offset."
         }
       ],
       "gaps": []
@@ -3186,7 +3760,7 @@
         {
           "id": "kafka-partition-leader-first-timeout",
           "stage": 4,
-          "expected": "Diagnose the historical future-timestamp partition-leader _TIMED_OUT (-185); retain the initial failure separately from passing isolated/full diagnostic reruns."
+          "expected": "Preserve the November 2 native timeout and subsequent hosted leader-query failure. Verify the dedicated AdminClient metadata-first regression and candidate native matrix without retrying a failed mandatory result into a pass."
         }
       ]
     },
@@ -3238,13 +3812,25 @@
             "windows"
           ],
           "expected": "Nonconsecutive native offsets remain valid records without invented loss."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_compaction_and_transaction_markers_leave_readable_offset_gaps",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The broker confirms compaction and an actual transaction control marker. Both runtimes read the expected sparse offsets without falsely inferring loss."
         }
       ],
       "gaps": [
         {
           "id": "real-kafka-retention-compaction",
           "stage": 4,
-          "expected": "Prove retained-offset availability and compaction/control-gap semantics on a real Kafka broker without offset-arithmetic loss inference."
+          "expected": "Retain candidate results for the real DeleteRecords and compacted/control-gap cases on both Kafka versions and client profiles. The cases establish the new low watermark and readable sparse offsets independently of observer output."
         }
       ]
     },
@@ -3320,6 +3906,30 @@
             "windows"
           ],
           "expected": "Detected topology change is terminal even behind a full handoff."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_partition_expansion_fails_closed",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Both runtimes fail closed after detecting real partition expansion."
+        },
+        {
+          "selector": "tests/integration/test_kafka_native_faults.py::test_kafka_recreated_topic_cannot_resume_failed_reader",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Detected deletion becomes a terminal failure. The old reader remains failed after same-name recreation; a fresh reader observes the replacement."
         }
       ],
       "gaps": []
@@ -3364,7 +3974,7 @@
         {
           "id": "kafka-isolation-startup-first-failure",
           "stage": 4,
-          "expected": "Reproduce and diagnose the historical reader-startup TransportConnectionError (code=None) in the two-session isolation test; preserve the original failure and separate diagnostic reruns."
+          "expected": "Preserve the November 2 startup failure and its separate diagnostic recheck. Keep the dedicated AdminClient metadata-first regression and two-reader contract in candidate runs; the original cause was not directly established."
         }
       ]
     },
@@ -3378,12 +3988,35 @@
         "sha256": "f99f39908a6a6756300df4a45da563cc5048c19dcc1952bcadc6602159bd35cf"
       },
       "summary": "Two workers, one topic",
-      "checks": [],
+      "checks": [
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_async_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The async xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_sync_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sync xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        }
+      ],
       "gaps": [
         {
           "id": "real-multiprocess-native-isolation",
           "stage": 4,
-          "expected": "Verify independent native readers and resources in separate pytest-xdist processes on one owned source."
+          "expected": "Confirm the two xdist workers reach READY in distinct processes with distinct observer IDs, receive the same independently confirmed publication, and close on each hosted broker profile. Retain the first result and readiness evidence with candidate identity."
         }
       ]
     },
@@ -4504,6 +5137,44 @@
             "windows"
           ],
           "expected": "A known terminal failure before commit prevents a successful result."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
         }
       ],
       "gaps": []
@@ -4585,13 +5256,39 @@
             "windows"
           ],
           "expected": "Callback overruns remain diagnosable; uninterruptible work is not reported as hard-preempted."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_async_call_requires_external_containment",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally non-yielding matcher or session close stalls the caller loop. An external watchdog reaps that specific subprocess."
         }
       ],
       "gaps": [
         {
           "id": "platform-subprocess-interruption",
           "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
+          "expected": "Confirm real SIGINT on hosted POSIX runners and CTRL_C_EVENT in a private console on Windows with the packaged candidate. Report graceful active-body cleanup separately from noncooperative hang containment. Active-body interruption does not establish immediate interruption of a pending native lock wait on Windows."
         }
       ]
     },
@@ -4677,7 +5374,7 @@
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -4717,6 +5414,31 @@
             "windows"
           ],
           "expected": "Cleanup reports honest failure while preserving the earlier primary failure."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_async_close_budget_is_honest_and_releases_tasks",
+          "kind": "unit",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "A yielding stalled close exceeds its budget without leaving owned tasks or falsely marking the watcher closed. A primary body failure retains priority."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_stalled_close_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Pausing the owned broker prevents confirmed cleanup. Both native paths surface a cleanup-timeout error instead of claiming a successful close."
         }
       ],
       "gaps": []
@@ -4770,13 +5492,49 @@
             "windows"
           ],
           "expected": "Repeated close is idempotent and does not double-release/acknowledge resources."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
         }
       ]
     },
@@ -4830,9 +5588,39 @@
             "windows"
           ],
           "expected": "Independent failure/control paths and close remain live when the delivery queue is full."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
         }
       ],
-      "gaps": []
+      "gaps": [
+        {
+          "id": "native-full-handoff-close",
+          "stage": 4,
+          "expected": "Close each native adapter while delivery remains saturated. Confirm bounded resource release and retain cleanup failures. Disconnect-before-delivery and close calls under separate faults cover only parts of this combination."
+        }
+      ]
     },
     {
       "id": "AC-60",
@@ -5056,13 +5844,39 @@
             "windows"
           ],
           "expected": "Caller timeout/interruption tracks real command completion and preserves bounded cleanup."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_ctrl_c_interrupts_active_watch_and_cleans_up",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An operating-system interrupt inside an active READY watch propagates KeyboardInterrupt and closes its session without leftover actor threads or event-loop tasks."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_stalled_blocking_call_reports_abandonment_and_process_exits",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An intentionally stalled matcher or native close yields a typed control error and an honest abandoned actor. The child exits without a forced kill."
         }
       ],
       "gaps": [
         {
           "id": "platform-subprocess-interruption",
           "stage": 4,
-          "expected": "Execute actual platform-specific Ctrl-C/subprocess interruption and bounded hang-containment checks."
+          "expected": "Confirm real SIGINT on hosted POSIX runners and CTRL_C_EVENT in a private console on Windows with the packaged candidate. Report graceful active-body cleanup separately from noncooperative hang containment. Active-body interruption does not establish immediate interruption of a pending native lock wait on Windows."
         }
       ]
     },
@@ -5089,13 +5903,37 @@
             "windows"
           ],
           "expected": "Repeated normal sync contexts terminate their controlled runtime threads."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
         }
       ]
     },
@@ -5822,13 +6660,35 @@
             "windows"
           ],
           "expected": "Active state cannot be reused across processes; separate worker resource ownership still needs real evidence."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_async_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The async xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
+        },
+        {
+          "selector": "tests/integration/test_native_multiprocess.py::test_sync_worker_observes_the_shared_publication",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The sync xdist worker reaches READY on the same owned source and observes the independent publication also delivered to the other worker."
         }
       ],
       "gaps": [
         {
           "id": "real-multiprocess-native-isolation",
           "stage": 4,
-          "expected": "Verify independent native readers and resources in separate pytest-xdist processes on one owned source."
+          "expected": "Confirm the two xdist workers reach READY in distinct processes with distinct observer IDs, receive the same independently confirmed publication, and close on each hosted broker profile. Retain the first result and readiness evidence with candidate identity."
         }
       ]
     },
@@ -6322,13 +7182,49 @@
             "windows"
           ],
           "expected": "Rabbit auth/ACL/source/subscription errors are typed visible failures, not unsupported capability skips."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_startup_unavailable",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The owned startup probe fails with a typed connection or startup timeout before any session reaches READY."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_startup_rejects_invalid_credentials",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Invalid credentials cause a typed authentication failure on the verified owned RabbitMQ broker."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "A temporary account without binding permission produces a typed authorization failure and leaves no native connection for that account."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -6539,6 +7435,18 @@
             "linux"
           ],
           "expected": "Unsettled deliveries remain accounted under both event/byte bounds and bounded prefetch."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
         }
       ],
       "gaps": []
@@ -6670,13 +7578,37 @@
             "linux"
           ],
           "expected": "Unexpected closure/cancellation is visible independently of business delivery and backpressure."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_restart_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Restarting the isolated RabbitMQ broker terminates the existing subscription. A new owned binding can observe a publication after recovery."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -6716,13 +7648,59 @@
             "windows"
           ],
           "expected": "Owned Rabbit cleanup is bounded/idempotent and failures stay explicit without application resource changes."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "A temporary account without binding permission produces a typed authorization failure and leaves no native connection for that account."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_stalled_close_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Pausing the owned broker prevents confirmed cleanup. Both native paths surface a cleanup-timeout error instead of claiming a successful close."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -6849,6 +7827,54 @@
             "linux"
           ],
           "expected": "Real Rabbit scenarios complement native doubles without conflating their evidence."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_blackhole_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "An isolated paused broker does not restart the active wait's deadline. After resuming, the same intact subscription receives a new confirmed publication."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_restart_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Restarting the isolated RabbitMQ broker terminates the existing subscription. A new owned binding can observe a publication after recovery."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_stalled_close_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Pausing the owned broker prevents confirmed cleanup. Both native paths surface a cleanup-timeout error instead of claiming a successful close."
         }
       ],
       "gaps": [
@@ -6860,7 +7886,7 @@
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -7371,13 +8397,25 @@
             "linux"
           ],
           "expected": "Observation leaves application entries/groups untouched and publisher permissions stay separate."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Denial of XINFO STREAM produces typed authorization failure and leaves no connection owned by the temporary test user."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -7455,13 +8493,37 @@
             "windows"
           ],
           "expected": "Connection ID and server identity changes prevent candidate handoff without silent recovery."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_restart_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The owned server restarts with a new run ID. The original observation fails closed and a new session can observe the restored owned source."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -7533,13 +8595,107 @@
             "windows"
           ],
           "expected": "Known failures remain terminal and owned resources are closed or honestly reported incomplete."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_unavailable",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "A reserved non-listening loopback endpoint causes typed connection failure or startup timeout."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_rejects_invalid_credentials",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Invalid credentials cause a typed authentication failure on the owned Redis instance."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_startup_rejects_missing_permissions",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Denial of XINFO STREAM produces typed authorization failure and leaves no connection owned by the temporary test user."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_blackhole_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "A paused private Redis server causes a bounded native timeout and terminal interruption; no known failed read is replayed."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_restart_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The owned server restarts with a new run ID. The original observation fails closed and a new session can observe the restored owned source."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -8234,13 +9390,46 @@
             "windows"
           ],
           "expected": "Blocking open/poll readiness, timeout validation and known-failure precedence remain explicit."
+        },
+        {
+          "selector": "tests/integration/test_kafka_proxy_faults.py::test_kafka_startup_unavailable_rolls_back",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The unavailable isolated route causes a typed startup failure and returns owned worker counts to baseline. A new reader can open after route restoration."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
         }
       ],
       "gaps": [
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     },
@@ -8293,13 +9482,62 @@
             "windows"
           ],
           "expected": "Failure monitoring remains independent of delivery capacity and native cleanup respects owner/deadline contracts."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_stalled_close_after_ready",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Pausing the owned broker prevents confirmed cleanup. Both native paths surface a cleanup-timeout error instead of claiming a successful close."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Killing the exact native reader connection after filling its handoff exposes terminal failure before the buffered entry can escape."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
         {
           "id": "native-lifecycle-resource-counts",
           "stage": 4,
-          "expected": "Measure native worker/task/handle counts across repeated normal and fault lifecycles, retaining first failures and diagnostic reruns separately."
+          "expected": "Confirm six healthy and four unreachable-startup native cycles per mode on each hosted Linux amd64 profile. Candidate coverage still needs repeated post-READY disconnect, restart, and stalled-close cycles with Python thread/task and Linux native thread/socket counts. The synthetic Core fault cycles remain separate evidence."
+        },
+        {
+          "id": "native-full-handoff-close",
+          "stage": 4,
+          "expected": "Close each native adapter while delivery remains saturated. Confirm bounded resource release and retain cleanup failures. Disconnect-before-delivery and close calls under separate faults cover only parts of this combination."
         }
       ]
     },
@@ -8412,7 +9650,7 @@
         "text": "Verification MUST cover both explicit runtimes with the same deterministic histories, parent scopes and reusable marks, result/deadline commitment, strict loss, malformed payloads, callback failures, context propagation, cancellation acknowledgement, bounded queues, reporting acknowledgement, and owned-resource teardown. Native verification MUST exercise both client paths where they differ, including RabbitMQ delivery settlement and Redis atomic identity/continuity checks. Blocking tests MUST detect accidental event-loop creation and hidden coroutine dispatch. Actual runs and tested versions belong in compatibility/status records; a declared dependency range, test command, or CI job alone is not evidence of passing verification.",
         "sha256": "57fd5768f19a358ae51d17e26482dedeeff072dabaddaa379e884c6857d84a58"
       },
-      "summary": "Shared and facade regressions cover core separation; required matrix/native fault coverage remains separate.",
+      "summary": "Core parity and both native client paths have targeted checks for failure priority, interrupt handling and owned-resource teardown.",
       "checks": [
         {
           "selector": "tests/test_expectation_engine.py::test_final_commit_rechecks_terminal_state_after_matcher_success",
@@ -8452,6 +9690,80 @@
             "windows"
           ],
           "expected": "Shared and facade regressions cover core separation; required matrix/native fault coverage remains separate."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_ctrl_c_interrupts_active_watch_and_cleans_up",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "An operating-system interrupt inside an active READY watch propagates KeyboardInterrupt and closes its session without leftover actor threads or event-loop tasks."
+        },
+        {
+          "selector": "tests/test_process_lifecycle.py::test_repeated_lifecycles_release_owned_resources",
+          "kind": "unit",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux",
+            "macos",
+            "windows"
+          ],
+          "expected": "Repeated normal and detected-fault Core lifecycles close each synthetic session. The controlled task/thread sets return to baseline, and known loss prevents retained matches."
+        },
+        {
+          "selector": "tests/integration/test_rabbitmq_native_faults.py::test_disconnect_when_handoff_is_full",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "After an unsettled delivery saturates prefetch and another publication is confirmed, management closes the verified owned connection. Terminal failure takes priority over further delivery."
+        },
+        {
+          "selector": "tests/integration/test_redis_streams_native_faults.py::test_restart_after_ready",
+          "kind": "integration",
+          "modes": [
+            "async",
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "The owned server restarts with a new run ID. The original observation fails closed and a new session can observe the restored owned source."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_async_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "async"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
+        },
+        {
+          "selector": "tests/integration/test_native_lifecycle.py::test_sync_reader_releases_native_resources",
+          "kind": "integration",
+          "modes": [
+            "sync"
+          ],
+          "platforms": [
+            "linux"
+          ],
+          "expected": "Six healthy native cycles and four unreachable-startup attempts per mode release controlled Python threads, async tasks, and Linux native threads/sockets relative to the warmed baseline."
         }
       ],
       "gaps": [
@@ -8463,7 +9775,7 @@
         {
           "id": "real-broker-faults",
           "stage": 4,
-          "expected": "Run barrier-driven startup/auth/ACL/network/restart/cleanup faults on the selected real brokers in both execution modes."
+          "expected": "Execute the registered owned broker fault suites on the hosted Linux amd64 minimum/current profiles and the release candidate. Add missing combinations where claimed, including native startup cancellation after each allocated resource and broker-specific cleanup while a handoff is full."
         }
       ]
     }

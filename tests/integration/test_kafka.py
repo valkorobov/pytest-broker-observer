@@ -50,18 +50,21 @@ def make_context():
     )
 
 
-def produce(native, servers, topic, payload, *, partition=0, headers=None):
+def produce(native, servers, topic, payload, *, partition=0, headers=None, key=None):
     producer = native.Producer({"bootstrap.servers": servers, "message.timeout.ms": 10000})
-    failures = []
+    delivery = []
     producer.produce(
         topic,
         value=payload,
         partition=partition,
         headers=headers,
-        on_delivery=lambda error, message: failures.append(error) if error else None,
+        key=key,
+        on_delivery=lambda error, message: delivery.append((error, message)),
     )
     assert producer.flush(15) == 0
-    assert not failures
+    [(error, message)] = delivery
+    assert error is None
+    return message.offset()
 
 
 def test_empty_topic_ready_then_two_independent_readers_receive_immediate_publication(broker):

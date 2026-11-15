@@ -18,6 +18,7 @@ import math
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -522,7 +523,15 @@ class _KafkaNativeWorker:
         :raises TransportSubscriptionError: If the topic or its partition metadata is unavailable.
         :raises TransportError: If native topic or partition metadata reports a client error.
         """
-        metadata = client.list_topics(topic=self._source.name, timeout=timeout)
+        try:
+            metadata = client.list_topics(topic=self._source.name, timeout=timeout)
+        except Exception:
+            if client is self._consumer and self._readiness is None:
+                # The synchronous metadata call may return a transport error
+                # while the specific SASL failure is queued for error_cb.
+                with suppress(Exception):
+                    client.poll(0)
+            raise
         topic = metadata.topics.get(self._source.name)
         if topic is None:
             raise TransportSubscriptionError("Requested Kafka topic is unavailable")

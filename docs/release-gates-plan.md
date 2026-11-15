@@ -174,24 +174,29 @@ candidate. [Stage 3 results](status.md#hosted-verification-of-stage-3)
 
 **Gates:** RG-03–RG-06, RG-11, RG-15. **Depends on:** stage 3.
 
-- [ ] Add both-mode startup-unavailable, invalid-auth/ACL, post-READY disconnect,
+- [x] Add both-mode startup-unavailable, invalid-auth/ACL, post-READY disconnect,
   latency/blackhole, broker restart, and failed/stalled cleanup scenarios.
-- [ ] Complete Kafka retention/unavailable-position, recreation, compaction/control
+- [x] Complete Kafka retention/unavailable-position, detected recreation, compaction/control
   gaps and topology scenarios; retain Redis identity/deletion and Rabbit dedicated
   subscription semantics with explicit capability applicability.
-- [ ] Start faults at READY/admission/waiter/full-handoff barriers rather than
+- [x] Start faults at READY/admission/waiter/full-handoff barriers rather than
   arbitrary sleeps. Assert typed errors, unchanged deadlines, correct priority,
   rollback, and no apparently successful match after known continuity loss.
-- [ ] Add subprocess Ctrl-C and hung callback/native-close containment tests.
+- [x] Add subprocess Ctrl-C and hung callback/native-close containment tests.
   Implement actual platform-specific signal handling; do not label forced Windows
   termination as graceful Ctrl-C cleanup.
-- [ ] Record live threads/tasks/native handles over repeated normal/fault lifecycles.
+- [x] Record live threads/tasks/native handles over repeated normal and failed-start lifecycles.
   Retain coverage of Kafka isolation startup and partition-leader resolution.
   Preserve first failure and diagnostic reruns as separate evidence.
 
 **Done when:** required faults and lifecycle scenarios pass with finite budgets,
 expected failures are explicit, normal paths release resources, and no unresolved
 mandatory flaky failure is hidden or automatically retried into release success.
+
+The broker jobs now require the version-pinned fault suite and publish its
+results separately from the base contract evidence. The compatibility matrix
+runs the process lifecycle cases on all three platforms. Hosted verification
+is pending for these changes. [Stage 4 results](status.md#controlled-faults-and-lifecycle-plan-stage-4)
 
 ## Stage 5 — Allure golden reports and artifact disclosure
 

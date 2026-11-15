@@ -1,0 +1,86 @@
+{
+  "kafka": {
+    "native": [
+      "tests.integration.test_kafka_native_faults::test_kafka_retained_low_rejects_trimmed_offset[async]",
+      "tests.integration.test_kafka_native_faults::test_kafka_retained_low_rejects_trimmed_offset[blocking]",
+      "tests.integration.test_kafka_native_faults::test_kafka_recreated_topic_cannot_resume_failed_reader[async]",
+      "tests.integration.test_kafka_native_faults::test_kafka_recreated_topic_cannot_resume_failed_reader[blocking]",
+      "tests.integration.test_kafka_native_faults::test_kafka_partition_expansion_fails_closed[async]",
+      "tests.integration.test_kafka_native_faults::test_kafka_partition_expansion_fails_closed[blocking]",
+      "tests.integration.test_kafka_native_faults::test_kafka_compaction_and_transaction_markers_leave_readable_offset_gaps[async]",
+      "tests.integration.test_kafka_native_faults::test_kafka_compaction_and_transaction_markers_leave_readable_offset_gaps[blocking]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_startup_unavailable_rolls_back[async]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_startup_unavailable_rolls_back[blocking]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_downstream_fault_does_not_extend_active_wait[latency-async]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_downstream_fault_does_not_extend_active_wait[latency-blocking]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_downstream_fault_does_not_extend_active_wait[blackhole-async]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_downstream_fault_does_not_extend_active_wait[blackhole-blocking]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_restart_cannot_resume_failed_reader[async]",
+      "tests.integration.test_kafka_proxy_faults::test_kafka_restart_cannot_resume_failed_reader[blocking]"
+    ],
+    "auth": [
+      "tests.integration.test_kafka_auth_faults::test_kafka_startup_security_is_typed[async-invalid-password]",
+      "tests.integration.test_kafka_auth_faults::test_kafka_startup_security_is_typed[async-missing-topic-acl]",
+      "tests.integration.test_kafka_auth_faults::test_kafka_startup_security_is_typed[blocking-invalid-password]",
+      "tests.integration.test_kafka_auth_faults::test_kafka_startup_security_is_typed[blocking-missing-topic-acl]"
+    ],
+    "lifecycle": [
+      "tests.integration.test_native_lifecycle::test_async_reader_releases_native_resources",
+      "tests.integration.test_native_lifecycle::test_sync_reader_releases_native_resources"
+    ],
+    "xdist": [
+      "tests.integration.test_native_multiprocess::test_async_worker_observes_the_shared_publication",
+      "tests.integration.test_native_multiprocess::test_sync_worker_observes_the_shared_publication"
+    ]
+  },
+  "rabbitmq": {
+    "native": [
+      "tests.integration.test_rabbitmq_native_faults::test_startup_unavailable[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_startup_unavailable[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_startup_rejects_invalid_credentials[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_startup_rejects_invalid_credentials[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_startup_rejects_missing_permissions[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_startup_rejects_missing_permissions[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_disconnect_when_handoff_is_full[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_disconnect_when_handoff_is_full[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_blackhole_after_ready[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_blackhole_after_ready[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_restart_after_ready[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_restart_after_ready[async]",
+      "tests.integration.test_rabbitmq_native_faults::test_stalled_close_after_ready[sync]",
+      "tests.integration.test_rabbitmq_native_faults::test_stalled_close_after_ready[async]"
+    ],
+    "lifecycle": [
+      "tests.integration.test_native_lifecycle::test_async_reader_releases_native_resources",
+      "tests.integration.test_native_lifecycle::test_sync_reader_releases_native_resources"
+    ],
+    "xdist": [
+      "tests.integration.test_native_multiprocess::test_async_worker_observes_the_shared_publication",
+      "tests.integration.test_native_multiprocess::test_sync_worker_observes_the_shared_publication"
+    ]
+  },
+  "redis-streams": {
+    "native": [
+      "tests.integration.test_redis_streams_native_faults::test_startup_unavailable[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_startup_unavailable[async]",
+      "tests.integration.test_redis_streams_native_faults::test_startup_rejects_invalid_credentials[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_startup_rejects_invalid_credentials[async]",
+      "tests.integration.test_redis_streams_native_faults::test_startup_rejects_missing_permissions[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_startup_rejects_missing_permissions[async]",
+      "tests.integration.test_redis_streams_native_faults::test_disconnect_when_handoff_is_full[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_disconnect_when_handoff_is_full[async]",
+      "tests.integration.test_redis_streams_native_faults::test_blackhole_after_ready[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_blackhole_after_ready[async]",
+      "tests.integration.test_redis_streams_native_faults::test_restart_after_ready[sync]",
+      "tests.integration.test_redis_streams_native_faults::test_restart_after_ready[async]"
+    ],
+    "lifecycle": [
+      "tests.integration.test_native_lifecycle::test_async_reader_releases_native_resources",
+      "tests.integration.test_native_lifecycle::test_sync_reader_releases_native_resources"
+    ],
+    "xdist": [
+      "tests.integration.test_native_multiprocess::test_async_worker_observes_the_shared_publication",
+      "tests.integration.test_native_multiprocess::test_sync_worker_observes_the_shared_publication"
+    ]
+  }
+}

@@ -7,6 +7,8 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Fixed:
 
+- Kafka startup reports SASL authentication failures as typed authentication
+  errors when the native metadata request returns a generic transport failure.
 - Kafka readers resolve topic metadata on their dedicated AdminClient before
   requesting physical high offsets. This prevents a cold-client leader lookup
   from stalling common sync and async startup paths.

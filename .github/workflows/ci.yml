@@ -439,7 +439,7 @@ jobs:
     name: Isolated broker contracts / ${{ matrix.profile }}
     needs: packaging
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -492,6 +492,20 @@ jobs:
         with:
           name: release-gate-evidence-broker-${{ matrix.profile }}
           path: artifacts/broker-contracts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Run owned broker faults and lifecycle checks
+        id: broker_faults
+        run: >-
+          .venv/bin/python -m tools.run_broker_contracts
+          --profile "$BROKER_PROFILE" --suite faults --candidate-dir candidate-artifacts
+          --output artifacts/broker-faults
+      - name: Upload broker fault evidence and first outcomes
+        if: ${{ !cancelled() && (steps.broker_faults.outcome == 'success' || steps.broker_faults.outcome == 'failure') }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: broker-faults-${{ matrix.profile }}
+          path: artifacts/broker-faults/
           if-no-files-found: error
           retention-days: 7
 

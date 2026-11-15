@@ -1,9 +1,12 @@
 """Docker fixtures for isolated integration runs."""
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, closing, contextmanager
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
+import re
+import socket
 import time
 from typing import TypeVar
 from uuid import uuid4
@@ -11,6 +14,7 @@ from uuid import uuid4
 
 _LOOPBACK = "127.0.0.1"
 _OWNER_LABEL = "org.pytest-broker-observer.fixture-owner"
+_BROKER_LABEL = "org.pytest-broker-observer.fixture-broker"
 _LOG_LIMIT = 32 * 1024
 _Ready = TypeVar("_Ready")
 
@@ -23,8 +27,17 @@ class BrokerService:
     metadata: dict[str, object]
 
 
-def loopback_ports(container, *ports: int) -> None:
+def loopback_ports(container, *ports: int, restartable: bool = False) -> None:
     """Ask Docker to allocate host ports bound only to IPv4 loopback."""
+    if restartable:
+        # Docker can reassign daemon-selected ports on restart. Request explicit
+        # available ports for the destructive profiles that require stable endpoints.
+        with ExitStack() as reservations:
+            for port in ports:
+                endpoint = reservations.enter_context(socket.socket())
+                endpoint.bind((_LOOPBACK, 0))
+                container.ports[f"{port}/tcp"] = (_LOOPBACK, endpoint.getsockname()[1])
+        return
     for port in ports:
         # Docker SDK accepts (address, None) for an ephemeral host binding.
         # Testcontainers' with_bind_ports() only accepts a host port number.
@@ -57,6 +70,82 @@ def container_metadata(container, image: str) -> dict[str, object]:
         "architecture": actual.attrs["Architecture"],
         "manifest_digest": manifest.get("Digest"),
     }
+
+
+def fault_container_env(container, broker: str) -> dict[str, str]:
+    """Pass the exact identity of the isolated fixture to its fault-test process."""
+    wrapped = container.get_wrapped_container()
+    wrapped.reload()
+    owner = wrapped.labels.get(_OWNER_LABEL, "")
+    if wrapped.labels.get(_BROKER_LABEL) != broker or wrapped.name != f"pbo-stage3-{owner}":
+        raise RuntimeError("Fault controls require a uniquely owned broker fixture")
+    return {
+        "EVENT_OBSERVER_FAULT_CONTAINER_ID": wrapped.id,
+        "EVENT_OBSERVER_FAULT_CONTAINER_TOKEN": owner,
+    }
+
+
+@contextmanager
+def _owned_broker(broker: str):
+    """Limit destructive fault operations to the container started for this profile."""
+    import docker
+
+    container_id = os.environ.get("EVENT_OBSERVER_FAULT_CONTAINER_ID", "")
+    owner = os.environ.get("EVENT_OBSERVER_FAULT_CONTAINER_TOKEN", "")
+    if (
+        broker not in {"kafka", "rabbitmq", "redis-streams"}
+        or os.environ.get("EVENT_OBSERVER_FAULTS") != broker
+        or not re.fullmatch(r"[a-f0-9]{64}", container_id)
+        or not re.fullmatch(r"[a-f0-9]{32}", owner)
+    ):
+        raise RuntimeError("Fault controls require an explicit isolated broker profile")
+    with closing(docker.from_env(timeout=30)) as client:
+        wrapped = client.containers.get(container_id)
+        if (
+            wrapped.id != container_id
+            or wrapped.name != f"pbo-stage3-{owner}"
+            or wrapped.labels.get(_OWNER_LABEL) != owner
+            or wrapped.labels.get(_BROKER_LABEL) != broker
+            or wrapped.status != "running"
+        ):
+            raise RuntimeError("Fault controls could not verify the owned running broker")
+        yield wrapped
+
+
+def restart_owned_broker(broker: str) -> None:
+    """Abruptly restart the isolated server while preserving its container identity."""
+    with _owned_broker(broker) as wrapped:
+        wrapped.restart(timeout=0)
+
+
+def verify_owned_broker_ports(broker: str, ports: dict[int, int]) -> None:
+    """Require native/admin test endpoints to belong to the labeled Docker fixture."""
+    with _owned_broker(broker) as wrapped:
+        exposed = wrapped.attrs["NetworkSettings"]["Ports"]
+        for container_port, host_port in ports.items():
+            if exposed.get(f"{container_port}/tcp") != [{"HostIp": _LOOPBACK, "HostPort": str(host_port)}]:
+                raise RuntimeError("Fault endpoint does not belong to the owned broker")
+
+
+@contextmanager
+def paused_owned_broker(broker: str) -> Iterator[None]:
+    """Blackhole protocol replies by pausing one owned process and always resume it."""
+    with _owned_broker(broker) as wrapped:
+        wrapped.pause()
+        primary = None
+        try:
+            yield
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                wrapped.unpause()
+            except Exception as error:
+                failure = f"Could not resume the owned broker ({type(error).__name__})"
+                if primary is None:
+                    raise RuntimeError(failure) from None
+                primary.add_note(failure)
 
 
 def wait_until_ready(
@@ -128,6 +217,7 @@ def running_container(
     *,
     log_path: Path,
     redactions: tuple[str, ...] = (),
+    broker: str | None = None,
 ) -> Iterator[None]:
     """Start, capture logs, and remove the owned container after partial or full startup."""
     owner = uuid4().hex
@@ -136,6 +226,8 @@ def running_container(
     # Preserve existing Docker arguments, including explicit platform selection.
     options = dict(container._kwargs)
     options["labels"] = {**options.get("labels", {}), _OWNER_LABEL: owner}
+    if broker is not None:
+        options["labels"][_BROKER_LABEL] = broker
     container.with_name(name).with_kwargs(**options)
     primary = None
     try:

@@ -20,6 +20,70 @@ scope definitions or broker positions.
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
 
+## Controlled faults and lifecycle (plan stage 4)
+
+The pinned broker profiles now run native fault checks against the installed
+wheel. Both reader modes exercise an unreachable endpoint, authentication and
+authorization, interruption after READY, and recovery with a fresh reader.
+Kafka also verifies timed waits under delayed or blocked proxy replies,
+unavailable retained offsets, cleaner-induced sparse offsets, transaction
+control gaps, detected deletion and recreation, and partition expansion.
+RabbitMQ and Redis Streams fill the observer's handoff before disconnecting its
+native reader. RabbitMQ also exercises a broker-stalled close. Two pytest-xdist
+processes reach READY on one owned source before the independent producer
+publishes, and each process must receive that publication.
+[Fault inventory](../tools/broker_fault_cases.json) · [Running the suite](testing.md#owned-broker-faults-and-process-lifecycle)
+
+On November 15, 2026, all six profiles passed against the same installed
+wheel on macOS arm64 with CPython 3.14.7 and Docker Engine 29.8.0
+(`linux/arm64`):
+
+| Broker | Dependency profile | Faults | Lifecycle | Independent pytest-xdist readers |
+| --- | --- | ---: | ---: | ---: |
+| Kafka 3.9.2 | Current | 20 | 2 | 2 |
+| Kafka 3.8.1 | Minimum | 20 | 2 | 2 |
+| RabbitMQ 4.4.0 | Current | 14 | 2 | 2 |
+| RabbitMQ 4.3.7 | Minimum | 14 | 2 | 2 |
+| Redis 8.2.11 | Current | 12 | 2 | 2 |
+| Redis 7.0.15 | Minimum | 12 | 2 | 2 |
+
+The 116 cases passed without skips. A separate Kafka 3.9.2 replay passed all
+30 base contracts and both original Toxiproxy routing proofs. Local manifests,
+JUnit, READY identities, and first-failure outputs are under
+`artifacts/broker-faults/stage4/`. Wheel and sdist metadata and MIT identity
+checks also passed. Docker reported zero remaining fixture-owned containers.
+
+Each real-broker lifecycle check warms the independent producer, measures six
+successful lifecycles and four rolled-back starts, and checks the remaining
+resources. Local macOS measurements cover Python threads and async tasks.
+The Linux CI job also samples native threads and sockets through `/proc`.
+The broker-free lifecycle cases check Ctrl+C, hung matchers and close calls,
+cleanup error priority, and repeated normal and fault cleanup. All 10 cases
+passed with two workers on macOS arm64 and Python 3.14.7. They also passed
+under Python 3.11.16 with the exact minimum test dependencies and the installed
+wheel from run 43743613831. The complete local suite passed 1,087 cases both
+serially and with two workers, with 88.97% combined statement and branch coverage.
+
+The initial Kafka SASL test returned a connection error for invalid credentials.
+The worker now services queued native error callbacks when startup metadata
+fails, so the SASL failure reaches the caller as an authentication error.
+The ACL checks verify a separate authorization error. The initial minimum Kafka
+retention check also exposed a reproducible crash in the client's fixture-only
+`delete_records()` call. The fixture now performs the same broker operation
+through the CLI in its owned container and verifies the returned low watermark.
+[Client issue](https://github.com/confluentinc/confluent-kafka-python/issues/2275) · [Upstream fix](https://github.com/confluentinc/confluent-kafka-python/pull/2328)
+
+The first fault artifacts also preserve a RabbitMQ port change after restart,
+Toxiproxy closing the socket when a toxic was removed, and a repository-test
+import failure under isolated Pytest 8. The fixtures now bind restart-stable
+loopback ports, keep the toxic installed until the observer closes, and put the
+repository root on pytest's import path. Pytest loads the package from the
+installed wheel in the compatibility and broker jobs.
+
+The new CI steps and artifacts still need hosted verification. Linux native
+resource counts and Windows console Ctrl+C are required in that verification.
+The fault reports will be registered with the release audit at stage 7.
+
 ## Isolated real broker contracts (plan stage 3)
 
 On November 15, 2026, all six profiles passed against one installed candidate
@@ -257,7 +321,27 @@ passed with the downloaded wheel and sdist from the hosted run and the
 corrected tests. Its 18 JUnit reports contain 2,265 passing case executions,
 including both runs of the 1,077 unit tests. The results are under
 `artifacts/compatibility/actions-43742126666-test-fix/macos-arm64-cpython-3.11-current/`.
-The correction still needs a hosted Windows run.
+
+The next hosted run, for `024989a14bd02e0ccc67b5050724debc2cb4ad80`, passed all
+41 check jobs on the first attempt. Windows x64 with CPython 3.11.9 and current
+dependencies passed all 1,077 unit cases in both the serial and two-worker
+runs, including the previously failing scope exclusion case.
+[Windows job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43743613831/job/132902116476)
+
+All 24 compatibility cells passed. A local artifact audit checked the exact
+candidate and distribution hashes, 432 JUnit reports with 54,360 passing case
+executions, and both installed typing checks with their negative controls in
+each cell. The downloaded reports are under
+`artifacts/compatibility/actions-43743613831-attempt-1/`.
+[CI run 43743613831](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43743613831)
+
+The run also passed all six isolated broker jobs, all four Kafka proxy checks,
+and both Kafka CI paths. The release audit accepted the 12 RG-03 profiles for
+this commit. It reported `ready: false` with 77 profiles open across 14 gates.
+The locally replayed report matched the hosted report byte for byte. The audit,
+broker manifests, and distributions are under
+`artifacts/broker-contracts/actions-43743613831-attempt-1/`.
+[Release audit](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43743613831/job/132904314365)
 
 ## License, identity, and traceability (plan stage 1)
 
@@ -692,12 +776,10 @@ remains incomplete.
 
 - Recheck the observed pending publisher, name status, and deployment protections
   before final publication; configuration can change independently of the code.
-- Verify the Windows Python 3.11 current test correction on GitHub-hosted
-  Windows x64 and register the compatibility checks as release evidence.
-- Full fault suites: ACL/auth in a real environment, advertised endpoints
-  through Toxiproxy, broker restart, retention, topic recreation, and compaction.
-- Cover remaining broker-specific fault and capability scenarios with
-  independently controlled real-broker cases.
+- Register the verified compatibility checks as release evidence in stage 7.
+- Verify stage 4 on GitHub-hosted runners, including native Linux resource
+  counts, Windows console interruption, and the remaining broker-specific
+  cases recorded in the acceptance inventory.
 - RSS/throughput/latency benchmarks with a fixed environment and budgets.
 - Remaining Allure reporting contexts: examples verified locally with the real
   pytest plugin and HTML, a separate CI job prepared; the full runner matrix

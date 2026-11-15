@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import re
+from secrets import token_hex
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 from uuid import uuid4
@@ -12,6 +13,7 @@ from uuid import uuid4
 from .common import (
     BrokerService,
     container_metadata,
+    fault_container_env,
     loopback_ports,
     mapped_port,
     running_container,
@@ -66,12 +68,12 @@ def _kraft_environment(servers):
     }
 
 
-def _wait_for_advertised_route(servers):
+def _wait_for_advertised_route(servers, options):
     """Validate real metadata through the proxy before allowing contract tests."""
     from confluent_kafka import KafkaException
     from confluent_kafka.admin import AdminClient
 
-    admin = AdminClient({"bootstrap.servers": servers, "log_level": 0})
+    admin = AdminClient({"bootstrap.servers": servers, "log_level": 0, **options})
 
     def probe(timeout):
         try:
@@ -95,8 +97,24 @@ def _broker_version(container):
     return version[1].decode("ascii")
 
 
+def _security_settings(admin_password, reader_password):
+    """Configure SASL and broker ACLs on the private external listener."""
+    return {
+        "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP": "INTERNAL:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT,CONTROLLER:PLAINTEXT",
+        "KAFKA_LISTENER_NAME_EXTERNAL_SASL_ENABLED_MECHANISMS": "PLAIN",
+        "KAFKA_LISTENER_NAME_EXTERNAL_PLAIN_SASL_JAAS_CONFIG": (
+            "org.apache.kafka.common.security.plain.PlainLoginModule required "
+            f'user_observer_admin="{admin_password}" user_observer_reader="{reader_password}";'
+        ),
+        "KAFKA_AUTHORIZER_CLASS_NAME": "org.apache.kafka.metadata.authorizer.StandardAuthorizer",
+        "KAFKA_SUPER_USERS": "User:ANONYMOUS;User:observer_admin",
+    }
+
+
 @contextmanager
-def kafka_service(image: str, toxiproxy_image: str, *, log_dir: Path):
+def kafka_service(
+    image: str, toxiproxy_image: str, *, log_dir: Path, faults: bool = False, secure: bool = False
+):
     """Expose just the proxy control and data ports and own the Docker resources."""
     from testcontainers.core.container import DockerContainer
     from testcontainers.core.network import Network
@@ -129,14 +147,36 @@ def kafka_service(image: str, toxiproxy_image: str, *, log_dir: Path):
             # KafkaContainer uses distribution-specific startup scripts. The
             # generic container preserves the pinned Apache image's entrypoint.
             kafka = DockerContainer(image).with_network(network).with_network_aliases(_KAFKA_ALIAS)
-            for key, value in _kraft_environment(servers).items():
+            environment = _kraft_environment(servers)
+            credentials = {}
+            admin_options = {}
+            if secure:
+                admin_password, reader_password = token_hex(16), token_hex(16)
+                environment.update(_security_settings(admin_password, reader_password))
+                admin_options = {
+                    "security.protocol": "SASL_PLAINTEXT",
+                    "sasl.mechanism": "PLAIN",
+                    "sasl.username": "observer_admin",
+                    "sasl.password": admin_password,
+                }
+                credentials = {
+                    "EVENT_OBSERVER_KAFKA_ADMIN_PASSWORD": admin_password,
+                    "EVENT_OBSERVER_KAFKA_READER_PASSWORD": reader_password,
+                    "EVENT_OBSERVER_FAULT_PASSWORD": token_hex(16),
+                }
+            for key, value in environment.items():
                 kafka.with_env(key, value)
-            with running_container(kafka, log_path=log_dir / "kafka.log"):
+            with running_container(
+                kafka,
+                log_path=log_dir / "kafka.log",
+                broker="kafka" if faults else None,
+                redactions=tuple(credentials.values()),
+            ):
                 wrapped = kafka.get_wrapped_container()
                 wrapped.reload()
                 if any(wrapped.attrs["NetworkSettings"]["Ports"].values()):
                     raise RuntimeError("The isolated Kafka broker has unexpected published ports")
-                _wait_for_advertised_route(servers)
+                _wait_for_advertised_route(servers, admin_options)
                 metadata = container_metadata(kafka, image)
                 metadata.update(
                     {
@@ -144,6 +184,7 @@ def kafka_service(image: str, toxiproxy_image: str, *, log_dir: Path):
                         "kraft": True,
                         "published_kafka_ports": [],
                         "advertised_endpoint": servers,
+                        "external_security_protocol": admin_options.get("security.protocol", "PLAINTEXT"),
                         "toxiproxy": {**container_metadata(proxy, toxiproxy_image), "version": proxy_version},
                     }
                 )
@@ -152,6 +193,8 @@ def kafka_service(image: str, toxiproxy_image: str, *, log_dir: Path):
                         "KAFKA_BOOTSTRAP_SERVERS": servers,
                         "EVENT_OBSERVER_TOXIPROXY_URL": control_url,
                         "EVENT_OBSERVER_TOXIPROXY_PROXY": proxy_name,
+                        **credentials,
+                        **(fault_container_env(kafka, "kafka") if faults else {}),
                     },
                     metadata,
                 )

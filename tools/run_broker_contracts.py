@@ -1,9 +1,11 @@
-"""Run one pinned real-broker profile and preserve its contract evidence."""
+"""Run one pinned real-broker contract or fault suite and retain its evidence."""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
+from contextlib import suppress
 import importlib.metadata
 import json
 import os
@@ -13,6 +15,8 @@ import signal
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+from time import monotonic
 import tomllib
 from urllib.parse import unquote, urlsplit
 from xml.etree import ElementTree
@@ -40,6 +44,14 @@ VARIABLES = (
     "REDIS_URL",
     "EVENT_OBSERVER_TOXIPROXY_URL",
     "EVENT_OBSERVER_TOXIPROXY_PROXY",
+    "EVENT_OBSERVER_FAULTS",
+    "EVENT_OBSERVER_FAULT_CONTAINER_ID",
+    "EVENT_OBSERVER_FAULT_CONTAINER_TOKEN",
+    "EVENT_OBSERVER_FAULT_PASSWORD",
+    "EVENT_OBSERVER_KAFKA_ADMIN_PASSWORD",
+    "EVENT_OBSERVER_KAFKA_READER_PASSWORD",
+    "EVENT_OBSERVER_XDIST_SOURCE",
+    "EVENT_OBSERVER_XDIST_COORDINATION",
     "PYTEST_ADDOPTS",
     "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
     "PYTEST_PLUGINS",
@@ -57,21 +69,29 @@ def profile_for(profile_id):
     raise GateError("Unknown broker profile")
 
 
-def open_broker(broker, profile, proxy, output):
+def open_broker(broker, profile, proxy, output, *, faults=False, secure=False):
     """Import Docker and native clients only for explicitly selected integration runs."""
     if broker == "kafka":
         from tests.integration.containers.kafka import kafka_service
 
-        return kafka_service(profile["image"], proxy["image"], log_dir=output)
+        return kafka_service(profile["image"], proxy["image"], log_dir=output, faults=faults, secure=secure)
     from tests.integration.containers.services import rabbitmq_service, redis_service
 
     service = rabbitmq_service if broker == "rabbitmq" else redis_service
-    return service(profile["image"], log_dir=output)
+    return service(profile["image"], log_dir=output, faults=faults)
 
 
 def credentials(environment):
     """Collect synthetic credentials in the formats test diagnostics can include."""
-    tokens = set()
+    tokens = {
+        environment[name]
+        for name in (
+            "EVENT_OBSERVER_FAULT_PASSWORD",
+            "EVENT_OBSERVER_KAFKA_ADMIN_PASSWORD",
+            "EVENT_OBSERVER_KAFKA_READER_PASSWORD",
+        )
+        if environment.get(name)
+    }
     for name in ("RABBITMQ_URL", "RABBITMQ_MANAGEMENT_URL", "REDIS_URL"):
         parts = urlsplit(environment.get(name, ""))
         if parts.username:
@@ -92,7 +112,34 @@ def scrub(data, tokens):
     return data
 
 
-def run_pytest(selectors, service_env, output, name):
+def _run_worker_group(command, environment, cancelled):
+    """Keep xdist workers in the owned POSIX group and reap it before fixture cleanup."""
+    deadline = monotonic() + 360
+    with subprocess.Popen(
+        command,
+        cwd=ROOT,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    ) as process:
+        try:
+            while True:
+                try:
+                    stdout, stderr = process.communicate(timeout=0.25)
+                except subprocess.TimeoutExpired:
+                    if cancelled.is_set() or monotonic() >= deadline:
+                        raise
+                else:
+                    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        except BaseException:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.communicate(timeout=5)
+            raise
+
+
+def run_pytest(selectors, service_env, output, name, *, cancelled=None, strict_warnings=False):
     """Use the real broker configured before collection and preserve the first result."""
     report = output / f"{name}.xml"
     environment = {key: value for key, value in os.environ.items() if key not in VARIABLES}
@@ -116,9 +163,21 @@ def run_pytest(selectors, service_env, output, name):
             "-o",
             "junit_family=xunit1",
         ]
+        if strict_warnings:
+            command.extend(
+                (
+                    "-o",
+                    "pythonpath=.",
+                    "-Werror::RuntimeWarning",
+                    "-Werror::pytest.PytestUnraisableExceptionWarning",
+                )
+            )
         output_bytes = b""
         try:
-            outcome = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, timeout=360)
+            if cancelled is None:
+                outcome = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, timeout=360)
+            else:
+                outcome = _run_worker_group(command, environment, cancelled)
             output_bytes = outcome.stdout + outcome.stderr
         except subprocess.TimeoutExpired as error:
             output_bytes = (error.stdout or b"") + (error.stderr or b"")
@@ -177,6 +236,76 @@ def run_contracts(broker, profile, service_env, output, manifest):
             },
         )
     return reports
+
+
+def fault_report(broker, category, selectors, service_env, output, **options):
+    """Validate exact fault node IDs and require every recorded scenario to pass."""
+    inventory = read_json(ROOT / "tools/broker_fault_cases.json")
+    report = run_pytest(selectors, service_env, output, category, strict_warnings=True, **options)
+    return contract_report(
+        report,
+        {"required_cases": inventory[broker][category], "allowed_not_applicable": []},
+    )
+
+
+def run_native_isolation(broker, service_env, output):
+    """Provision one owned source for two simultaneously active pytest workers."""
+    from tests.integration.native_lifecycle import make_harness, wait_for_workers
+
+    async def run(directory):
+        harness = make_harness(broker, service_env)
+        try:
+            source = await harness.create_source(case_id="xdist-shared-source")
+            environment = {
+                **service_env,
+                "EVENT_OBSERVER_XDIST_SOURCE": source.name,
+                "EVENT_OBSERVER_XDIST_COORDINATION": str(directory),
+            }
+            selectors = [
+                "tests/integration/test_native_multiprocess.py",
+                "-n",
+                "2",
+                "--dist",
+                "load",
+            ]
+            cancelled = threading.Event()
+            run_workers = asyncio.create_task(
+                asyncio.to_thread(
+                    fault_report, broker, "xdist", selectors, environment, output, cancelled=cancelled
+                )
+            )
+            try:
+                ready = await wait_for_workers(directory, run_workers)
+                if ready:
+                    write_json(output / "xdist-ready.json", ready)
+                    receipt = await harness.publish(source, b"shared-source-publication")
+                    require(receipt.accepted, "Broker did not confirm the shared-source publication")
+                outcomes = await asyncio.shield(run_workers)
+                require(ready, "Both native readers did not report READY")
+                return outcomes
+            finally:
+                if not run_workers.done():
+                    cancelled.set()
+                    with suppress(GateError):
+                        await run_workers
+        finally:
+            await harness.cleanup()
+
+    with TemporaryDirectory(prefix="pbo-broker-workers-") as temporary:
+        return asyncio.run(run(Path(temporary)))
+
+
+def run_faults(broker, service_env, output, manifest):
+    """Run broker failures and independent-worker checks on the owned instance."""
+    test_module = f"tests/integration/test_{broker.replace('-', '_')}_native_faults.py"
+    selectors = [test_module]
+    if broker == "kafka":
+        selectors.append("tests/integration/test_kafka_proxy_faults.py")
+    manifest["faults"]["native"] = fault_report(broker, "native", selectors, service_env, output)
+    manifest["faults"]["lifecycle"] = fault_report(
+        broker, "lifecycle", ["tests/integration/test_native_lifecycle.py"], service_env, output
+    )
+    manifest["faults"]["xdist"] = run_native_isolation(broker, service_env, output)
 
 
 def check_image(configured, observed):
@@ -282,6 +411,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--candidate-dir", type=Path)
     parser.add_argument("--emit-release-evidence", action="store_true")
+    parser.add_argument("--suite", choices=("contracts", "faults"), default="contracts")
     args = parser.parse_args(argv)
     broker, profile, proxy = profile_for(args.profile)
     if args.print_dependencies:
@@ -289,10 +419,13 @@ def main(argv=None):
         return 0
     if args.output is None or args.emit_release_evidence and args.candidate_dir is None:
         parser.error("Provide --output and include --candidate-dir when emitting release evidence")
+    if args.emit_release_evidence and args.suite != "contracts":
+        parser.error("Only the contract suite emits RG-03 evidence")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     manifest = {
         "schema_version": 1,
+        "suite": args.suite,
         "profile": profile,
         "python": platform.python_version(),
         "platform": platform.system(),
@@ -307,27 +440,60 @@ def main(argv=None):
             candidate = args.candidate_dir.resolve()
             version, hashes = checked_candidate(candidate)
             manifest["distributions"] = hashes
-        with open_broker(broker, profile, proxy, output) as service:
+        faults = args.suite == "faults"
+        if faults:
+            manifest["candidate"] = {
+                "sha": os.environ.get("GITHUB_SHA"),
+                "run_id": os.environ.get("GITHUB_RUN_ID"),
+                "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+            }
+        with open_broker(broker, profile, proxy, output, faults=faults) as service:
             manifest["service"] = service.metadata
             manifest["platform_manifest"] = check_image(profile, service.metadata)
             if broker == "kafka":
                 manifest["proxy_manifest"] = check_image(proxy, service.metadata["toxiproxy"])
-            reports = run_contracts(broker, profile, service.env, output, manifest)
+            if faults:
+                manifest["faults"] = {}
+                run_faults(broker, {**service.env, "EVENT_OBSERVER_FAULTS": broker}, output, manifest)
+            else:
+                reports = run_contracts(broker, profile, service.env, output, manifest)
+        if faults and broker == "kafka":
+            auth_output = output / "authentication"
+            auth_output.mkdir()
+            with open_broker(broker, profile, proxy, auth_output, secure=True) as service:
+                manifest["authentication_service"] = service.metadata
+                check_image(profile, service.metadata)
+                check_image(proxy, service.metadata["toxiproxy"])
+                manifest["faults"]["auth"] = fault_report(
+                    broker,
+                    "auth",
+                    ["tests/integration/test_kafka_auth_faults.py"],
+                    service.env,
+                    auth_output,
+                )
         if args.candidate_dir is not None:
             require(
                 checked_candidate(candidate) == (version, hashes), "Candidate changed during broker tests"
             )
         manifest["successful"] = True
-        write_json(output / "manifest.json", manifest)
         if args.emit_release_evidence:
+            write_json(output / "manifest.json", manifest)
             publish_evidence(output, reports, manifest, version, hashes)
     except (Exception, KeyboardInterrupt) as error:
         manifest["successful"] = False
         manifest["error"] = str(error) if isinstance(error, GateError) else type(error).__name__
-        write_json(output / "manifest.json", manifest)
         print(f"Broker profile {profile['id']} failed: {manifest['error']}", file=sys.stderr)
         return 1
-    print(f"Broker profile {profile['id']} passed: {json.dumps(manifest['contracts'])}")
+    finally:
+        if args.suite == "faults":
+            manifest["reports"] = {
+                path.relative_to(output).as_posix(): digest(path)
+                for path in sorted((*output.glob("*.xml"), *output.glob("authentication/*.xml")))
+            }
+            if (output / "xdist-ready.json").is_file():
+                manifest["xdist_ready_sha256"] = digest(output / "xdist-ready.json")
+        write_json(output / "manifest.json", manifest)
+    print(f"Broker profile {profile['id']} {args.suite} passed: {json.dumps(manifest[args.suite])}")
     return 0
 
 

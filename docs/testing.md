@@ -253,3 +253,34 @@ image, architecture, broker version, dependency versions, and contract counts.
 The CI job emits RG-03 evidence with the current source SHA, run, attempt, and
 wheel/sdist hashes. Local results and remaining fault and benchmark work are
 tracked in the project status. [Status](status.md)
+
+### Owned broker faults and process lifecycle
+
+Run the fault suite on a supported POSIX Docker host. It starts fresh private
+containers with the same pinned images and exact current or minimum
+dependencies as the contract suite.
+
+```sh
+uv run --locked --all-groups --all-extras python -m tools.run_broker_contracts \
+  --profile kafka-3.9.2 --suite faults --output artifacts/broker-faults/kafka-local
+```
+
+The suite creates its own endpoints, sources, and credentials. Restart and
+pause operations verify the Docker container's full ID, ownership label, and
+broker profile. The independent publisher waits for two separate pytest-xdist
+processes to report READY on the same source before publishing. The fixture
+captures Python task and thread counts and samples native threads and open
+sockets through `/proc` on Linux.
+
+The broker matrix runs both suites against the same installed wheel and uploads
+the fault JUnit, manifests, readiness proof, and bounded logs separately from
+RG-03 evidence. Fault cases must match the exact registered results in each
+profile. The fault runner rejects skips and treats runtime and unraisable
+warnings as errors. [Fault inventory](../tools/broker_fault_cases.json) · [Workflow](../.github/workflows/ci.yml)
+
+The broker-free unit suite and installed compatibility matrix include the Core
+process lifecycle cases. Run them alone with
+`uv run --locked pytest tests/test_process_lifecycle.py -n 2`. POSIX sends
+`SIGINT` to the child. Windows sends a console Ctrl+C event to the child's
+private console. Tests of a deliberately blocked async loop contain it in a
+child that can be terminated after observing the hang.
