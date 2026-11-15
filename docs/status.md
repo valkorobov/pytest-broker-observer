@@ -131,12 +131,32 @@ the same installed wheel. Kafka 3.9.2 used confluent-kafka 2.16.1. Kafka 3.8.1
 used the exact Python 3.14 minimum, 2.12.1. The unit suite passed 1,077 cases
 with 89.03% combined statement and branch coverage. Local manifests, JUnit,
 and Allure results are under `artifacts/broker-contracts/actions-43739791962-fixes/`.
-GitHub-hosted Linux x64 verification of the AdminClient correction is pending.
 
 The release audit for this run was invalid because a required producer job
 failed. It reported `ready: false`. The diagnostics and audit are retained
 locally under `artifacts/broker-contracts/actions-43739791962-attempt-1/`.
 [Release audit](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43739791962/job/132892692162)
+
+### Hosted verification of stage 3
+
+On November 15, 2026, both Kafka CI paths passed for
+`a89b5078621adbd7122a983e2cfe2d00acac9842`, including Compose Allure examples.
+All six isolated broker profiles passed on Linux amd64 with CPython 3.14.10.
+The 12 sync and async contract reports recorded 152 passes and 28 registered
+capability exclusions. Four additional Toxiproxy checks passed, two on each
+Kafka version. [CI run 43742126666](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43742126666)
+
+The gate audit confirmed all 12 RG-03 profiles for this commit and the first
+workflow attempt. A local replay of the downloaded evidence produced a
+byte-identical audit report. The wheel and sdist checksums matched the
+packaging artifact and all broker manifests. Stage 3 verification is complete
+for this candidate. The audit reported `ready: false`, with 77 profiles still
+open across 14 gates. The overall workflow failed the Windows compatibility
+cell described below. [Release audit](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43742126666/job/132899893870)
+
+The downloaded broker manifests, JUnit reports, release audit, and Windows
+first-failure artifact are under
+`artifacts/broker-contracts/actions-43742126666-attempt-1/`.
 
 ## Python, platform, and dependency compatibility (plan stage 2)
 
@@ -212,6 +232,32 @@ The push workflow completed successfully. Its `release-gates-report` recorded
 `ready: false` with 89 outstanding profiles across 15 gates. Stage 2 matrix
 verification is complete. Registering the mandatory cases and producing the
 release evidence still belong to stage 7.
+
+#### Windows reporting test follow-up
+
+The first attempt for `a89b507` passed 23 of 24 compatibility cells. Windows x64
+with CPython 3.11.9 and current dependencies passed the serial unit run.
+In the two-worker run, 1,076 tests passed and the scope exclusion reporting
+test recorded zero excluded events where it expected one. The test started a
+10 ms deadline immediately after FakeTransport queued a publication, so
+admission could occur after the deadline.
+[Windows job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43742126666/job/132897547284)
+
+The scope exclusion, redacted mismatch, and partial count reporting tests now
+wait for the expected events to reach the Journal before starting their
+10 ms timeout checks. An injected 50 ms delivery delay reproduced the missing
+diagnostics in all five affected test variants on macOS arm64. With the
+admission checks, all five passed under the same delay. The full local
+two-worker unit run passed 1,077 cases with CPython 3.14.7. The first failure
+and controlled replay remain available under the run artifacts and
+`artifacts/compatibility/actions-43742126666-test-fix/reporting-delay/`.
+
+The complete current-dependency check on macOS arm64 with CPython 3.11.16
+passed with the downloaded wheel and sdist from the hosted run and the
+corrected tests. Its 18 JUnit reports contain 2,265 passing case executions,
+including both runs of the 1,077 unit tests. The results are under
+`artifacts/compatibility/actions-43742126666-test-fix/macos-arm64-cpython-3.11-current/`.
+The correction still needs a hosted Windows run.
 
 ## License, identity, and traceability (plan stage 1)
 
@@ -646,8 +692,8 @@ remains incomplete.
 
 - Recheck the observed pending publisher, name status, and deployment protections
   before final publication; configuration can change independently of the code.
-- Register the successful compatibility checks as release evidence and verify
-  the new isolated broker matrix on GitHub-hosted Linux x64.
+- Verify the Windows Python 3.11 current test correction on GitHub-hosted
+  Windows x64 and register the compatibility checks as release evidence.
 - Full fault suites: ACL/auth in a real environment, advertised endpoints
   through Toxiproxy, broker restart, retention, topic recreation, and compaction.
 - Cover remaining broker-specific fault and capability scenarios with

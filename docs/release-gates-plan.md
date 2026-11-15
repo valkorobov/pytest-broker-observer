@@ -164,12 +164,11 @@ results for the release candidate. [Verification record](status.md#github-action
 **Done when:** all applicable real contracts pass on the required profiles,
 resource ownership/cleanup is proved, and network-fault routing is demonstrated.
 
-All six profiles passed locally on Docker Linux arm64. CI produces
-candidate-bound RG-03 evidence from the same packaged wheel. The first hosted
-Linux x64 run failed the minimum RabbitMQ profile. The follow-up passed that
-profile and exposed a Kafka 3.9.2 leader lookup timeout during startup.
-A successful hosted run and subsequent release verification remain required.
-[Stage 3 results](status.md#isolated-real-broker-contracts-plan-stage-3)
+All six profiles passed locally on Docker Linux arm64 and on GitHub-hosted
+Linux x64 for `a89b507`. The hosted audit verified all 12 packaged-wheel
+RG-03 profiles, and both Kafka versions passed the Toxiproxy routing checks.
+Stage 3 is complete. Stage 7 will regenerate evidence for the release
+candidate. [Stage 3 results](status.md#hosted-verification-of-stage-3)
 
 ## Stage 4 — real failures, process interruptions, and leak checks
 
@@ -187,8 +186,8 @@ A successful hosted run and subsequent release verification remain required.
   Implement actual platform-specific signal handling; do not label forced Windows
   termination as graceful Ctrl-C cleanup.
 - [ ] Record live threads/tasks/native handles over repeated normal/fault lifecycles.
-  Investigate the recorded Kafka isolation startup and partition-leader failures;
-  preserve first failure and diagnostic reruns as separate evidence.
+  Retain coverage of Kafka isolation startup and partition-leader resolution.
+  Preserve first failure and diagnostic reruns as separate evidence.
 
 **Done when:** required faults and lifecycle scenarios pass with finite budgets,
 expected failures are explicit, normal paths release resources, and no unresolved

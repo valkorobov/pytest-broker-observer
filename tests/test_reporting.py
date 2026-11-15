@@ -178,6 +178,8 @@ async def test_scope_timeout_reports_exclusion_without_repeating_predicate():
     async with EventObserver(transport=adapter, reporters=[reporter]).watch(source="events") as watcher:
         scope = watcher.scope(lambda value: predicate_calls.append(value) or value == b"wanted")
         adapter.publish(b"other")
+        # Acknowledge admission before starting the short scope timeout.
+        assert await watcher.wait_for(lambda _: True, timeout=1) == b"other"
         with pytest.raises(EventTimeoutError) as caught:
             await scope.wait_for(lambda _: True, timeout=0.01)
         summary = caught.value.diagnostics.expectations[-1]
@@ -210,6 +212,7 @@ def test_opted_in_runtime_disclosure_preserves_canonical_payload(sync):
     async def async_case():
         async with EventObserver(**configuration).watch(source="events", decoder=JsonDecoder()) as watcher:
             adapter.publish(b"wire")
+            await watcher.wait_for(lambda _: True, timeout=1)
             with pytest.raises(EventTimeoutError):
                 await watcher.wait_for(lambda _: False, timeout=0.01)
             assert await watcher.wait_for(lambda value: value["secret"] == "SECRET_PAYLOAD", timeout=1)
@@ -218,13 +221,15 @@ def test_opted_in_runtime_disclosure_preserves_canonical_payload(sync):
     def sync_case():
         with SyncEventObserver(**configuration).watch(source="events", decoder=JsonDecoder()) as watcher:
             adapter.publish(b"wire")
+            watcher.wait_for(lambda _: True, timeout=1)
             with pytest.raises(EventTimeoutError):
                 watcher.wait_for(lambda _: False, timeout=0.01)
             assert watcher.wait_for(lambda value: value["secret"] == "SECRET_PAYLOAD", timeout=1)
             return watcher.diagnostics.snapshot()
 
     snapshot = sync_case() if sync else asyncio.run(async_case())
-    sample = snapshot.expectations[0].samples[0]
+    timeout_summary = next(summary for summary in snapshot.expectations if summary.outcome == "timeout")
+    sample = timeout_summary.samples[0]
     assert sample["content"]["payload"] == {"id": "42"}
     assert "SECRET" not in json.dumps([report for _, report in reporter.calls])
 
@@ -350,6 +355,8 @@ def test_count_timeout_reports_partial_matched_payloads(sync):
         async with EventObserver(**configuration).watch(source="events") as watcher:
             adapter.publish(b"first")
             adapter.publish(b"second")
+            await watcher.wait_for_count(lambda _: True, 2, timeout=1)
+            reporter.reports.clear()
             with pytest.raises(EventTimeoutError) as caught:
                 await watcher.wait_for_count(lambda _: True, 3, timeout=0.01)
             return caught.value
@@ -358,6 +365,8 @@ def test_count_timeout_reports_partial_matched_payloads(sync):
         with SyncEventObserver(**configuration).watch(source="events") as watcher:
             adapter.publish(b"first")
             adapter.publish(b"second")
+            watcher.wait_for_count(lambda _: True, 2, timeout=1)
+            reporter.reports.clear()
             with pytest.raises(EventTimeoutError) as caught:
                 watcher.wait_for_count(lambda _: True, 3, timeout=0.01)
             return caught.value
