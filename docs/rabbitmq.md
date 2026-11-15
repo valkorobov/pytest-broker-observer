@@ -77,8 +77,11 @@ The observer consumes its own queue, so it does not compete with your
 application's consumers for their queue's messages. Each independent watcher
 has its own queue and can observe a separate copy of the same publication.
 Entering `watch()` waits for that watcher's queue, bindings, and consumer to
-be ready. Publish only after entering the context. Closing the watcher releases
-its owned queue; startup or terminal failures also close the owned resources.
+be ready. Publish only after entering the context. On a healthy close, the
+watcher waits for RabbitMQ to confirm deletion of its owned queue and bindings
+before closing the connection. This lets other watchers on the same exchange
+keep receiving publications after that close. Startup and terminal failures
+also close the owned resources.
 The observer does not delete the source exchange or application queues.
 The runtime verifies the exchange exists; it does not declare or reconfigure
 an operator-owned exchange.

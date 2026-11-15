@@ -5,6 +5,15 @@
 The first MVP based on [SPEC.md](SPEC.md), with distribution name
 `pytest-broker-observer` and import namespace `event_observer`.
 
+Fixed:
+
+- Kafka's test harness waits for the acknowledged topic to appear with a leader
+  for every partition before returning the source. Propagation and creation share
+  one deadline.
+- Healthy RabbitMQ readers await deletion of their exclusive queue before
+  closing the connection. Subsequent publications to the exchange can reach
+  surviving readers without routing through an obsolete queue binding.
+
 Added:
 
 - An isolated Testcontainers matrix for two digest-pinned versions of Kafka,

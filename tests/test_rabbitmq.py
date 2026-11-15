@@ -76,7 +76,6 @@ class Queue:
         self.bindings = []
         self.callback = None
         self.consume_args = None
-        self.cancel_calls = 0
 
     async def bind(self, exchange, *, routing_key, timeout):
         self.channel.native.events.append("bind")
@@ -98,11 +97,19 @@ class Queue:
         return tag
 
     async def cancel(self, tag):
-        self.cancel_calls += 1
         self.channel.native.events.append("cancel")
         if self.channel.native.cancel_gate is not None:
             await self.channel.native.cancel_gate.wait()
         self.channel.underlay.consumers.pop(tag, None)
+
+    async def delete(self, *, if_unused, if_empty):
+        self.channel.native.events.append("delete")
+        assert if_unused is False and if_empty is False
+        if self.channel.native.delete_gate is not None:
+            await self.channel.native.delete_gate.wait()
+        if self.channel.native.delete_error is not None:
+            raise self.channel.native.delete_error
+        self.channel.underlay.consumers.clear()
 
 
 class Channel:
@@ -179,6 +186,8 @@ class Native:
         self.consume_started = asyncio.Event()
         self.consume_gate = None
         self.cancel_gate = None
+        self.delete_gate = None
+        self.delete_error = None
         self.close_gate = None
         self.cancel_during_start = False
 
@@ -437,6 +446,7 @@ async def test_broker_cancel_before_consume_ok_cannot_publish_ready(monkeypatch)
     with pytest.raises(TransportReadinessError):
         await open_session(adapter(monkeypatch, native))
     assert native.connections[0].is_closed
+    assert native.events[-3:] == ["cancel", "channel_close", "connection_close"]
 
 
 @pytest.mark.parametrize(
@@ -460,13 +470,14 @@ async def test_native_errors_are_typed_sanitized_and_chained(monkeypatch, native
 
 
 @pytest.mark.asyncio
-async def test_close_is_idempotent_and_does_not_ack_unsettled_deliveries(monkeypatch):
+async def test_close_deletes_owned_queue_before_channel_and_connection_and_never_acks(monkeypatch):
     native = Native()
     session = await open_session(adapter(monkeypatch, native))
     message = Message()
     await native.deliver(message)
     await asyncio.gather(*(session.close(deadline=time.monotonic() + 1) for _ in range(3)))
     assert native.connections[0].close_calls == 1
+    assert native.events[-3:] == ["delete", "channel_close", "connection_close"]
     assert not message.acks and not session._pending
     assert await session.wait_failure() is None
     with pytest.raises(StopAsyncIteration):
@@ -478,8 +489,32 @@ async def test_stalled_cancel_does_not_prevent_connection_cleanup(monkeypatch):
     native = Native()
     native.cancel_gate = asyncio.Event()
     session = await open_session(adapter(monkeypatch, native))
+    native.queue.channel.underlay.consumers.clear()
+    assert isinstance(await asyncio.wait_for(session.wait_failure(), 1), TransportSubscriptionError)
     await asyncio.wait_for(session.close(deadline=time.monotonic() + 0.1), 1)
     assert native.connections[0].is_closed
+    assert native.events[-3:] == ["cancel", "channel_close", "connection_close"]
+
+
+@pytest.mark.parametrize("stalled", [False, True])
+@pytest.mark.asyncio
+async def test_unconfirmed_queue_deletion_is_explicit_and_still_closes_connection(monkeypatch, stalled):
+    native = Native()
+    if stalled:
+        native.delete_gate = asyncio.Event()
+    else:
+        native.delete_error = RuntimeError("SECRET")
+    session = await open_session(adapter(monkeypatch, native))
+    expected = ObserverCleanupTimeoutError if stalled else ObserverCleanupError
+    with pytest.raises(expected, match="RabbitMQ queue deletion") as caught:
+        await session.close(deadline=time.monotonic() + 0.1)
+    error = caught.value
+    assert "SECRET" not in str(error)
+    assert error.cause is error.__cause__
+    assert isinstance(error.cause, TimeoutError) if stalled else error.cause is native.delete_error
+    assert native.connections[0].is_closed
+    assert native.events[-3:] == ["delete", "channel_close", "connection_close"]
+    assert isinstance(await session.wait_failure(), TransportInterruptedError)
 
 
 @pytest.mark.parametrize("stalled", [False, True])

@@ -27,8 +27,11 @@ def client(monkeypatch):
         publications=[],
         native_threads=[],
         future_timeouts=[],
+        metadata_timeouts=[],
+        metadata_steps=[],
         flush_timeouts=[],
         create_error=None,
+        create_callback=None,
         delete_error=None,
         delete_errors={},
         producer_error=None,
@@ -42,6 +45,7 @@ def client(monkeypatch):
 
     class NativeError:
         UNKNOWN_TOPIC_OR_PART = 3
+        LEADER_NOT_AVAILABLE = 5
 
         def __init__(self, code):
             self._code = code
@@ -75,7 +79,27 @@ def client(monkeypatch):
             state.created.append((list(topics), options))
             # An acknowledgement can fail after the broker creates the topic.
             state.topics.update(topic.topic for topic in topics)
+            if state.create_callback is not None:
+                state.create_callback()
             return {topic.topic: Future(state.create_error) for topic in topics}
+
+        def list_topics(self, *, timeout):
+            state.native_threads.append(threading.get_ident())
+            state.metadata_timeouts.append(timeout)
+            topics = {
+                topic.topic: SimpleNamespace(
+                    error=None,
+                    partitions={
+                        pid: SimpleNamespace(error=None, leader=1) for pid in range(topic.num_partitions)
+                    },
+                )
+                for specs, _ in state.created
+                for topic in specs
+                if topic.topic in state.topics
+            }
+            if state.metadata_steps:
+                topics = state.metadata_steps.pop(0)(topics)
+            return SimpleNamespace(topics=topics)
 
         def delete_topics(self, topics, **options):
             state.native_threads.append(threading.get_ident())
@@ -130,7 +154,7 @@ def client(monkeypatch):
                     callback(state.delivery_error, delivery)
             return state.pending
 
-    native = SimpleNamespace(Producer=Producer, KafkaError=NativeError)
+    native = SimpleNamespace(Producer=Producer, KafkaError=NativeError, KafkaException=RuntimeError)
     admin = SimpleNamespace(AdminClient=Admin, NewTopic=NewTopic)
     original_import = importlib.import_module
 
@@ -143,6 +167,7 @@ def client(monkeypatch):
         return original_import(name, package)
 
     monkeypatch.setattr("event_observer.testing.kafka.importlib.import_module", import_client)
+    state.native_error = NativeError
     return state
 
 
@@ -194,11 +219,77 @@ async def test_sources_are_unique_valid_owned_topics_with_bounded_admin_requests
         assert specs[0].num_partitions == 2
         assert specs[0].replication_factor == 1
         assert options == {"operation_timeout": 0.25, "request_timeout": 0.25}
-    assert client.future_timeouts == [0.25, 0.25]
+    assert len(client.future_timeouts) == len(client.metadata_timeouts) == 2
+    assert all(0 < timeout <= 0.25 for timeout in client.future_timeouts + client.metadata_timeouts)
     await harness.cleanup()
     assert set(client.deleted) == {first.name, second.name}
     assert not client.topics
     assert set(client.native_threads).isdisjoint({threading.get_ident()})
+
+
+@pytest.mark.asyncio
+async def test_creation_waits_for_metadata_and_every_partition_leader(client, monkeypatch):
+    def unknown_topic(topics):
+        next(iter(topics.values())).error = client.native_error(3)
+        return topics
+
+    def leader_pending(topics):
+        next(iter(topics.values())).partitions[1].leader = -1
+        return topics
+
+    monkeypatch.setattr("event_observer.testing.kafka.sleep", lambda seconds: None)
+    client.metadata_steps = [lambda _: {}, unknown_topic, leader_pending]
+    harness = KafkaAdapterHarness("broker:9092", partitions=2)
+    source = await harness.create_source(case_id="metadata-propagation")
+    assert source.name in client.topics
+    assert len(client.created) == 1
+    assert len(client.metadata_timeouts) == 4
+    assert client.metadata_timeouts == sorted(client.metadata_timeouts, reverse=True)
+    await harness.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_post_creation_metadata_wait_shares_the_creation_deadline(client, monkeypatch):
+    now = 0.0
+
+    def sleep(seconds):
+        nonlocal now
+        now += seconds
+
+    def missing_metadata(_):
+        nonlocal now
+        now += 0.03
+        return {}
+
+    monkeypatch.setattr("event_observer.testing.kafka.monotonic", lambda: now)
+    monkeypatch.setattr("event_observer.testing.kafka.sleep", sleep)
+    client.create_callback = lambda: sleep(0.06)
+    client.metadata_steps = [missing_metadata]
+    harness = KafkaAdapterHarness("broker:9092", timeout=0.1)
+    with pytest.raises(TransportError, match="could not create") as caught:
+        await harness.create_source(case_id="metadata-timeout")
+    assert isinstance(caught.value.__cause__, TimeoutError)
+    assert client.future_timeouts == pytest.approx([0.04])
+    assert client.metadata_timeouts == pytest.approx([0.04])
+    await harness.cleanup()
+    assert not client.topics
+
+
+@pytest.mark.asyncio
+async def test_post_creation_metadata_refuses_nontransient_errors(client):
+    denied = client.native_error(29)
+
+    def denied_metadata(topics):
+        next(iter(topics.values())).error = denied
+        return topics
+
+    client.metadata_steps = [denied_metadata]
+    harness = KafkaAdapterHarness("broker:9092")
+    with pytest.raises(TransportError, match="could not create") as caught:
+        await harness.create_source(case_id="metadata-denied")
+    assert caught.value.__cause__.args == (denied,)
+    assert len(client.metadata_timeouts) == 1
+    await harness.cleanup()
 
 
 @pytest.mark.parametrize("case_id", ["", None, 42])
@@ -311,7 +402,7 @@ async def test_partially_created_topic_remains_owned_when_creation_confirmation_
     assert "SECRET" not in str(caught.value)
     created = client.created[0][0][0].topic
     assert created in client.topics
-    assert client.future_timeouts == [0.25]
+    assert len(client.future_timeouts) == 1 and 0 < client.future_timeouts[0] <= 0.25
     await harness.cleanup()
     assert client.deleted == [created]
     assert client.topics == {"application.events"}

@@ -492,9 +492,10 @@ class SyncRabbitMQSession:
     def close(self, *, deadline: float) -> None:
         """Close only the owned connection within its absolute deadline, aborting on timeout.
 
-        Closing the connection destroys the exclusive observer queue and performs
-        no exchange deletion or application-queue operation. Pending deliveries
-        are never acknowledged by this cleanup path.
+        A healthy session waits for deletion of its exclusive observer queue
+        before closing the connection. Closing the owned connection also covers
+        startup rollback and terminal failure. Pending deliveries are never
+        acknowledged by this cleanup path.
 
         :param deadline: Absolute cleanup deadline in the shared actor clock domain.
         :returns: None after native resources are released; repeated successful close is harmless.
@@ -507,6 +508,14 @@ class SyncRabbitMQSession:
         self._closing = True
         try:
             if self._connection is not None and not self._connection.is_closed:
+                if (
+                    self._readiness is not None
+                    and self._error is None
+                    and self._channel is not None
+                    and not self._channel.is_closed
+                ):
+                    # Automatic deletion can leave bindings routable after the queue stops.
+                    self._bounded_call(lambda: self._channel.queue_delete(queue=self._queue), deadline)
                 self._bounded_call(self._connection.close, deadline)
         except TimeoutError as error:
             self._abort(error)

@@ -251,7 +251,9 @@ def test_acknowledged_cancellation_releases_the_runtime_for_next_command():
         with pytest.raises(SyncRuntimeUnresponsiveError, match="exceeded its control budget"):
             runtime.call(Pending)
         assert cancelled.is_set()
-        assert runtime.call(lambda: "recovered") == "recovered"
+        # The short budget triggers cancellation above. Recovery only needs to
+        # finish, so allow time for the worker to be scheduled again.
+        assert runtime.call(lambda: "recovered", budget=2) == "recovered"
     finally:
         runtime.stop()
 

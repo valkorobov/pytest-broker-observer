@@ -578,8 +578,8 @@ class RabbitMQSession:
 
         :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
         :returns: None after owned subscription resources close.
-        :raises ObserverCleanupError: If native connection cleanup fails.
-        :raises ObserverCleanupTimeoutError: If the connection cannot close within deadline.
+        :raises ObserverCleanupError: If owned queue deletion or connection cleanup fails.
+        :raises ObserverCleanupTimeoutError: If queue deletion or connection cleanup exceeds its budget.
         """
         if self._close_task is None:
             self._closing = True
@@ -590,25 +590,31 @@ class RabbitMQSession:
         await asyncio.shield(self._close_task)
 
     async def _cleanup(self, deadline: float) -> None:
-        """Cancel owned monitoring and close the queue channel and connection within budget.
+        """Cancel monitoring and release the owned queue, channel, and connection within budget.
 
         :param deadline: Absolute cleanup deadline in the runtime monotonic clock domain.
         :returns: None after successful cleanup; source exchanges and application queues are untouched.
-        :raises ObserverCleanupError: If connection cleanup fails.
-        :raises ObserverCleanupTimeoutError: If the final connection-close budget expires.
+        :raises ObserverCleanupError: If confirmed queue deletion or connection cleanup fails.
+        :raises ObserverCleanupTimeoutError: If queue deletion or connection cleanup exceeds its budget.
         """
         if self._monitor is not None:
             self._monitor.cancel()
             await asyncio.gather(self._monitor, return_exceptions=True)
         try:
-            # Reserve time for closing the connection even if cancel/channel
-            # RPCs fail or stall. Closing it destroys the exclusive queue.
+            queue_delete_error: Exception | None = None
+            # Reserve time for connection close even if queue or channel RPCs stall.
             if self._consumer_started and self._queue is not None and not self._channel.is_closed:
+                delete_queue = self._readiness is not None and self._error is None
                 try:
                     async with asyncio.timeout(self._remaining(deadline) / 3):
-                        await self._queue.cancel(self._consumer_tag)
-                except Exception:
-                    pass
+                        if delete_queue:
+                            # Automatic deletion can leave bindings routable after the queue stops.
+                            await self._queue.delete(if_unused=False, if_empty=False)
+                        else:
+                            await self._queue.cancel(self._consumer_tag)
+                except Exception as error:
+                    if delete_queue:
+                        queue_delete_error = error
             if self._channel is not None and not self._channel.is_closed:
                 try:
                     async with asyncio.timeout(self._remaining(deadline) / 2):
@@ -625,6 +631,14 @@ class RabbitMQSession:
                     ) from error
                 except Exception as error:
                     raise ObserverCleanupError("RabbitMQ connection cleanup failed") from error
+            if isinstance(queue_delete_error, TimeoutError):
+                raise ObserverCleanupTimeoutError(
+                    "RabbitMQ queue deletion deadline expired", cause=queue_delete_error
+                ) from queue_delete_error
+            if queue_delete_error is not None:
+                raise ObserverCleanupError("RabbitMQ queue deletion failed", cause=queue_delete_error) from (
+                    queue_delete_error
+                )
             self._closed = True
         except BaseException as error:
             if not self._failure.done():

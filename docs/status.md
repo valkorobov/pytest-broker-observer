@@ -61,10 +61,42 @@ inventory lists every case and the allowed capability exclusions. The jobs
 install the same-run wheel and attach the checksummed JUnit and image manifests
 to release-gate evidence. A local schema rehearsal replayed the real JUnit with
 synthetic CI identity and confirmed the validator accepted all 12 RG-03 inputs
-and blocked publication on the other 77 profiles. The first GitHub Actions run
-with this producer is pending. The remaining fault, reporting, and resource
-gates stay open.
+and blocked publication on the other 77 profiles. The remaining fault, reporting,
+and resource gates stay open.
 [CI workflow](../.github/workflows/ci.yml) · [Gate inventory](release-gates.json)
+
+### First hosted broker matrix run
+
+The November 15, 2026 push run for `7e918139e61f5713767666cb6593b9e9caff20c8`
+passed five of six isolated broker profiles and 23 of 24 compatibility cells.
+The failed aggregate broker job result also blocked the release audit. The
+original artifacts and logs record the first failures. [CI run 43737443845](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43737443845)
+
+- The Compose Kafka job failed before the async Protobuf observer became ready.
+  An acknowledged test topic returned `UNKNOWN_TOPIC_OR_PARTITION` during the
+  initial metadata lookup. The harness now waits for all partition leaders and
+  valid metadata within the creation deadline. The local Kafka 3.9.2 replay
+  passed 39 tests and two separate Toxiproxy tests. All 30 contracts and both
+  proxy tests also passed on Kafka 3.8.1 with the minimum profile and rebuilt
+  wheel. [Kafka job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43737443845/job/132883057602) · [Kafka Admin API](https://kafka.apache.org/39/javadoc/org/apache/kafka/clients/admin/KafkaAdminClient.html#createTopics(java.util.Collection,org.apache.kafka.clients.admin.CreateTopicsOptions))
+- The RabbitMQ 4.3.7 blocking isolation case received a publisher `Basic.Nack`
+  immediately after closing one of two independent readers. RabbitMQ can remove
+  queue bindings asynchronously on automatic deletion. Both healthy reader
+  paths now wait for `Queue.DeleteOk` on their own queue before disconnecting.
+  The original `Basic.Nack` did not recur in local unfixed stress attempts. The
+  corrected minimum profile passed 11 async and 11 blocking cases on both the
+  native arm64 image and the pinned amd64 image under Docker emulation. Each mode
+  recorded four declared capability exclusions. [RabbitMQ job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43737443845/job/132883184913) · [RabbitMQ queue deletion implementation](https://github.com/rabbitmq/rabbitmq-server/blob/v4.3.7/deps/rabbit/src/rabbit_amqqueue_process.erl#L350-L421)
+- The minimum macOS Python 3.11 cell missed the 50 ms scheduling budget for the
+  follow-up command in the sync cancellation test. The intentional cancellation
+  still uses 50 ms and the recovery assertion now has its own 2 s budget.
+  The complete minimum macOS arm64 cell passed on Python 3.11.16 with the rebuilt
+  wheel and sdist. Its 18 JUnit reports contain 2,263 passing case executions.
+  [macOS job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43737443845/job/132883185106)
+
+The local unit suite passed 1,076 cases with 89.05% combined statement and branch
+coverage. The two-worker run also passed all 1,076 cases. A new hosted run for
+these corrections remains pending.
 
 ## Python, platform, and dependency compatibility (plan stage 2)
 

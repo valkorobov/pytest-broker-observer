@@ -12,6 +12,7 @@ import asyncio
 import importlib
 import math
 import re
+from time import monotonic, sleep
 from typing import Any
 from uuid import uuid4
 
@@ -102,9 +103,9 @@ class KafkaAdapterHarness:
         """Register and create a unique topic through the independent admin path.
 
         :param case_id: Nonempty test label used in a unique owned source name.
-        :returns: A source naming the successfully created owned topic.
+        :returns: An owned topic visible in metadata with leaders for every partition.
         :raises ConfigurationError: If case_id is invalid or cleanup already ran.
-        :raises TransportError: If the broker does not confirm topic creation.
+        :raises TransportError: If creation or metadata readiness fails within the operation budget.
         """
         self._ensure_open()
         if not isinstance(case_id, str) or not case_id:
@@ -120,19 +121,55 @@ class KafkaAdapterHarness:
         """Create one registered test topic using bounded native admin requests.
 
         :param topic: Unique topic name already registered as owned by this harness.
-        :returns: None after the broker confirms creation.
-        :raises TransportError: If topic creation fails or times out.
+        :returns: None after the broker confirms creation and reports ready partition metadata.
+        :raises TransportError: If the admin request or metadata readiness fails.
         """
         self._clients()
+        deadline = monotonic() + self._timeout
         try:
             futures = self._admin.create_topics(
                 [self._admin_module.NewTopic(topic, num_partitions=self._partitions, replication_factor=1)],
                 operation_timeout=self._timeout,
                 request_timeout=self._timeout,
             )
-            futures[topic].result(timeout=self._timeout)
+            futures[topic].result(timeout=max(0.0, deadline - monotonic()))
+            self._wait_for_topic_metadata(topic, deadline)
         except Exception as exc:
             raise TransportError("Kafka harness could not create its test source") from exc
+
+    def _wait_for_topic_metadata(self, name: str, deadline: float) -> None:
+        """Wait for Kafka to expose the new topic after acknowledging CreateTopics.
+
+        :param name: Unique topic already acknowledged by the controller.
+        :param deadline: Monotonic deadline shared with the create request.
+        :returns: None when all requested partitions have leaders and error-free metadata.
+        :raises TimeoutError: If topic propagation exceeds the shared deadline.
+        :raises confluent_kafka.KafkaException: If metadata reports an unrelated native error.
+        """
+        transient = {
+            self._native.KafkaError.UNKNOWN_TOPIC_OR_PART,
+            self._native.KafkaError.LEADER_NOT_AVAILABLE,
+        }
+        expected = set(range(self._partitions))
+        while (remaining := deadline - monotonic()) > 0:
+            # Omitting the topic filter prevents a metadata request from auto-creating it.
+            topic = self._admin.list_topics(timeout=remaining).topics.get(name)
+            if topic is not None:
+                partitions = topic.partitions
+                errors = [p.error for p in partitions.values() if p.error is not None]
+                if topic.error is not None:
+                    errors.append(topic.error)
+                for error in errors:
+                    if error.code() not in transient:
+                        raise self._native.KafkaException(error)
+                if (
+                    not errors
+                    and partitions.keys() == expected
+                    and all(p.leader >= 0 for p in partitions.values())
+                ):
+                    return
+            sleep(min(0.05, max(0.0, deadline - monotonic())))
+        raise TimeoutError("Kafka harness topic metadata did not become ready")
 
     async def publish(
         self,

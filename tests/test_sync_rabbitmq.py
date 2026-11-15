@@ -114,6 +114,10 @@ class NativeChannel:
     def queue_bind(self, **kwargs):
         self.connection.native.step("bind:" + kwargs["routing_key"], **kwargs)
 
+    def queue_delete(self, **kwargs):
+        self.connection.native.step("delete", **kwargs)
+        self.cancel_callback(SimpleNamespace(method=SimpleNamespace(consumer_tag=self.consumer_tag)))
+
     def add_on_cancel_callback(self, callback):
         self.cancel_callback = callback
 
@@ -296,6 +300,7 @@ def test_bad_consume_tag_never_becomes_ready_and_rolls_back(native):
     with pytest.raises(TransportReadinessError):
         open_session(native)
     assert native.connections[0].is_closed
+    assert "delete" not in [name for name, _, _ in native.calls]
 
 
 @pytest.mark.parametrize(
@@ -492,7 +497,7 @@ def test_native_session_rejects_foreign_thread_and_process(native, monkeypatch):
         close_session(session)
 
 
-def test_close_is_idempotent_and_does_not_ack_unsettled_deliveries(native):
+def test_close_deletes_only_owned_queue_before_connection_and_never_acks(native):
     session = open_session(native)
     native.deliver()
     assert session.poll(0) is not None
@@ -500,16 +505,17 @@ def test_close_is_idempotent_and_does_not_ack_unsettled_deliveries(native):
     close_session(session)
     assert session.poll(0) is None
     assert session.failure() is None
-    assert [name for name, _, _ in native.calls].count("close") == 1
+    cleanup_calls = [(name, kwargs) for name, kwargs, _ in native.calls if name in {"delete", "close"}]
+    assert cleanup_calls == [("delete", {"queue": native.queue_name}), ("close", {})]
     assert not native.connections[0].channel_object.acks
 
 
-@pytest.mark.parametrize("expired_before_call", [False, True])
-def test_cleanup_deadline_aborts_only_owned_connection_and_is_explicit(native, expired_before_call):
+@pytest.mark.parametrize("expires_at", ["before_call", "delete", "close"])
+def test_cleanup_deadline_aborts_only_owned_connection_and_is_explicit(native, expires_at):
     session = open_session(native)
-    native.expire_at = "close"
+    native.expire_at = expires_at
     with pytest.raises(ObserverCleanupTimeoutError) as caught:
-        session.close(deadline=time.monotonic() - 1 if expired_before_call else time.monotonic() + 1)
+        session.close(deadline=time.monotonic() + (-1 if expires_at == "before_call" else 1))
     assert isinstance(caught.value.cause, TimeoutError)
     assert len(native.aborts) == 1
     assert native.connections[0].is_closed
@@ -517,9 +523,10 @@ def test_cleanup_deadline_aborts_only_owned_connection_and_is_explicit(native, e
     close_session(session)
 
 
-def test_cleanup_failure_aborts_resources_and_preserves_native_cause(native):
+@pytest.mark.parametrize("fails_at", ["delete", "close"])
+def test_cleanup_failure_aborts_resources_and_preserves_native_cause(native, fails_at):
     session = open_session(native)
-    native.fail_at = "close"
+    native.fail_at = fails_at
     with pytest.raises(ObserverCleanupError) as caught:
         close_session(session)
     assert caught.value.cause is caught.value.__cause__ is native.error

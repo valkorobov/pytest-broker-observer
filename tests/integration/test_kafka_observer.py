@@ -23,8 +23,8 @@ pytestmark = [
 @pytest.fixture
 def real_source():
     harness = KafkaAdapterHarness(os.environ["KAFKA_BOOTSTRAP_SERVERS"])
-    source = asyncio.run(harness.create_source(case_id="protobuf-runtime"))
     try:
+        source = asyncio.run(harness.create_source(case_id="protobuf-runtime"))
         yield harness, source
     finally:
         asyncio.run(harness.cleanup())

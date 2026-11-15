@@ -4746,7 +4746,7 @@
           "expected": "Repeated close is idempotent and does not double-release/acknowledge resources."
         },
         {
-          "selector": "tests/test_sync_rabbitmq.py::test_close_is_idempotent_and_does_not_ack_unsettled_deliveries",
+          "selector": "tests/test_sync_rabbitmq.py::test_close_deletes_only_owned_queue_before_connection_and_never_acks",
           "kind": "native-double",
           "modes": [
             "sync"
@@ -4759,7 +4759,7 @@
           "expected": "Repeated close is idempotent and does not double-release/acknowledge resources."
         },
         {
-          "selector": "tests/test_rabbitmq.py::test_close_is_idempotent_and_does_not_ack_unsettled_deliveries",
+          "selector": "tests/test_rabbitmq.py::test_close_deletes_owned_queue_before_channel_and_connection_and_never_acks",
           "kind": "native-double",
           "modes": [
             "async"

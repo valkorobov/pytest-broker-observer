@@ -122,6 +122,8 @@ keys are also checked only when claimed. A missing capability records
 independent observation, and owned-resource cleanup remain mandatory.
 
 The harness creates unique topics and deletes only names it has registered.
+`create_source()` returns after the broker acknowledges creation and its metadata
+reports a leader for every requested partition. Both steps share one deadline.
 A producer receipt means delivery acknowledgement, rather than placement in
 the producer's local queue. Failure to connect to an explicitly specified
 broker is a failure. Without the environment variable, real integration nodes

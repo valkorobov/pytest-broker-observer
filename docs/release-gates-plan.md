@@ -164,9 +164,11 @@ results for the release candidate. [Verification record](status.md#github-action
 **Done when:** all applicable real contracts pass on the required profiles,
 resource ownership/cleanup is proved, and network-fault routing is demonstrated.
 
-All six profiles passed locally on Docker Linux arm64. CI now produces
+All six profiles passed locally on Docker Linux arm64. CI produces
 candidate-bound RG-03 evidence from the same packaged wheel. The first hosted
-Linux x64 run and subsequent release verification remain pending. [Stage 3 results](status.md#isolated-real-broker-contracts-plan-stage-3)
+Linux x64 run passed five profiles and failed the minimum RabbitMQ profile.
+A successful hosted run and subsequent release verification remain required.
+[Stage 3 results](status.md#isolated-real-broker-contracts-plan-stage-3)
 
 ## Stage 4 — real failures, process interruptions, and leak checks
 

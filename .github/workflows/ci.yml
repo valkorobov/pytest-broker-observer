@@ -315,7 +315,12 @@ jobs:
       - run: uv sync --locked --all-groups --all-extras
       - name: Start Kafka
         run: docker compose up --detach --wait --wait-timeout 120
-      - run: uv run pytest -c pyproject.toml tests/integration/test_kafka*.py tests/integration/test_sync_contracts.py examples/pytest/test_kafka.py --ignore=tests/integration/test_kafka_proxy_routing.py -v --junitxml=kafka-results.xml -o junit_family=xunit1
+      - name: Run Kafka contracts and pytest examples
+        run: >-
+          uv run pytest -c pyproject.toml tests/integration/test_kafka.py
+          tests/integration/test_kafka_contracts.py tests/integration/test_kafka_observer.py
+          tests/integration/test_sync_contracts.py examples/pytest/test_kafka.py
+          -v --junitxml=kafka-results.xml -o junit_family=xunit1
       - name: Run Kafka Allure examples
         id: kafka_allure_tests
         run: uv run pytest -c pyproject.toml examples/allure/test_kafka.py -m integration --alluredir=artifacts/allure-kafka-results --clean-alluredir -v

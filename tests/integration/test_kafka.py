@@ -15,6 +15,7 @@ import pytest
 from event_observer.config import TransportBufferLimits
 from event_observer.errors import StartPositionUnavailableError, TopologyChangedError
 from event_observer.models import EpochMilliseconds, OpenContext, StartPosition, TransportSource
+from event_observer.testing.kafka import KafkaAdapterHarness
 from event_observer.transports.kafka import KafkaAdapter, KafkaConfig
 
 
@@ -33,14 +34,12 @@ def broker():
     admin_module = importlib.import_module("confluent_kafka.admin")
     servers = os.environ["KAFKA_BOOTSTRAP_SERVERS"]
     admin = admin_module.AdminClient({"bootstrap.servers": servers})
-    topic = f"event-observer-it-{uuid4().hex}"
-    for future in admin.create_topics(
-        [admin_module.NewTopic(topic, num_partitions=2, replication_factor=1)]
-    ).values():
-        future.result(timeout=20)
-    yield native, admin_module, servers, admin, topic
-    for future in admin.delete_topics([topic]).values():
-        future.result(timeout=20)
+    harness = KafkaAdapterHarness(servers, partitions=2, timeout=20)
+    try:
+        source = asyncio.run(harness.create_source(case_id="broker-contracts"))
+        yield native, admin_module, servers, admin, source.name
+    finally:
+        asyncio.run(harness.cleanup())
 
 
 def make_context():
