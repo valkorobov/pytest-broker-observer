@@ -176,6 +176,8 @@ def test_project_can_override_factory_without_affecting_other_factories(pytester
 
 
 def test_plugin_factories_remain_lazy_without_optional_dependencies(tmp_path):
+    config_file = tmp_path / "pytest.ini"
+    config_file.write_text("[pytest]\n", encoding="utf-8")
     test_file = tmp_path / "test_minimal.py"
     test_file.write_text(
         """
@@ -226,14 +228,14 @@ class RegistrationCheck:
         assert "event_observer.aio" not in sys.modules
         for name in ("kafka", "rabbitmq", "redis_streams", "sync_kafka", "sync_rabbitmq", "sync_redis_streams"):
             assert "event_observer.transports." + name not in sys.modules
-exit_code = pytest.main(["-p", "event_observer", "-c", "/dev/null", sys.argv[1], "-q"],
+exit_code = pytest.main(["-p", "event_observer", "-c", sys.argv[2], sys.argv[1], "-q"],
                         plugins=[RegistrationCheck()])
 assert not any(name == prefix or name.startswith(prefix + ".")
                for prefix in blocked for name in sys.modules)
 raise SystemExit(exit_code)
 """
     completed = subprocess.run(
-        [sys.executable, "-I", "-c", script, str(test_file)],
+        [sys.executable, "-I", "-c", script, str(test_file), str(config_file)],
         cwd=tmp_path,
         env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
         capture_output=True,

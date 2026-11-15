@@ -39,7 +39,7 @@ the same matcher and decoder API. Existing top-level imports stay available.
 
 ## Explicit native runtimes
 
-The `rabbitmq` extra includes `aio-pika>=9.5,<10` for the async path and
+The `rabbitmq` extra includes `aio-pika>=9.5.3,<10` for the async path and
 `pika>=1.4.4,<1.5` for blocking observation. The local environment resolves
 aio-pika 9.6.2 and Pika 1.4.4; candidate dependency minima and the wider
 compatibility matrix still require their separate release checks. The Pika 1.5

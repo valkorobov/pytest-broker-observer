@@ -1,6 +1,7 @@
 """Controlled native-client tests, independent of RabbitMQ and aio-pika installs."""
 
 import asyncio
+from contextlib import aclosing
 import subprocess
 import sys
 import time
@@ -313,20 +314,20 @@ async def test_deliveries_preserve_empty_body_and_flat_headers_without_auto_ack(
     binary_header = bytearray(b"\x80")
     message = Message(b"", headers={"text": "value", "raw": b"\xff", "binary": binary_header, "null": None})
     await native.deliver(message)
-    stream = session.receive()
-    raw = await asyncio.wait_for(anext(stream), 1)
-    assert raw.payload == b"" and raw.key is None and raw.source == "orders"
-    binary_header[0] = 0
-    assert raw.headers == (("text", b"value"), ("raw", b"\xff"), ("binary", b"\x80"), ("null", None))
-    assert raw.metadata == {"rabbitmq.routing_key": "orders.done", "rabbitmq.delivery_tag": 1}
-    assert raw.delivery_id and raw.delivery_id != "1"
-    assert message.acks == []
-    with pytest.raises(TransportSubscriptionError):
-        session.receive()
-    await session.settle(raw.delivery_id, DeliveryOutcome.ADMITTED)
-    assert message.acks == [False]
-    with pytest.raises(TransportSubscriptionError):
+    async with aclosing(session.receive()) as stream:
+        raw = await asyncio.wait_for(anext(stream), 1)
+        assert raw.payload == b"" and raw.key is None and raw.source == "orders"
+        binary_header[0] = 0
+        assert raw.headers == (("text", b"value"), ("raw", b"\xff"), ("binary", b"\x80"), ("null", None))
+        assert raw.metadata == {"rabbitmq.routing_key": "orders.done", "rabbitmq.delivery_tag": 1}
+        assert raw.delivery_id and raw.delivery_id != "1"
+        assert message.acks == []
+        with pytest.raises(TransportSubscriptionError):
+            session.receive()
         await session.settle(raw.delivery_id, DeliveryOutcome.ADMITTED)
+        assert message.acks == [False]
+        with pytest.raises(TransportSubscriptionError):
+            await session.settle(raw.delivery_id, DeliveryOutcome.ADMITTED)
     await session.close(deadline=time.monotonic() + 1)
 
 

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "python_versions": [
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "policy": "Exact direct dependency floors versus uv.lock current pins. Minimum-profile transitive dependencies are resolved and recorded; current-profile transitive dependencies are constrained by uv.lock. No installation failure silently upgrades a direct pin.",
+  "profiles": {
+    "minimum": {
+      "description": "Declared direct lower bounds, including the Python 3.14 Kafka floor.",
+      "pins": {
+        "aio-pika": "9.5.3",
+        "allure-pytest": "2.13.5",
+        "confluent-kafka": "2.6.0",
+        "coverage[toml]": "7.10.6",
+        "pika": "1.4.4",
+        "protobuf": "5.29.0",
+        "pytest": "8.3.0",
+        "pytest-asyncio": "0.25.0",
+        "pytest-cov": "6.0.0",
+        "pytest-xdist": "3.6.0",
+        "redis": "7.1.0",
+        "testcontainers[kafka]": "4.9.0"
+      },
+      "python_overrides": {
+        "3.14": {
+          "confluent-kafka": "2.12.1"
+        }
+      }
+    },
+    "current": {
+      "description": "Exact direct versions and transitive constraints from the checked-in uv.lock.",
+      "pins": {
+        "aio-pika": "9.6.2",
+        "allure-pytest": "2.16.2",
+        "confluent-kafka": "2.16.1",
+        "coverage[toml]": "7.17.0",
+        "pika": "1.4.4",
+        "protobuf": "7.36.2",
+        "pytest": "9.2.0",
+        "pytest-asyncio": "1.4.1.post1",
+        "pytest-cov": "7.1.0",
+        "pytest-xdist": "3.8.0",
+        "redis": "8.1.0",
+        "testcontainers[kafka]": "4.15.0"
+      },
+      "python_overrides": {}
+    }
+  },
+  "floor_evidence": "dependency-floor-evidence.json"
+}

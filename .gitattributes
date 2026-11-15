@@ -1,0 +1,5 @@
+# Preserve the exact source and generated Protobuf bytes recorded in provenance.
+tests/compatibility/protobuf/*.proto text eol=lf
+tests/compatibility/protobuf/*_pb2.py text eol=lf
+# The package identity check compares the canonical MIT license text.
+/LICENSE text eol=lf

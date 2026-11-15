@@ -2,8 +2,9 @@
 
 This is a working MVP 0.1.0 candidate based on SPEC.md, rather than an
 announcement of a published release or one that has passed all release gates.
-The specification is maintained in English. Revision 1.6 adds lazy pytest
-constructor fixtures on top of separate async/blocking execution, reusable
+The specification is maintained in English. Revision 1.7 records the
+compatibility profiles and measured dependency floors. Revision 1.6 added lazy
+pytest constructor fixtures on top of separate async/blocking execution, reusable
 observation marks, Kafka, RabbitMQ, Redis Streams, and policy-controlled message
 diagnostics.
 
@@ -18,6 +19,60 @@ scope definitions or broker positions.
 
 The distribution is named `pytest-broker-observer` as requested by the owner;
 the `event_observer` import namespace follows the specification.
+
+## Python, platform, and dependency compatibility (plan stage 2)
+
+The [compatibility CI job](ci-compatibility.md) defines 24 required cells:
+CPython 3.11–3.14 on Linux x64, macOS arm64, and Windows x64 with both exact
+[minimum and locked-current profiles](compatibility-profiles.json). Every cell
+uses the same wheel/sdist pair from its packaging job and checks the hashes
+before and after execution. The results below are from local macOS runs.
+
+The November 8 [floor evidence](dependency-floor-evidence.json) preserves the
+failed originals and passing replacements. Allure 2.13.0 failed with pytest
+8.3.0; 2.13.5 passed. Kafka 2.6.0 lacked a Python 3.14 wheel; 2.12.1 installed
+and passed the disconnected SDK probe. Kafka 2.6.0 remains the floor for Python
+3.11–3.13. RabbitMQ's isolated extra exposed an undeclared `typing_extensions`
+import in aio-pika 9.5.0–9.5.2; 9.5.3 passed without that dependency. Direct
+session tests now close their caller-owned iterators, so the reproduced
+unawaited-coroutine failures did not require raising pytest-asyncio's floor.
+The initial runner also rejected valid standalone pytest JUnit with an empty
+class name; it now uses the file/name identity and retains strict result checks.
+
+The local follow-up on November 15 verified the wheel/sdist build, MIT identity,
+distribution metadata, `twine check`, the SPEC traceability inventory, Pyright,
+and the pre-commit hooks. The broker-free development suite passed **1,061 tests**
+(114 integration cases deselected) at **88.96%** combined statement/branch
+coverage, measured before pytest plugin loading. The test helper now blocks
+broker connections after asyncio's internal socket setup; two regressions
+simulate the Windows startup sequence on macOS. Git attributes preserve the
+exact license and Protobuf fixture bytes on Windows checkouts.
+
+All **eight local cells** passed on macOS arm64 (Darwin 27.0.0) using
+uv 0.12.19 and Pyright 1.1.414. All cells used the same newly built candidate
+wheel and sdist:
+
+| CPython | Exact minimum | Locked current |
+| --- | --- | --- |
+| 3.11.16 | Passed | Passed |
+| 3.12.14 | Passed | Passed |
+| 3.13.15 | Passed | Passed |
+| 3.14.7 | Passed | Passed |
+
+Each cell recorded 18 JUnit reports and **2,233 passing case executions** with
+no failures or skips: 1,061 unit tests from the installed wheel, the same suite
+with two xdist workers, 54 parity cases from the installed sdist, 15 examples per
+artifact, and 27 installed-package and isolated-extra checks. The examples used
+the actual Allure plugin; the opt-in intentional failure and broker tests were
+deselected. Installed consumer typing passed for both artifacts, and its
+deliberately incorrect-type control failed as expected. The local audit compared
+both artifact hashes in every manifest and independently checked each JUnit hash
+and result count. Manifests, reports, and `summary.json` are retained locally under
+`artifacts/compatibility/local-2026-11-15/final/`.
+
+These runs did not use real brokers or GitHub-hosted runners. The 24-cell workflow
+still needs a successful GitHub Actions run, including Linux x64 and Windows x64.
+The local runs do not close release gates.
 
 ## License, identity, and traceability (plan stage 1)
 
@@ -452,7 +507,8 @@ remains incomplete.
 
 - Recheck the observed pending publisher, name status, and deployment protections
   before final publication; configuration can change independently of the code.
-- Verified dependency floors and a full Python/OS/client/broker matrix.
+- A successful 24-cell GitHub Actions compatibility run and real-broker
+  matrix evidence. The eight local macOS cells passed as recorded above.
 - Full fault suites: ACL/auth in a real environment, advertised endpoints
   through Toxiproxy, broker restart, retention, topic recreation, and compaction.
 - A full Testcontainers harness with a pinned digest and mandatory mapping of

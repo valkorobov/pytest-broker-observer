@@ -202,6 +202,10 @@ Run `uv run --locked python tools/check_traceability.py` after updating SPEC or
 referenced tests. Each MVP MUST line and AC-01–AC-88 needs a directly defined
 test selector or an explicit staged work item in `docs/traceability.json`.
 This structural check does not execute those tests or close a release gate.
+The [compatibility CI guide](docs/ci-compatibility.md) explains the 24 required
+OS/Python/dependency cells, clean artifact/extras checks, and local reproduction.
+Keep exact profiles consistent with metadata and `uv.lock`; preserve failed
+minimum-version evidence before changing a floor.
 After `uv build --no-sources`, run
 `uv run --locked python tools/check_release_identity.py` to verify the approved
 source identity, MIT terms, archive metadata, and typing markers.

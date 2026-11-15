@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "observed_on": "2026-11-08",
+  "scope": "Local reproductions supporting floor decisions; not full matrix or broker compatibility evidence",
+  "environment": {
+    "python": "3.14.7",
+    "implementation": "CPython",
+    "os": "macOS",
+    "architecture": "arm64",
+    "installer": "uv 0.12.19",
+    "isolation": "Fresh venv, no editable project or development dependencies"
+  },
+  "cases": [
+    {
+      "id": "allure-2.13.0-pytest-8.3.0-fixture-api",
+      "initial_versions": {
+        "pytest": "8.3.0",
+        "pytest-asyncio": "0.25.0",
+        "allure-pytest": "2.13.0",
+        "allure-python-commons": "2.13.0"
+      },
+      "test": "Two minimal tests: one fixture-backed def test and one pytest.mark.asyncio test; run with --alluredir",
+      "initial_result": {
+        "exit_code": 1,
+        "errors": 2,
+        "safe_failure": "allure_pytest.listener._test_fixtures passes item.nodeid to getfixturedefs: AttributeError: 'str' object has no attribute 'iter_parents'"
+      },
+      "replacement_versions": {
+        "pytest": "8.3.0",
+        "pytest-asyncio": "0.25.0",
+        "allure-pytest": "2.13.5",
+        "allure-python-commons": "2.13.5"
+      },
+      "replacement_result": {
+        "exit_code": 0,
+        "passed": 2
+      },
+      "decision": "Raise the global Allure floor to 2.13.5; retain the original failing result separately from the passing replacement."
+    },
+    {
+      "id": "kafka-python-3.14-binary-wheel",
+      "initial_command": "uv pip install --python <fresh-3.14-venv-python> --only-binary=:all: confluent-kafka==2.6.0",
+      "initial_result": {
+        "exit_code": 1,
+        "safe_failure": "confluent-kafka==2.6.0 has no usable wheels; requirements unsatisfiable under binary-only installation"
+      },
+      "pypi_metadata": {
+        "urls": [
+          "https://pypi.org/pypi/confluent-kafka/2.6.0/json",
+          "https://pypi.org/pypi/confluent-kafka/2.12.0/json",
+          "https://pypi.org/pypi/confluent-kafka/2.12.1/json"
+        ],
+        "2.6.0_cp314_wheels": 0,
+        "2.12.0_cp314_wheels": 0,
+        "2.12.1_cp314_platforms": [
+          "manylinux_2_28_x86_64",
+          "manylinux_2_28_aarch64",
+          "macosx_13_0_x86_64",
+          "macosx_13_0_arm64",
+          "win_amd64"
+        ]
+      },
+      "replacement_command": "uv pip install --python <fresh-3.14-venv-python> --only-binary=:all: confluent-kafka==2.12.1",
+      "replacement_result": {
+        "exit_code": 0,
+        "client_version": "2.12.1",
+        "librdkafka_version": "2.12.1",
+        "imported_symbols": [
+          "Consumer",
+          "KafkaError",
+          "TopicPartition"
+        ]
+      },
+      "decision": "Retain >=2.6 for Python <3.14; use >=2.12.1 for Python >=3.14. The CI binary-wheel policy avoids undeclared librdkafka/toolchain prerequisites; this does not claim every source build of 2.6.0 is impossible.",
+      "primary_reference": "https://github.com/confluentinc/confluent-kafka-python/blob/master/CHANGELOG.md"
+    },
+    {
+      "id": "minimum-runner-async-generator-lifetime",
+      "initial_versions": {
+        "pytest": "8.3.0",
+        "pytest-asyncio": "0.25.0"
+      },
+      "test_nodes": [
+        "tests/test_rabbitmq.py::test_deliveries_preserve_empty_body_and_flat_headers_without_auto_ack",
+        "tests/test_redis_streams.py::test_available_history_and_explicit_exclusive_cursor[False]",
+        "tests/test_redis_streams.py::test_available_history_and_explicit_exclusive_cursor[True]"
+      ],
+      "initial_result": {
+        "exit_code": 1,
+        "passed": 3,
+        "teardown_errors": 3,
+        "options": [
+          "-Werror::RuntimeWarning",
+          "-Werror::pytest.PytestUnraisableExceptionWarning"
+        ],
+        "safe_failure": "Retained raw-session async iterators reached loop shutdown without explicit aclose; async-generator finalization emitted unawaited aclose and pending-task diagnostics."
+      },
+      "diagnostic_replacement": {
+        "change": "Only pytest-asyncio 0.25.0 to 0.25.2",
+        "passed": 3,
+        "errors": 0,
+        "note": "Upstream 0.25.2 adds loop.shutdown_asyncgens, but this diagnostic replacement is not the selected minimum."
+      },
+      "selected_fix": {
+        "change": "The three direct-session test cases explicitly close their caller-owned receive iterator with contextlib.aclosing. Runtime code and dependency floor are unchanged.",
+        "pytest-asyncio": "0.25.0",
+        "exit_code": 0,
+        "passed": 3,
+        "errors": 0,
+        "remaining_diagnostics": "Upstream event-loop policy DeprecationWarnings on Python 3.14"
+      },
+      "decision": "Retain the exact pytest-asyncio 0.25.0 floor; correct test resource ownership instead of hiding it behind a dependency upgrade.",
+      "primary_reference": "https://pytest-asyncio.readthedocs.io/en/stable/reference/changelog.html"
+    },
+    {
+      "id": "rabbitmq-extra-aio-pika-missing-typing-extensions",
+      "scope": "Isolated rabbitmq extra, without unrelated extras or their typing-extensions transitive dependency",
+      "initial_versions": {
+        "aio-pika": "9.5.0",
+        "aiormq": "6.8.1",
+        "pika": "1.4.4",
+        "typing-extensions": null
+      },
+      "initial_result": {
+        "exit_code": 1,
+        "tests": 1,
+        "failed": 1,
+        "safe_failure": "aio_pika.tools imports ParamSpec and Protocol from undeclared typing_extensions: ModuleNotFoundError: No module named 'typing_extensions'"
+      },
+      "sequential_patch_results": [
+        {
+          "aio-pika": "9.5.1",
+          "exit_code": 1,
+          "safe_failure": "Same missing typing_extensions import"
+        },
+        {
+          "aio-pika": "9.5.2",
+          "exit_code": 1,
+          "safe_failure": "Same missing typing_extensions import"
+        },
+        {
+          "aio-pika": "9.5.3",
+          "exit_code": 0,
+          "tests": 1,
+          "failed": 0
+        }
+      ],
+      "replacement_versions": {
+        "aio-pika": "9.5.3",
+        "aiormq": "6.8.1",
+        "pika": "1.4.4",
+        "typing-extensions": null
+      },
+      "replacement_result": {
+        "exit_code": 0,
+        "checks": [
+          "Actual aio-pika Message/header normalization and Channel coroutine API",
+          "Actual blocking Pika URLParameters and BlockingChannel methods"
+        ],
+        "ParamSpec_origin": "typing"
+      },
+      "decision": "Raise the aio-pika floor from 9.5 to the first passing patch 9.5.3. The all-extras environment masked the undeclared dependency; an independent rabbitmq-extra installation is mandatory.",
+      "primary_metadata_urls": [
+        "https://pypi.org/pypi/aio-pika/9.5.0/json",
+        "https://pypi.org/pypi/aio-pika/9.5.1/json",
+        "https://pypi.org/pypi/aio-pika/9.5.2/json",
+        "https://pypi.org/pypi/aio-pika/9.5.3/json"
+      ],
+      "local_raw_evidence_directory": "artifacts/release-gates/stage2-floor-reproductions/"
+    }
+  ],
+  "retained_yanked_floor_pins": [
+    {
+      "distribution": "protobuf",
+      "version": "5.29.0",
+      "reason": "https://github.com/protocolbuffers/protobuf/issues/19430#issuecomment-2518458119",
+      "metadata_url": "https://pypi.org/pypi/protobuf/5.29.0/json"
+    },
+    {
+      "distribution": "pytest-xdist",
+      "version": "3.6.0",
+      "reason": "fatal regression when combined with pytest-cov",
+      "metadata_url": "https://pypi.org/pypi/pytest-xdist/3.6.0/json"
+    }
+  ],
+  "yanked_pin_policy": "These explicit compatibility test pins exercise the actual declared floors; they are not recommended deployment versions. The full preliminary minimum suite, generated-Protobuf checks, and a two-worker pytest-cov/Allure smoke passed locally. No floor is silently raised based solely on a yank warning; preserve the upstream status and test the selected profiles.",
+  "preliminary_minimum_run": {
+    "scope": "Earlier stage 1 wheel installed with exact minimum direct dependencies; exploratory local run, not final stage 2 candidate evidence",
+    "unit": {
+      "passed": 1023,
+      "integration_deselected": 114
+    },
+    "examples": {
+      "passed": 15,
+      "intentional_failure_skipped": 1,
+      "integration_deselected": 12
+    },
+    "xdist_cov_allure_smoke": {
+      "passed": 2,
+      "xdist": "3.6.0",
+      "pytest-cov": "6.0.0"
+    },
+    "diagnostics": [
+      {
+        "category": "DeprecationWarning",
+        "origin": "pytest-asyncio 0.25.0 on Python 3.14",
+        "summary": "asyncio event-loop policy APIs are deprecated for removal in Python 3.16"
+      },
+      {
+        "category": "RuntimeWarning",
+        "test_nodes": [
+          "tests/test_rabbitmq.py::test_deliveries_preserve_empty_body_and_flat_headers_without_auto_ack"
+        ],
+        "origin": "asyncio/base_events.py:745, self._ready.clear()",
+        "summary": "coroutine method 'aclose' of 'RabbitMQSession._receive' was never awaited"
+      },
+      {
+        "category": "RuntimeWarning",
+        "test_nodes": [
+          "tests/test_redis_streams.py::test_available_history_and_explicit_exclusive_cursor[False]",
+          "tests/test_redis_streams.py::test_available_history_and_explicit_exclusive_cursor[True]"
+        ],
+        "origin": "asyncio/base_events.py:745, self._ready.clear()",
+        "summary": "coroutine method 'aclose' of 'RedisStreamsSession._receive' was never awaited"
+      }
+    ]
+  }
+}

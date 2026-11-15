@@ -127,12 +127,12 @@ gate has been marked passed by completing this stage.
 
 **Gates:** RG-02, RG-07–RG-10, RG-15. **Depends on:** stage 0 and stage 1 inventory.
 
-- [ ] Add the full Linux/macOS/Windows Core and package matrix for Python 3.11–3.14,
+- [x] Add the full Linux/macOS/Windows Core and package matrix for Python 3.11–3.14,
   explicitly selecting and recording the interpreter and runner architecture.
-- [ ] Add isolated minimum/current dependency profiles without importing packages
+- [x] Add isolated minimum/current dependency profiles without importing packages
   from the all-extras development environment or the editable source checkout.
-- [ ] Test Protobuf runtime/gencode combinations and both broker client paths.
-- [ ] Resolve incompatible floors with reproducible evidence and approved policy;
+- [x] Test Protobuf runtime/gencode combinations and both broker client paths.
+- [x] Resolve incompatible floors with reproducible evidence and approved policy;
   preserve the initial failure and update declared support consistently.
 - [ ] Run installed wheel/sdist, optional-import, pytest-only/factory, typing,
   public examples, and sync/async parity checks in applicable profiles.
@@ -140,6 +140,13 @@ gate has been marked passed by completing this stage.
 
 **Done when:** every claimed matrix cell has successful candidate evidence and
 the published dependency/support declarations match the measured combinations.
+
+The 24-cell job and all per-cell commands are implemented; see
+[ci-compatibility.md](ci-compatibility.md). All eight local macOS arm64 cells passed;
+the [status record](status.md#python-platform-and-dependency-compatibility-plan-stage-2)
+records the results and links the original floor failures. The two execution/evidence
+items above and the stage completion criterion remain open until the full
+GitHub-hosted matrix actually succeeds. Configuring jobs does not close gates.
 
 ## Stage 3 — isolated real-broker infrastructure
 

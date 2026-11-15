@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "generation": "current",
+  "generator": {
+    "distribution": "grpcio-tools",
+    "version": "1.85.1",
+    "protoc": "libprotoc 35.1",
+    "python": "3.14.7",
+    "platform": "Darwin",
+    "machine": "arm64"
+  },
+  "generation_runtime": "7.36.2",
+  "gencode_version": "7.35.1",
+  "command": [
+    "python",
+    "-m",
+    "grpc_tools.protoc",
+    "--proto_path=.",
+    "--python_out=.",
+    "observer_current.proto"
+  ],
+  "working_directory": "tests/compatibility/protobuf",
+  "source": {
+    "file": "observer_current.proto",
+    "sha256": "1e0fb7d211339aee6d2eb362cca5a34daf72f12c80e4f11275bce50405d0ee62"
+  },
+  "generated": {
+    "file": "observer_current_pb2.py",
+    "sha256": "f93e47f98f94d833a72522fe7441f36c53b5136a28edf6a767393dfa6f8d128a"
+  }
+}

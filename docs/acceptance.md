@@ -1,7 +1,7 @@
 # SPEC requirement traceability
 
 The machine-readable inventory is [traceability.json](traceability.json). It maps
-SPEC revision 1.6 to exact existing test functions and explicit missing-check work.
+SPEC revision 1.7 to exact existing test functions and explicit missing-check work.
 It contains **216 source entries: 88 acceptance criteria, 125 MVP MUST paragraphs
 or table rows, two normative-vocabulary entries, and one deferred temporal entry**.
 RabbitMQ, Redis Streams, observation marks, split runtimes, and lazy pytest

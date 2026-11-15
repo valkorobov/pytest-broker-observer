@@ -71,8 +71,9 @@ as described in the [evidence contract](release-gate-evidence.md).
 4. Watch the `CI` run triggered by the `release` event. Once all gates pass,
    approve the `pypi` deployment as `valkorobov`; self-review is allowed.
 
-Every release runs the Python 3.11–3.14 unit/coverage matrix, quality checks,
-packaging smoke tests, and all three broker jobs. A mismatched tag or failed
+Every release runs the Python 3.11–3.14 unit/coverage matrix, the 24 installed
+[compatibility cells](ci-compatibility.md), quality and packaging checks, and
+all three broker jobs. A mismatched tag or failed
 required job blocks publication. Packaging builds the wheel from the sdist,
 checks metadata and clean installations, then uploads the exact distributions
 with `SHA256SUMS`. The gate job verifies that artifact and every required result,

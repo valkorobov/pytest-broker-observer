@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "generation": "v526",
+  "generator": {
+    "distribution": "grpcio-tools",
+    "version": "1.64.1",
+    "protoc": "libprotoc 26.1",
+    "python": "3.9.6",
+    "platform": "Darwin",
+    "machine": "arm64"
+  },
+  "generation_runtime": "5.29.6",
+  "gencode_version": "5.26.1",
+  "command": [
+    "python",
+    "-m",
+    "grpc_tools.protoc",
+    "--proto_path=.",
+    "--python_out=.",
+    "observer_v526.proto"
+  ],
+  "working_directory": "tests/compatibility/protobuf",
+  "source": {
+    "file": "observer_v526.proto",
+    "sha256": "bb552e2f9daafeaf353e0bf73491b2f4613aa6b02fa965e68643604fcdeb7be6"
+  },
+  "generated": {
+    "file": "observer_v526_pb2.py",
+    "sha256": "2741bc7be523e34649f8a3f91ca84e25b595e2c4eb5d31bf6e9c461d48357fcf"
+  }
+}

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package observer.compat.current;
+
+message Observation {
+  string operation_id = 1;
+  optional string status = 2;
+  repeated string labels = 3;
+  map<string, int32> counts = 4;
+  oneof change {
+    int64 amount = 5;
+    string reason = 6;
+  }
+}

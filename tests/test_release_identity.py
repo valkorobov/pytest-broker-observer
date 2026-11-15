@@ -369,3 +369,44 @@ def test_only_the_expected_candidate_distributions_can_be_verified(candidate, ch
     else:
         wheel.rename(candidate["dist"] / WHEEL_NAME.replace("0.1.0", "0.2.0"))
     assert_rejected(candidate)
+
+
+@pytest.mark.parametrize("extra_first", [False, True])
+@pytest.mark.parametrize("operator", ["<", ">="])
+@pytest.mark.parametrize("parenthesized", [False, True])
+def test_python_specific_floors_keep_the_extra_guard_in_either_marker_order(
+    candidate, extra_first, operator, parenthesized
+):
+    marker = f"python_version {operator} '3.14'"
+    project = PROJECT.replace('["pytest>=8.3,<10"]', json.dumps([f"pytest>=8.3,<10; {marker}"]))
+    candidate["project"].write_text(project)
+    candidate["replace"](candidate["sdist"], "/pyproject.toml", lambda _: project.encode())
+    archive_marker = f"({marker})" if parenthesized else marker
+    combined = (
+        f"extra == 'pytest' and {archive_marker}"
+        if extra_first
+        else f"{archive_marker} and extra == 'pytest'"
+    )
+    for archive, suffix in (("wheel", "/METADATA"), ("sdist", "/PKG-INFO")):
+        candidate["replace"](
+            candidate[archive],
+            suffix,
+            lambda content: content.replace(b"extra == 'pytest'", combined.encode()),
+        )
+    candidate["build"]()
+    result = candidate["run"]()
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("archive", ["wheel", "sdist"])
+def test_archive_cannot_add_a_python_condition_absent_from_source(candidate, archive):
+    suffix = "/METADATA" if archive == "wheel" else "/PKG-INFO"
+    candidate["replace"](
+        candidate[archive],
+        suffix,
+        lambda content: content.replace(
+            b"extra == 'pytest'", b"python_version >= '3.14' and extra == 'pytest'"
+        ),
+    )
+    candidate["build"]()
+    assert_rejected(candidate)

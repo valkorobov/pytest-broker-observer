@@ -1,8 +1,13 @@
 # Candidate 0.1.0 compatibility
 
-The code supports Python 3.11–3.14. Local verification was performed on
-CPython 3.14.7, macOS arm64. CI defines a 3.11–3.14 matrix on Linux;
-the presence of a workflow does not mean that this matrix has passed.
+The code targets Python 3.11–3.14. Both dependency profiles passed locally on
+all four CPython versions on macOS arm64; see the
+[verification record](status.md#python-platform-and-dependency-compatibility-plan-stage-2).
+CI defines a 24-cell Python 3.11–3.14,
+Linux/macOS/Windows, minimum/locked-current matrix. Its
+[profile inputs](compatibility-profiles.json) and [execution contract](ci-compatibility.md)
+separate configured targets from actual results; a workflow definition does not
+mean that every cell has passed.
 
 Application dependencies are optional. The async runtime and blocking actor
 use only the stdlib. Extension code imports Kafka, RabbitMQ, Redis, Protobuf,
@@ -13,7 +18,7 @@ All fixtures register without broker clients or pytest-asyncio; both observer
 factories are ordinary synchronous fixtures. Native clients are needed only
 when a real watch context is entered. The entry-point module itself remains
 stdlib-only. See the [fixture recipes](../examples/pytest/README.md#factory-fixtures-and-project-configuration).
-The `rabbitmq` extra declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`;
+The `rabbitmq` extra declares `aio-pika>=9.5.3,<10` and `pika>=1.4.4,<1.5`;
 the current environment resolves `aio-pika` 9.6.2 with `aiormq` 6.9.4 and
 `pamqp` 3.3.0, and Pika 1.4.4 for the blocking path. The 1.5 series is outside
 the selected native API range. These optional clients
@@ -22,10 +27,12 @@ The `redis` extra declares `redis>=7.1,<9`; the current environment resolves
 redis-py 8.1.0. That resolution does not verify the candidate minimum version.
 
 The specific development environment is pinned in `uv.lock`. The declared
-lower bounds for extras are still candidates: full verification of minimum
-versions, all platforms, and generated-code/runtime combinations remains a
-release gate. A broad metadata range should not be treated as the result of
-such verification.
+lower bounds for extras are still candidates for the complete claimed matrix.
+SPEC revision 1.7 records the verified Allure 2.13.5 and aio-pika 9.5.3 floors,
+plus Kafka 2.6 below Python 3.14 / 2.12.1 on Python 3.14.
+Failure and replacement details are in [dependency-floor-evidence.json](dependency-floor-evidence.json).
+Full platform/profile evidence remains a release gate. A broad metadata range
+should not be treated as the result of that verification.
 
 The async API is explicit in `event_observer.aio`; existing top-level
 `EventObserver`, `EventWatcher`, and `EventScope` imports remain aliases to

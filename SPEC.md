@@ -1,8 +1,8 @@
 # Event Observer — final technical specification
 
-**Revision:** 1.6\
-**Date:** November 4, 2026\
-**Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, reusable observation marks, and lazy pytest factory fixtures.\
+**Revision:** 1.7\
+**Date:** November 8, 2026\
+**Basis:** ADR-001–012 decisions, explicit async and blocking runtimes, RabbitMQ and Redis Streams extensions, reusable observation marks, lazy pytest factory fixtures, and measured dependency-floor corrections.\
 **First target release:** 0.1.0.\
 **Distribution name:** `pytest-broker-observer`; import namespace: `event_observer`.\
 **Status:** normative implementation requirements, not a description of a released or tested product.
@@ -1642,6 +1642,12 @@ Separate tests verify the limits of the guarantee: a local raw traceback may con
 
 The target matrix for the first release is CPython 3.11–3.14. This is the project's chosen range, rather than a claim that no other current Python versions exist. Support is declared only after the matrix passes.
 
+Revision 1.7 specifies exact direct-minimum and locked-current CI profiles across all four interpreters on Linux, macOS, and Windows. Profile inputs are versioned in `docs/compatibility-profiles.json`; actual versions, architecture, source/run identity, distribution hashes, and JUnit results are execution artifacts. Configuration alone is not a successful matrix result. Every PR runs the complete configured compatibility matrix.
+
+The Allure floor is `allure-pytest>=2.13.5,<3`: 2.13.0 failed the pytest 8.3 fixture API reproducer while 2.13.5 passed. Kafka uses `confluent-kafka>=2.6,<3` on Python below 3.14 and `>=2.12.1,<3` on Python 3.14. The latter is the first selected release with Python 3.14 binary wheels; CI requires a Kafka wheel rather than an undeclared native build toolchain. This does not claim that every source build of an older release is impossible. Original failures and replacement results are preserved in `docs/dependency-floor-evidence.json`. The RabbitMQ floor is `aio-pika>=9.5.3,<10`: isolated installs of 9.5.0–9.5.2 failed to import without an undeclared `typing_extensions` dependency, while 9.5.3 passed without it. Other declared lower bounds are unchanged; exact yanked floor pins are explicit compatibility probes, not deployment recommendations.
+
+Generated Protobuf fixtures use multiple real compiler generations. Older gencode is exercised on both selected runtimes; newer gencode is accepted only on a compatible runtime and has an explicit rejection check on the older runtime. This is not a promise that newer generated code runs on older Protobuf runtimes.
+
 Linux is the required platform for Kafka integration gates. macOS/Windows receive Core, sync runtime, packaging, and transport smoke tests where possible; production Kafka support on a platform is declared only after the corresponding verification. Free-threaded Python, PyPy, and alternative event loops are not promised in 0.1 without separate tests.
 
 | Dimension | PR | Release / scheduled |
@@ -1857,13 +1863,13 @@ license-files = ["LICENSE"]
 authors = [{name = "Valerii Korobov"}]
 
 [project.optional-dependencies]
-kafka = ["confluent-kafka"]
-rabbitmq = ["aio-pika", "pika"]
+kafka = ["confluent-kafka>=2.6,<3; python_version < '3.14'", "confluent-kafka>=2.12.1,<3; python_version >= '3.14'"]
+rabbitmq = ["aio-pika>=9.5.3,<10", "pika>=1.4.4,<1.5"]
 redis = ["redis"]
 protobuf = ["protobuf"]
 pytest = ["pytest"]
 pytest-asyncio = ["pytest", "pytest-asyncio"]
-allure = ["allure-pytest"]
+allure = ["allure-pytest>=2.13.5,<3"]
 contract-tests = ["pytest", "pytest-asyncio", "testcontainers[kafka]"]
 all = [
     "confluent-kafka",
@@ -2238,7 +2244,7 @@ The public types are `event_observer.transports.rabbitmq.RabbitMQConfig` and `Ra
 
 `RabbitMQConfig` has a required `url`, `binding_keys=("#",)`, and `prefetch_count=100`. The URL MUST be a valid nonempty `amqp` or `amqps` URL and MUST be excluded from the configuration's `repr`. Binding keys MUST be a nonempty tuple of strings, each fitting the 255-byte UTF-8 AMQP short-string limit. Prefetch MUST be an integer from 1 through 65535; bool and zero are invalid. The library MUST NOT discover connection URLs or credentials from environment variables automatically.
 
-The current implementation declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`. The blocking path targets the Pika 1.4.4 API; adopting the distinct 1.5 API requires a separate compatibility decision and verification. [S24] Dependency floors remain candidates until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove a minimum. Bounded native RPC/cleanup control MUST fail visibly if its supported client boundary is unavailable rather than silently lose lifecycle deadlines.
+The current implementation declares `aio-pika>=9.5.3,<10` and `pika>=1.4.4,<1.5`. The blocking path targets the Pika 1.4.4 API; adopting the distinct 1.5 API requires a separate compatibility decision and verification. [S24] Dependency floors remain candidates until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove a minimum. Bounded native RPC/cleanup control MUST fail visibly if its supported client boundary is unavailable rather than silently lose lifecycle deadlines.
 
 ### 28.2. Exchange source, isolation, and readiness
 

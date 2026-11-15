@@ -1,6 +1,7 @@
 """Controlled Redis client tests without a service or optional Redis import."""
 
 import asyncio
+from contextlib import aclosing
 import copy
 import subprocess
 import sys
@@ -326,11 +327,11 @@ async def test_available_history_and_explicit_exclusive_cursor(monkeypatch, expl
     native.add("2-0", b"three")
     start = StartPosition.after_stream_id("1-0") if explicit else StartPosition.earliest()
     session = await open_session(adapter(monkeypatch, native), start=start)
-    stream = session.receive()
     expected = [b"two", b"three"] if explicit else [b"one", b"two", b"three"]
-    assert [(await anext(stream)).payload for _ in expected] == expected
-    with pytest.raises(TransportSubscriptionError):
-        session.receive()
+    async with aclosing(session.receive()) as stream:
+        assert [(await anext(stream)).payload for _ in expected] == expected
+        with pytest.raises(TransportSubscriptionError):
+            session.receive()
     await session.close(deadline=time.monotonic() + 1)
 
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "spec_revision": "1.6",
+  "spec_revision": "1.7",
   "requirements": [
     {
       "id": "MUST-s01-001",
@@ -6108,8 +6108,8 @@
       "scope": "mvp",
       "source": {
         "anchor": "s28",
-        "text": "The current implementation declares `aio-pika>=9.5,<10` and `pika>=1.4.4,<1.5`. The blocking path targets the Pika 1.4.4 API; adopting the distinct 1.5 API requires a separate compatibility decision and verification. [S24] Dependency floors remain candidates until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove a minimum. Bounded native RPC/cleanup control MUST fail visibly if its supported client boundary is unavailable rather than silently lose lifecycle deadlines.",
-        "sha256": "1096416171014fb844321fc21ff56ad8cd276bdf747bf8c363243ee27ca10f0d"
+        "text": "The current implementation declares `aio-pika>=9.5.3,<10` and `pika>=1.4.4,<1.5`. The blocking path targets the Pika 1.4.4 API; adopting the distinct 1.5 API requires a separate compatibility decision and verification. [S24] Dependency floors remain candidates until verified by the dependency-floor release gate; the presence of a lockfile or a newer successful client version does not prove a minimum. Bounded native RPC/cleanup control MUST fail visibly if its supported client boundary is unavailable rather than silently lose lifecycle deadlines.",
+        "sha256": "68a67f7c6f84d4e618da81e2edb197779182ad0af3590ce49b1577f4433c40a2"
       },
       "summary": "The selected native Pika API enforces lifecycle deadlines and rejects an unsupported boundary.",
       "checks": [

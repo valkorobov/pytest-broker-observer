@@ -151,7 +151,11 @@ def check_metadata(data, project):
         "archive Python range differs from source declarations",
     )
     expected_requirements = Counter(
-        (canonical_requirement(requirement), re.sub(r"[-_.]+", "-", extra).lower())
+        (
+            canonical_requirement(requirement.partition(";")[0]),
+            python_marker(requirement.partition(";")[2]),
+            re.sub(r"[-_.]+", "-", extra).lower(),
+        )
         for extra, requirements in project.get("optional-dependencies", {}).items()
         for requirement in requirements
     )
@@ -159,13 +163,17 @@ def check_metadata(data, project):
     for dependency in metadata.get_all("Requires-Dist", []):
         # The package uses this simple marker profile. Reject other forms rather
         # than guessing whether arbitrary PEP 508 expressions imply an extra.
-        marker = dependency.partition(";")[2].strip()
-        match = re.fullmatch(r"extra\s*==\s*(['\"])([a-z0-9-]+)\1", marker)
+        atoms = re.split(r"\s+and\s+", dependency.partition(";")[2].strip())
+        matches = [re.fullmatch(r"extra\s*==\s*(['\"])([a-z0-9-]+)\1", atom) for atom in atoms]
+        extras = [match.group(2) for match in matches if match]
         require(
-            match is not None and match.group(2) in expected_extras,
+            len(extras) == 1 and extras[0] in expected_extras and len(atoms) <= 2,
             "archive declares an unguarded or unsupported dependency marker",
         )
-        actual_requirements[(canonical_requirement(dependency.partition(";")[0]), match.group(2))] += 1
+        marker = " and ".join(atom for atom, match in zip(atoms, matches) if not match)
+        actual_requirements[
+            (canonical_requirement(dependency.partition(";")[0]), python_marker(marker), extras[0])
+        ] += 1
     require(
         actual_requirements == expected_requirements, "archive dependencies differ from source declarations"
     )
@@ -174,6 +182,18 @@ def check_metadata(data, project):
 def nonempty_python(value):
     """Require the explicit supported Python range in source metadata."""
     return isinstance(value, str) and value.replace(" ", "") == ">=3.11,<3.15"
+
+
+def python_marker(marker):
+    """Normalize the one Python-version predicate used by conditional Kafka floors."""
+    if not marker.strip():
+        return None
+    marker = marker.strip()
+    if marker.startswith("(") and marker.endswith(")"):
+        marker = marker[1:-1].strip()
+    match = re.fullmatch(r"python_version\s*(<|>=)\s*(['\"])(3\.[0-9]+)\2", marker.strip())
+    require(match is not None, "dependency uses an unsupported Python marker")
+    return match.group(1), match.group(3)
 
 
 def canonical_requirement(value):

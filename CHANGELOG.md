@@ -7,6 +7,14 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Added:
 
+- A mandatory 24-cell compatibility CI matrix for Python 3.11–3.14,
+  Linux/macOS/Windows, and exact minimum/locked-current dependency profiles.
+  It reuses candidate archives, checks isolated extras and both package forms,
+  sync/async parity, real disconnected SDK APIs, installed typing, and multiple
+  generated Protobuf versions; per-cell manifests/JUnit retain first failures.
+  SPEC revision 1.7 records the measured Allure 2.13.5 and aio-pika 9.5.3 floors and Python 3.14
+  Kafka 2.12.1 floor. Direct-session tests now explicitly close owned iterators,
+  and the pytest-only import probe uses a portable temporary configuration.
 - The owner-selected MIT license and SPDX metadata, verified against both
   distribution archives. A complete AC-01–AC-88/MUST traceability inventory
   records existing checks and staged gaps; CI rejects stale or unmapped rows.
