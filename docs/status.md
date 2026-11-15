@@ -95,8 +95,48 @@ original artifacts and logs record the first failures. [CI run 43737443845](http
   [macOS job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43737443845/job/132883185106)
 
 The local unit suite passed 1,076 cases with 89.05% combined statement and branch
-coverage. The two-worker run also passed all 1,076 cases. A new hosted run for
-these corrections remains pending.
+coverage. The two-worker run also passed all 1,076 cases.
+
+### Hosted follow-up for Kafka startup
+
+The November 15, 2026 push run for `20cc574b011f11607eba3ace3410af4cdf325f8a`
+passed all 24 compatibility cells, including minimum macOS Python 3.11, and
+five of six isolated broker profiles, including minimum RabbitMQ 4.3.7.
+[CI run 43739791962](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43739791962)
+
+- In the isolated Kafka 3.9.2 profile, the async isolation test failed during
+  startup in the dedicated AdminClient's `ListOffsets` call. The native error
+  reported `Failed to query partition leaders` and the other 14 async cases
+  passed. The profile stopped before its blocking and Toxiproxy checks.
+  [Isolated Kafka job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43739791962/job/132890332749)
+- The Compose Kafka contracts and pytest examples passed. The Allure
+  expected-timeout example hit the same offset query's 1 s request timeout
+  while entering the watcher, before it could publish. Report generation and
+  upload succeeded. [Compose Kafka job](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43739791962/job/132890188845)
+
+A cold librdkafka handle can miss its first asynchronous leader metadata
+refresh while the broker connection is opening. Its next forced refresh can
+fall outside the configured request timeout. The shared Kafka worker now
+explicitly fetches the topic's metadata on the same AdminClient before
+`ListOffsets`, with auto-creation disabled and the existing timeout limits
+preserved. Unit regressions exercise the request order in both execution modes
+and verify typed authorization failure before assignment.
+[Initial refresh](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_metadata.c#L1351-L1366) · [Leader query interval](https://github.com/confluentinc/librdkafka/blob/v2.16.0/src/rdkafka_partition.c#L3709-L3726)
+
+Local verification on macOS arm64 with CPython 3.14.7 and Docker Linux arm64
+passed 41 Compose Kafka cases, including both Allure examples. The 32 skips
+were other broker cases without configured endpoints. Each isolated profile
+passed 15 async contracts, 15 blocking contracts, and two Toxiproxy checks with
+the same installed wheel. Kafka 3.9.2 used confluent-kafka 2.16.1. Kafka 3.8.1
+used the exact Python 3.14 minimum, 2.12.1. The unit suite passed 1,077 cases
+with 89.03% combined statement and branch coverage. Local manifests, JUnit,
+and Allure results are under `artifacts/broker-contracts/actions-43739791962-fixes/`.
+GitHub-hosted Linux x64 verification of the AdminClient correction is pending.
+
+The release audit for this run was invalid because a required producer job
+failed. It reported `ready: false`. The diagnostics and audit are retained
+locally under `artifacts/broker-contracts/actions-43739791962-attempt-1/`.
+[Release audit](https://github.com/valkorobov/pytest-broker-observer/actions/runs/43739791962/job/132892692162)
 
 ## Python, platform, and dependency compatibility (plan stage 2)
 

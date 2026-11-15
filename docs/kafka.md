@@ -90,6 +90,9 @@ wait for an existing transaction to commit.
 
 The adapter explicitly resolves physical highs through `AdminClient.list_offsets`
 with `READ_UNCOMMITTED`; the consuming reader remains `read_committed`.
+The dedicated AdminClient fetches metadata for the selected topic before the
+offset request, with automatic topic creation disabled. Both operations respect
+the per-request `metadata_timeout` and the shared startup deadline.
 Consumer watermark queries themselves honor isolation and can return LSO, which
 would incorrectly include an older transaction after its later commit. This
 native behavior is documented in the

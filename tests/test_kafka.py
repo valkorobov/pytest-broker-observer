@@ -88,6 +88,7 @@ class Native:
         self.suppress_fetch = False
         self.stats_fetch = False
         self.topic_error = None
+        self.admin_topic_error = None
         self.timestamp_result = -1
         self.probe_error = None
         self.close_failure = False
@@ -105,14 +106,26 @@ class Native:
         self.admin_threads.append(threading.get_ident())
         return Admin(self)
 
+    def metadata(self, topic, error):
+        partitions = {p: SimpleNamespace(error=None) for p in self.partitions}
+        return SimpleNamespace(topics={topic: SimpleNamespace(error=error, partitions=partitions)})
+
 
 class Admin:
     def __init__(self, native):
         self.native = native
+        self.metadata_topics: set[str] = set()
+
+    def list_topics(self, topic, timeout):
+        assert timeout > 0
+        self.native.admin_threads.append(threading.get_ident())
+        self.metadata_topics.add(topic)
+        return self.native.metadata(topic, self.native.admin_topic_error)
 
     def list_offsets(self, requests, *, isolation_level, request_timeout):
         assert isolation_level == self.native.IsolationLevel.READ_UNCOMMITTED
         assert request_timeout > 0
+        assert {partition.topic for partition in requests} <= self.metadata_topics
         self.native.admin_threads.append(threading.get_ident())
         futures = {}
         for partition in requests:
@@ -142,10 +155,7 @@ class Consumer:
 
     def list_topics(self, topic, timeout):
         self.touch()
-        partitions = {p: SimpleNamespace(error=None) for p in self.native.partitions}
-        return SimpleNamespace(
-            topics={topic: SimpleNamespace(error=self.native.topic_error, partitions=partitions)}
-        )
+        return self.native.metadata(topic, self.native.topic_error)
 
     def get_watermark_offsets(self, partition, timeout, cached=False):
         self.touch()
@@ -396,9 +406,10 @@ def test_successful_fetch_statistics_allow_open_transaction_without_records(monk
     run(scenario())
 
 
-def test_authorization_failure_is_typed_and_startup_rolls_back(monkeypatch):
+@pytest.mark.parametrize("error_attribute", ["topic_error", "admin_topic_error"])
+def test_metadata_authorization_failure_is_typed_and_startup_rolls_back(monkeypatch, error_attribute):
     native = Native()
-    native.topic_error = NativeError(NativeError.TOPIC_AUTHORIZATION_FAILED)
+    setattr(native, error_attribute, NativeError(NativeError.TOPIC_AUTHORIZATION_FAILED))
     setup_native(monkeypatch, native)
 
     async def scenario():
@@ -406,6 +417,7 @@ def test_authorization_failure_is_typed_and_startup_rolls_back(monkeypatch):
             await KafkaAdapter(KafkaConfig("kafka")).open(
                 TransportSource("events"), StartPosition.latest(), context=context()
             )
+        assert native.clients[0].assignments == []
         assert native.clients[0].closed
 
     run(scenario())
@@ -638,6 +650,7 @@ def test_read_committed_boundary_uses_physical_high_instead_of_consumer_lso(monk
         assert "group.id" not in native.admin_configs[0]
         assert "enable.auto.commit" not in native.admin_configs[0]
         assert "isolation.level" not in native.admin_configs[0]
+        assert native.admin_configs[0]["allow.auto.create.topics"] is False
         assert set(native.admin_threads) == set(native.clients[0].calls)
         native.messages.append(Message(0, 1, b"new-after-boundary"))
         assert (await asyncio.wait_for(anext(session.receive()), 1)).payload == b"new-after-boundary"

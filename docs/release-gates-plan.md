@@ -166,7 +166,8 @@ resource ownership/cleanup is proved, and network-fault routing is demonstrated.
 
 All six profiles passed locally on Docker Linux arm64. CI produces
 candidate-bound RG-03 evidence from the same packaged wheel. The first hosted
-Linux x64 run passed five profiles and failed the minimum RabbitMQ profile.
+Linux x64 run failed the minimum RabbitMQ profile. The follow-up passed that
+profile and exposed a Kafka 3.9.2 leader lookup timeout during startup.
 A successful hosted run and subsequent release verification remain required.
 [Stage 3 results](status.md#isolated-real-broker-contracts-plan-stage-3)
 

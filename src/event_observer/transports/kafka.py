@@ -513,15 +513,16 @@ class _KafkaNativeWorker:
             # Malformed optional statistics cannot manufacture readiness.
             return
 
-    def _metadata(self, timeout: float) -> tuple[int, ...]:
+    def _metadata(self, client: Any, timeout: float) -> tuple[int, ...]:
         """Resolve and validate the complete topic partition set.
 
+        :param client: Native Consumer or AdminClient whose metadata is being resolved.
         :param timeout: Finite operation budget in seconds.
         :returns: Sorted partition numbers reported by valid native metadata.
         :raises TransportSubscriptionError: If the topic or its partition metadata is unavailable.
         :raises TransportError: If native topic or partition metadata reports a client error.
         """
-        metadata = self._consumer.list_topics(topic=self._source.name, timeout=timeout)
+        metadata = client.list_topics(topic=self._source.name, timeout=timeout)
         topic = metadata.topics.get(self._source.name)
         if topic is None:
             raise TransportSubscriptionError("Requested Kafka topic is unavailable")
@@ -542,7 +543,7 @@ class _KafkaNativeWorker:
         :raises TransportSubscriptionError: If requested partitions do not belong to the topic.
         :raises TransportError: If native metadata or boundary resolution fails.
         """
-        self._topology = self._metadata(self._remaining())
+        self._topology = self._metadata(self._consumer, self._remaining())
         requested = self._source.partitions
         self._partitions = tuple(sorted(requested)) if requested is not None else self._topology
         if not self._partitions or not set(self._partitions).issubset(self._topology):
@@ -638,9 +639,16 @@ class _KafkaNativeWorker:
             for name, value in self._native_config().items()
             if name.startswith(common_prefixes) or name in {"debug", "log_level"}
         }
+        config["allow.auto.create.topics"] = False
         admin = module.AdminClient(config)
         self._admin = admin
         try:
+            # The AdminClient has its own metadata cache. Resolve the leader
+            # route before ListOffsets, whose internal refresh can outlast our
+            # per-request timeout on a fresh client.
+            partitions = self._metadata(admin, self._remaining())
+            if not set(self._partitions).issubset(partitions):
+                raise TransportSubscriptionError("Requested Kafka partitions are unavailable")
             requests = {
                 self._native.TopicPartition(self._source.name, partition): module.OffsetSpec.latest()
                 for partition in self._partitions
@@ -757,7 +765,7 @@ class _KafkaNativeWorker:
             while not self._stop.is_set() and self._error is None:
                 now = self._context.clock.monotonic()
                 if now >= next_topology:
-                    current = self._metadata(self._config.metadata_timeout)
+                    current = self._metadata(self._consumer, self._config.metadata_timeout)
                     if current != self._topology:
                         raise TopologyChangedError(
                             "Kafka topic partition topology changed during observation"

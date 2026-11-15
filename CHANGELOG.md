@@ -7,6 +7,9 @@ The first MVP based on [SPEC.md](SPEC.md), with distribution name
 
 Fixed:
 
+- Kafka readers resolve topic metadata on their dedicated AdminClient before
+  requesting physical high offsets. This prevents a cold-client leader lookup
+  from stalling common sync and async startup paths.
 - Kafka's test harness waits for the acknowledged topic to appear with a leader
   for every partition before returning the source. Propagation and creation share
   one deadline.
